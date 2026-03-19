@@ -12,11 +12,16 @@ load_dotenv()
 # Base Directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Database Configuration
+# Database Configuration (Local - deprecated for cloud)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/epi_monitoring"
 )
+
+# Supabase Configuration (Cloud)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 # YOLO Model Configuration
 YOLO_MODEL_PATH = os.getenv(
@@ -29,6 +34,15 @@ IOU_THRESHOLD = float(os.getenv("IOU_THRESHOLD", "0.45"))
 # Camera Configuration
 CAMERA_RTSP_URLS = os.getenv("CAMERA_RTSP_URLS", "").split(",") if os.getenv("CAMERA_RTSP_URLS") else []
 MAX_CAMERAS = int(os.getenv("MAX_CAMERAS", "4"))
+
+# Cloud Worker Configuration
+WORKER_ID = os.getenv("WORKER_ID", "worker-1")
+CAMERA_RANGE_START = int(os.getenv("CAMERA_RANGE_START", "0"))
+CAMERA_RANGE_END = int(os.getenv("CAMERA_RANGE_END", "999"))
+FRAME_RATE = int(os.getenv("FRAME_RATE", "5"))  # FPS per camera
+FRAMES_PER_BATCH = int(os.getenv("FRAMES_PER_BATCH", "10"))  # Process N frames per cycle
+WORKER_HEARTBEAT_INTERVAL = int(os.getenv("WORKER_HEARTBEAT_INTERVAL", "30"))  # seconds
+RTSP_CONNECTION_TIMEOUT = int(os.getenv("RTSP_CONNECTION_TIMEOUT", "10"))  # seconds
 
 # Storage Configuration
 STORAGE_DIR = BASE_DIR / "storage"
@@ -91,6 +105,9 @@ class Config:
 
     def __init__(self):
         self.database_url = DATABASE_URL
+        self.supabase_url = SUPABASE_URL
+        self.supabase_key = SUPABASE_KEY
+        self.supabase_service_key = SUPABASE_SERVICE_KEY
         self.yolo_model_path = YOLO_MODEL_PATH
         self.detection_confidence_threshold = DETECTION_CONFIDENCE_THRESHOLD
         self.iou_threshold = IOU_THRESHOLD
@@ -118,6 +135,14 @@ class Config:
         self.timezone = TIMEZONE
         self.report_formats = REPORT_FORMATS
         self.default_report_format = DEFAULT_REPORT_FORMAT
+        # Cloud Worker configs
+        self.worker_id = WORKER_ID
+        self.camera_range_start = CAMERA_RANGE_START
+        self.camera_range_end = CAMERA_RANGE_END
+        self.frame_rate = FRAME_RATE
+        self.frames_per_batch = FRAMES_PER_BATCH
+        self.worker_heartbeat_interval = WORKER_HEARTBEAT_INTERVAL
+        self.rtsp_connection_timeout = RTSP_CONNECTION_TIMEOUT
 
     def __repr__(self):
         return f"<Config(app_name={self.app_name}, version={self.app_version}, debug={self.debug})>"

@@ -1,12 +1,22 @@
 """
 Streamlit Dashboard - Main Dashboard for EPI Monitoring System
+Cloud version using Supabase backend
 """
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, List
+import time
+
+# Import Supabase service
+try:
+    from services.supabase_service import get_supabase_service
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    st.warning("⚠️ Supabase service not available. Using sample data.")
 
 # Page configuration
 st.set_page_config(
@@ -87,15 +97,67 @@ def get_reporting_agent() -> ReportingAgent:
 
 
 def load_data():
-    """Load data from database (placeholder)"""
-    # In real implementation, this would query the database
-    # For now, return sample data
+    """Load data from Supabase database"""
+    if not SUPABASE_AVAILABLE:
+        # Return sample data if Supabase is not available
+        return _load_sample_data()
 
+    try:
+        supabase = get_supabase_service()
+
+        # Get all cameras
+        cameras = supabase.get_all_cameras()
+
+        # Build cameras dictionary
+        cameras_data = {}
+        for cam in cameras:
+            cameras_data[cam['name']] = {
+                "id": cam['id'],
+                "location": cam.get('location', 'Unknown'),
+                "active": cam.get('is_active', True),
+                "brand": cam.get('camera_brand', 'generic')
+            }
+
+        # Get recent detections
+        detections = supabase.get_recent_detections(limit=100)
+
+        # Transform detections to expected format
+        detections_data = []
+        for det in detections:
+            # Get camera name
+            camera_id = det.get('camera_id')
+            camera_name = next(
+                (name for name, data in cameras_data.items() if data.get('id') == camera_id),
+                f"Camera {camera_id}"
+            )
+
+            detection = {
+                "id": det.get('id'),
+                "camera_id": camera_id,
+                "camera": camera_name,
+                "timestamp": datetime.fromisoformat(det.get('timestamp', datetime.now().isoformat())),
+                "is_compliant": det.get('is_compliant', False),
+                "person_count": det.get('person_count', 0),
+                "confidence": det.get('confidence', 0.0),
+                "epis_detected": det.get('epis_detected', {})
+            }
+
+            detections_data.append(detection)
+
+        return cameras_data, detections_data
+
+    except Exception as e:
+        st.error(f"Error loading data from Supabase: {e}")
+        return _load_sample_data()
+
+
+def _load_sample_data():
+    """Load sample data for testing/demo purposes"""
     # Sample cameras
     cameras_data = {
-        "Camera 1": {"location": "Fábrica - Linha A", "active": True},
-        "Camera 2": {"location": "Fábrica - Linha B", "active": True},
-        "Camera 3": {"location": "Depósito", "active": True},
+        "Camera 1": {"id": 1, "location": "Fábrica - Linha A", "active": True, "brand": "hikvision"},
+        "Camera 2": {"id": 2, "location": "Fábrica - Linha B", "active": True, "brand": "dahua"},
+        "Camera 3": {"id": 3, "location": "Depósito", "active": True, "brand": "intelbras"},
     }
 
     # Sample detections
@@ -106,6 +168,7 @@ def load_data():
 
         detection = {
             "id": i + 1,
+            "camera_id": (i % 3) + 1,
             "camera": f"Camera {(i % 3) + 1}",
             "timestamp": datetime.now() - timedelta(minutes=i * 5),
             "is_compliant": is_compliant,
@@ -131,6 +194,10 @@ def main():
     # Header
     st.markdown('<h1 class="main-title">⛑️ Sistema de Monitoramento de EPI</h1>', unsafe_allow_html=True)
     st.markdown("---")
+
+    # Auto-refresh configuration
+    auto_refresh_enabled = st.sidebar.checkbox("🔄 Auto-refresh (5s)", value=True)
+    refresh_interval = 5 if auto_refresh_enabled else 0
 
     # Load data
     cameras_data, detections_data = load_data()
@@ -371,12 +438,17 @@ def main():
     st.markdown(
         f"""
         <div style='text-align: center; color: #666;'>
-            <p>Sistema de Monitoramento de EPI v1.0.0</p>
+            <p>Sistema de Monitoramento de EPI v1.0.0 (Cloud)</p>
             <p>Última atualização: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </div>
         """,
         unsafe_allow_html=True
     )
+
+    # Auto-refresh
+    if auto_refresh_enabled and refresh_interval > 0:
+        time.sleep(refresh_interval)
+        st.rerun()
 
 
 if __name__ == "__main__":

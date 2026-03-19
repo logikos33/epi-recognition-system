@@ -29,6 +29,15 @@ env/
 # Environment Variables
 .env
 .env.local
+.env.production
+.env.*.local
+
+# Supabase credentials
+supabase/
+.supabase/
+
+# Render deployment
+*.log
 
 # IDE
 .vscode/
@@ -60,9 +69,6 @@ storage/*.log
 # OS
 .DS_Store
 Thumbs.db
-
-# Streamlit
-.streamlit/
 
 # Testing
 .pytest_cache/

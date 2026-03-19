@@ -1,0 +1,48 @@
+# Render Deployment Configuration
+# https://render.com/docs
+
+services:
+  # Cloud Worker Service
+  - type: web
+    name: epi-recognition-worker
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python cloud_worker.py
+    # Health check
+    healthCheckPath: /health
+    # Auto-deploy on git push
+    autoDeploy: true
+    # Environment variables (set in Render dashboard)
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: WORKER_ID
+        value: worker-1
+      - key: CAMERA_RANGE_START
+        value: 0
+      - key: CAMERA_RANGE_END
+        value: 999
+      - key: FRAME_RATE
+        value: 5
+      - key: FRAMES_PER_BATCH
+        value: 10
+      - key: WORKER_HEARTBEAT_INTERVAL
+        value: 30
+      - key: RTSP_CONNECTION_TIMEOUT
+        value: 10
+      - key: YOLO_MODEL_PATH
+        value: models/yolov8n.pt
+      - key: DETECTION_CONFIDENCE_THRESHOLD
+        value: 0.5
+      - key: IOU_THRESHOLD
+        value: 0.45
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PYTHON_VERSION
+        value: 3.11
