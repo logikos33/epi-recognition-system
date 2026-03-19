@@ -370,15 +370,18 @@ def main():
 
     df_table = pd.DataFrame(table_data)
 
-    # Style the dataframe
-    def highlight_status(val):
-        if "Conforme" in val:
-            return ['background-color: #d4edda'] * len(val)
-        else:
-            return ['background-color: #f8d7da'] * len(val)
+    # Style the dataframe (only if not empty)
+    if not df_table.empty:
+        def highlight_status(val):
+            if "Conforme" in val:
+                return ['background-color: #d4edda'] * len(val)
+            else:
+                return ['background-color: #f8d7da'] * len(val)
 
-    styled_df = df_table.style.apply(highlight_status, subset=['Status'])
-    st.dataframe(styled_df, use_container_width=True, height=400)
+        styled_df = df_table.style.apply(highlight_status, subset=['Status'])
+        st.dataframe(styled_df, use_container_width=True, height=400)
+    else:
+        st.info("🔍 Nenhuma detecção registrada ainda. Adicione câmeras para começar o monitoramento.")
 
     st.markdown("---")
 
