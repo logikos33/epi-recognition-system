@@ -53,7 +53,28 @@ epi_recognition_system/
 - Webcam ou câmeras RTSP
 - YOLOv8 model (baixado automaticamente)
 
-## 🔧 Instalação
+## 🔧 Instalação Rápida
+
+### Opção 1: Setup Automático (Recomendado)
+
+```bash
+# Clone o repositório
+git clone <repository-url>
+cd "Repositorio Reconhecimento de EPI"
+
+# Execute o script de setup
+chmod +x setup.sh
+./setup.sh
+```
+
+O script irá:
+- ✅ Verificar Python
+- ✅ Criar ambiente virtual
+- ✅ Instalar dependências
+- ✅ Configurar variáveis de ambiente
+- ✅ Executar testes iniciais
+
+### Opção 2: Instalação Manual
 
 1. Clone o repositório:
 ```bash
@@ -78,6 +99,11 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Edite o arquivo .env com suas configurações
+```
+
+5. Execute o teste rápido:
+```bash
+python quick_test.py
 ```
 
 ## 🎮 Uso
@@ -117,6 +143,50 @@ python main.py dashboard
 ```bash
 python main.py status
 ```
+
+## 📱 Testar com Câmera do Celular
+
+A maneira mais fácil de testar o sistema é usar seu celular como câmera!
+
+### Android
+
+1. Instale o app **IP Webcam** (Play Store)
+2. Abra o app e inicie o servidor
+3. Anote o IP mostrado (ex: `http://192.168.1.100:8080`)
+4. Use no sistema:
+   ```bash
+   # Adicione a URL ao .env
+   echo "CAMERA_RTSP_URLS=http://192.168.1.100:8080/video" >> .env
+
+   # Ou teste diretamente
+   python main.py camera --camera-id 0 --duration 30
+   ```
+
+### iOS
+
+1. Instale o app **CamTester** (App Store)
+2. Inicie o servidor
+3. Use a URL HTTP fornecida
+
+**📚 Guia completo:** [docs/CAMERA_SETUP.md](docs/CAMERA_SETUP.md)
+
+## 🧪 Teste Rápido
+
+Execute o script de teste para verificar se tudo está funcionando:
+
+```bash
+python quick_test.py
+```
+
+Este script irá testar:
+- ✅ Versão do Python
+- ✅ Dependências instaladas
+- ✅ Modelo YOLO
+- ✅ Webcam
+- ✅ Detecção de objetos
+- ✅ Banco de dados
+
+**📚 Guia completo:** [docs/TEST_MODEL.md](docs/TEST_MODEL.md)
 
 ## 🎨 Dashboard
 
