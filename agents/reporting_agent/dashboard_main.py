@@ -329,6 +329,8 @@ def main():
             )
             fig.update_layout(height=300)
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("📊 Nenhuma detecção registrada ainda.")
 
     with col2:
         st.subheader("🛡️ Taxa de Detecção por EPI")
@@ -339,16 +341,19 @@ def main():
             detected = sum(1 for d in filtered_detections if d["epis_detected"].get(epi, False))
             epi_stats[epi] = (detected / len(filtered_detections) * 100) if filtered_detections else 0
 
-        fig = px.bar(
-            x=list(epi_stats.keys()),
-            y=list(epi_stats.values()),
-            title='Taxa de Detecção por Tipo de EPI',
-            labels={'x': 'EPI', 'y': 'Taxa de Detecção (%)'},
-            color=list(epi_stats.values()),
-            color_continuous_scale='RdYlGn'
-        )
-        fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
+        if filtered_detections:
+            fig = px.bar(
+                x=list(epi_stats.keys()),
+                y=list(epi_stats.values()),
+                title='Taxa de Detecção por Tipo de EPI',
+                labels={'x': 'EPI', 'y': 'Taxa de Detecção (%)'},
+                color=list(epi_stats.values()),
+                color_continuous_scale='RdYlGn'
+            )
+            fig.update_layout(height=300)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("📊 Aguardando detecções para calcular estatísticas.")
 
     st.markdown("---")
 
@@ -412,29 +417,32 @@ def main():
         for camera, stats in camera_stats.items()
     ])
 
-    col1, col2 = st.columns(2)
+    if not camera_df.empty:
+        col1, col2 = st.columns(2)
 
-    with col1:
-        fig = px.bar(
-            camera_df,
-            x='Câmera',
-            y=['Total', 'Conformes'],
-            title='Detecções por Câmera',
-            barmode='group'
-        )
-        fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
+        with col1:
+            fig = px.bar(
+                camera_df,
+                x='Câmera',
+                y=['Total', 'Conformes'],
+                title='Detecções por Câmera',
+                barmode='group'
+            )
+            fig.update_layout(height=300)
+            st.plotly_chart(fig, use_container_width=True)
 
-    with col2:
-        fig = px.pie(
-            camera_df,
-            values='Total',
-            names='Câmera',
-            title='Distribuição de Detecções',
-            hole=0.3
-        )
-        fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            fig = px.pie(
+                camera_df,
+                values='Total',
+                names='Câmera',
+                title='Distribuição de Detecções',
+                hole=0.3
+            )
+            fig.update_layout(height=300)
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("📹 Nenhuma câmera configurada. Use o menu lateral para adicionar câmeras.")
 
     # Footer
     st.markdown("---")
