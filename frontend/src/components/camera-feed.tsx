@@ -4,23 +4,28 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Video, VideoOff, Camera, RefreshCw } from 'lucide-react'
+import { Video, VideoOff, Camera, Circle, Square } from 'lucide-react'
 
 interface CameraFeedProps {
   onCapture?: (imageUrl: string) => void
+  cameraId?: number
 }
 
-export function CameraFeed({ onCapture }: CameraFeedProps) {
+export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [captureCount, setCaptureCount] = useState(0)
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const startCamera = async () => {
     try {
       setError(null)
+      console.log('Iniciando câmera...')
 
       // Request camera access
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -32,11 +37,23 @@ export function CameraFeed({ onCapture }: CameraFeedProps) {
         audio: false
       })
 
+      console.log('Stream obtido:', mediaStream)
+
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
-        await videoRef.current.play()
-        setStream(mediaStream)
-        setIsStreaming(true)
+
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          console.log('Video metadata carregado')
+          videoRef.current?.play().then(() => {
+            console.log('Video reproduzindo')
+            setStream(mediaStream)
+            setIsStreaming(true)
+          }).catch(err => {
+            console.error('Erro ao reproduzir vídeo:', err)
+            setError('Erro ao reproduzir vídeo')
+          })
+        }
       }
     } catch (err) {
       console.error('Error accessing camera:', err)
@@ -55,6 +72,7 @@ export function CameraFeed({ onCapture }: CameraFeedProps) {
   }
 
   const stopCamera = () => {
+    stopRecording()
     if (stream) {
       stream.getTracks().forEach(track => track.stop())
       setStream(null)
@@ -84,11 +102,33 @@ export function CameraFeed({ onCapture }: CameraFeedProps) {
     // Convert to data URL
     const imageUrl = canvas.toDataURL('image/jpeg', 0.8)
     setCapturedImage(imageUrl)
+    setCaptureCount(prev => prev + 1)
 
     // Call parent callback
     if (onCapture) {
       onCapture(imageUrl)
     }
+
+    console.log('Imagem capturada:', captureCount + 1)
+  }
+
+  const startRecording = () => {
+    setIsRecording(true)
+    console.log('Iniciando gravação contínua...')
+
+    // Capture every 3 seconds
+    recordingIntervalRef.current = setInterval(() => {
+      captureImage()
+    }, 3000)
+  }
+
+  const stopRecording = () => {
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current)
+      recordingIntervalRef.current = null
+    }
+    setIsRecording(false)
+    console.log('Gravação parada')
   }
 
   // Cleanup on unmount
@@ -105,11 +145,17 @@ export function CameraFeed({ onCapture }: CameraFeedProps) {
           <CardTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5" />
             Câmera ao Vivo
+            {cameraId && <Badge variant="outline" className="ml-2">ID: {cameraId}</Badge>}
           </CardTitle>
           <div className="flex items-center gap-2">
             {isStreaming && (
               <Badge variant="outline" className="text-green-600 border-green-600">
-                Ao Vivo
+                ● Ao Vivo
+              </Badge>
+            )}
+            {isRecording && (
+              <Badge variant="destructive" className="animate-pulse">
+                ● Gravando
               </Badge>
             )}
           </div>
@@ -125,6 +171,7 @@ export function CameraFeed({ onCapture }: CameraFeedProps) {
               playsInline
               muted
               className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }} // Mirror effect for better UX
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-muted">
@@ -148,34 +195,74 @@ export function CameraFeed({ onCapture }: CameraFeedProps) {
               </div>
             </div>
           )}
+
+          {/* Recording indicator overlay */}
+          {isRecording && (
+            <div className="absolute top-4 right-4">
+              <div className="flex items-center gap-2 bg-black/70 px-3 py-1 rounded-full">
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                <span className="text-white text-sm font-medium">
+                  REC
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Controls */}
         <div className="flex flex-wrap gap-2">
           {!isStreaming ? (
-            <Button onClick={startCamera} className="flex-1">
+            <Button onClick={startCamera} className="flex-1" size="lg">
               <Video className="h-4 w-4 mr-2" />
               Iniciar Câmera
             </Button>
           ) : (
             <>
-              <Button onClick={captureImage} variant="default" className="flex-1">
-                <Camera className="h-4 w-4 mr-2" />
-                Capturar
+              <Button
+                onClick={isRecording ? stopRecording : startRecording}
+                variant={isRecording ? "destructive" : "default"}
+                className="flex-1"
+                size="lg"
+              >
+                {isRecording ? (
+                  <>
+                    <Square className="h-4 w-4 mr-2" />
+                    Parar Gravação
+                  </>
+                ) : (
+                  <>
+                    <Circle className="h-4 w-4 mr-2" />
+                    Iniciar Gravação
+                  </>
+                )}
               </Button>
-              <Button onClick={stopCamera} variant="destructive">
-                <VideoOff className="h-4 w-4 mr-2" />
+              <Button onClick={captureImage} variant="outline" disabled={isRecording}>
+                <Camera className="h-4 w-4 mr-2" />
+                Capturar Manual
+              </Button>
+              <Button onClick={stopCamera} variant="outline" size="lg">
+                <VideoOff className="h-4 w-2 mr-2" />
                 Parar
               </Button>
             </>
           )}
         </div>
 
+        {/* Capture Stats */}
+        {captureCount > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">
+              Capturas nesta sessão:
+            </span>
+            <span className="font-medium">{captureCount}</span>
+          </div>
+        )}
+
         {/* Captured Image Preview */}
         {capturedImage && (
           <div className="space-y-2">
             <p className="text-sm font-medium">Última Captura:</p>
-            <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+            <div className="relative aspect-video bg-black rounded-lg overflow-hidden border">
               <img
                 src={capturedImage}
                 alt="Captured"
@@ -189,11 +276,14 @@ export function CameraFeed({ onCapture }: CameraFeedProps) {
         <div className="bg-muted/50 rounded-lg p-4 text-sm space-y-2">
           <p className="font-medium">📱 Como usar:</p>
           <ul className="space-y-1 text-muted-foreground list-disc list-inside">
-            <li>Clique em "Iniciar Câmera" e permita o acesso</li>
-            <li>Aponte para você mesmo testando EPIs</li>
-            <li>Clique em "Capturar" para registrar</li>
-            <li>Funciona com webcam ou celular</li>
+            <li><strong>Iniciar Câmera:</strong> Ativa câmera traseira do celular</li>
+            <li><strong>Gravação Contínua:</strong> Captura automática a cada 3 segundos</li>
+            <li><strong>Captura Manual:</strong> Tira uma foto quando quiser</li>
+            <li><strong>Parar:</strong> Desliga câmera e para gravação</li>
           </ul>
+          <p className="text-xs text-muted-foreground mt-2">
+            ⚠️ Modo teste: Câmeras CFTV serão implementadas futuramente
+          </p>
         </div>
       </CardContent>
 
