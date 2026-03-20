@@ -1,5 +1,5 @@
 [deploy]
-startCommand = "python api_server.py"
+startCommand = "python api_server_full.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
