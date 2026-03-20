@@ -59,7 +59,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
       const imageData = canvas.toDataURL('image/jpeg', 0.8)
 
       // Call Python API
-      const response = await fetch('http://localhost:5001/api/detect', {
+      const response = await fetch('https://epi-recognition-system.onrender.com/api/detect', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
