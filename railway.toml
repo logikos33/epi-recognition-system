@@ -1,5 +1,6 @@
 [build]
 builder = "NIXPACKS"
+buildCommand = "pip install --no-cache-dir -r requirements-api.txt"
 
 [deploy]
 startCommand = "python api_server.py"
