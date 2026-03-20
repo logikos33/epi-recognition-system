@@ -1,12 +1,13 @@
 """
 API Server for EPI Recognition System - SIMPLIFICADO
-Recebe images from frontend and returns YOLO detections
+Receives images from frontend and returns YOLO detections
 NO SYSTEM LEGACY - Only YOLO and Flask
 """
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import base64
 import numpy as np
+import os
 from cv2 import imdecode, IMREAD_COLOR
 from ultralytics import YOLO
 
@@ -156,14 +157,18 @@ def test_detection():
 
 
 if __name__ == '__main__':
+    # Get port from environment variable (Railway sets this) or default to 5001
+    port = int(os.environ.get('PORT', 5001))
+
     print("""
     ╔═══════════════════════════════════════════════════════╗
     ║   EPI Recognition API Server (SIMPLIFICADO)             ║
-    ║   https://epi-recognition-system.onrender.com          ║
+    ║   Railway Deployment                                      ║
     ╚═══════════════════════════════════════════════════════╝
     """)
 
     print("🚀 Starting API server...")
+    print(f"📡 Port: {port}")
     print("📡 Endpoints:")
     print("   GET  /health")
     print("   GET  /api/test")
@@ -171,6 +176,6 @@ if __name__ == '__main__':
 
     app.run(
         host='0.0.0.0',
-        port=5001,
+        port=port,
         debug=False  # Production mode
     )
