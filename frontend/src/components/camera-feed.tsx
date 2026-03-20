@@ -25,7 +25,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
   const startCamera = async () => {
     try {
       setError(null)
-      console.log('Iniciando câmera...')
+      console.log('=== Iniciando câmera ===')
 
       // Request camera access
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -37,26 +37,51 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
         audio: false
       })
 
-      console.log('Stream obtido:', mediaStream)
+      console.log('✓ Stream obtido:', mediaStream)
+      console.log('✓ Video tracks:', mediaStream.getVideoTracks())
 
       if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
+        const videoElement = videoRef.current
+        videoElement.srcObject = mediaStream
 
-        // Wait for video to be ready
-        videoRef.current.onloadedmetadata = () => {
-          console.log('Video metadata carregado')
-          videoRef.current?.play().then(() => {
-            console.log('Video reproduzindo')
-            setStream(mediaStream)
-            setIsStreaming(true)
-          }).catch(err => {
-            console.error('Erro ao reproduzir vídeo:', err)
-            setError('Erro ao reproduzir vídeo')
-          })
+        // Attach stream directly and play
+        videoElement.onloadedmetadata = () => {
+          console.log('✓ Video metadata carregado')
+          console.log('✓ Video dimensions:', videoElement.videoWidth, 'x', videoElement.videoHeight)
+
+          videoElement.play()
+            .then(() => {
+              console.log('✓ Video reproduzindo com sucesso!')
+              setStream(mediaStream)
+              setIsStreaming(true)
+            })
+            .catch((err) => {
+              console.error('✗ Erro ao reproduzir vídeo:', err)
+              setError('Erro ao reproduzir vídeo: ' + err.message)
+            })
         }
+
+        // Fallback: try playing immediately
+        setTimeout(() => {
+          if (!isStreaming && videoElement.readyState >= 2) {
+            console.log('Tentando reproduzir vídeo (fallback)...')
+            videoElement.play()
+              .then(() => {
+                console.log('✓ Video reproduzindo (fallback)!')
+                setStream(mediaStream)
+                setIsStreaming(true)
+              })
+              .catch((err) => {
+                console.error('✗ Erro no fallback:', err)
+              })
+          }
+        }, 1000)
+      } else {
+        console.error('✗ Video ref não disponível')
+        setError('Erro interno: elemento de vídeo não encontrado')
       }
     } catch (err) {
-      console.error('Error accessing camera:', err)
+      console.error('✗ Error accessing camera:', err)
       if (err instanceof Error) {
         if (err.name === 'NotAllowedError') {
           setError('Permissão de câmera negada. Por favor, permita o acesso à câmera.')
@@ -171,7 +196,16 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
               playsInline
               muted
               className="w-full h-full object-cover"
-              style={{ transform: 'scaleX(-1)' }} // Mirror effect for better UX
+              style={{
+                transform: 'scaleX(-1)',
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#000'
+              }}
+              onError={(e) => {
+                console.error('Erro no elemento de vídeo:', e)
+                setError('Erro ao carregar vídeo')
+              }}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-muted">
@@ -179,6 +213,9 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
                 <VideoOff className="h-16 w-16 mx-auto text-muted-foreground" />
                 <p className="text-muted-foreground">
                   Câmera desativada
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Clique em "Iniciar Câmera" para começar
                 </p>
               </div>
             </div>
