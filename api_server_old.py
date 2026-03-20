@@ -1,28 +1,29 @@
 """
-API Server for EPI Recognition System - SIMPLIFICADO
-Recebe images from frontend and returns YOLO detections
-NO SYSTEM LEGACY - Only YOLO and Flask
+API Server for EPI Recognition System
+Receives images from frontend and returns YOLO detections
 """
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import base64
 import numpy as np
 from cv2 import imdecode, IMREAD_COLOR
-from ultralytics import YOLO
+from pathlib import Path
+
+from services.yolo_service import YOLOService
+from utils.logger import get_logger
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend
+logger = get_logger(__name__)
 
-# Load YOLO model
-model_path = 'models/yolov8n.pt'
+# Initialize YOLO service
 try:
-    print(f"Loading YOLO model from: {model_path}")
-    model = YOLO(model_path)
-    print("✅ YOLO model loaded successfully")
+    yolo_service = YOLOService()
+    logger.info("✅ YOLO service initialized successfully")
 except Exception as e:
-    print(f"❌ Failed to load YOLO model: {e}")
-    model = None
+    logger.error(f"❌ Failed to initialize YOLO service: {e}")
+    yolo_service = None
 
 
 @app.route('/health', methods=['GET'])
@@ -30,7 +31,7 @@ def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'yolo_loaded': model is not None
+        'yolo_loaded': yolo_service is not None
     })
 
 
@@ -70,7 +71,7 @@ def detect_objects():
         # Decode base64 image
         image_data = data['image']
         if ',' in image_data:
-            # Remove data URL prefix if present
+            # Remove data URL prefix if present (e.g., "data:image/jpeg;base64,")
             image_data = image_data.split(',')[1]
 
         # Decode base64 to bytes
@@ -88,53 +89,41 @@ def detect_objects():
                 'error': 'Failed to decode image'
             }), 400
 
-        print(f"📸 Image received: {image.shape[1]}x{image.shape[0]}")
+        logger.info(f"📸 Image received: {image.shape[1]}x{image.shape[0]}")
 
-        # Check if YOLO is available
-        if model is None:
+        # Check if YOLO service is available
+        if yolo_service is None:
             return jsonify({
                 'success': False,
-                'error': 'YOLO model not available'
+                'error': 'YOLO service not available'
             }), 503
 
         # Perform detection
-        results = model(image, conf=0.25, verbose=False)
+        detections = yolo_service.detect(image)
 
         # Format detections for frontend
-        detections = []
-        if results and len(results) > 0:
-            result = results[0]
-            boxes = result.boxes
-            if boxes is not None:
-                for box in boxes:
-                    # Get box coordinates
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+        formatted_detections = []
+        for det in detections:
+            formatted_detections.append({
+                'class': det.class_name,
+                'confidence': float(det.confidence),
+                'bbox': [
+                    float(det.x1),
+                    float(det.y1),
+                    float(det.x2),
+                    float(det.y2)
+                ]
+            })
 
-                    # Get confidence and class
-                    confidence = float(box.conf[0].cpu().numpy())
-                    class_id = int(box.cls[0].cpu().numpy())
-                    class_name = result.names[class_id]
-
-                    detections.append({
-                        'class': class_name,
-                        'confidence': float(confidence),
-                        'bbox': [
-                            float(x1),
-                            float(y1),
-                            float(x2),
-                            float(y2)
-                        ]
-                    })
-
-        print(f"✅ Detected {len(detections)} objects")
+        logger.info(f"✅ Detected {len(formatted_detections)} objects")
 
         return jsonify({
             'success': True,
-            'detections': detections
+            'detections': formatted_detections
         })
 
     except Exception as e:
-        print(f"❌ Error during detection: {e}")
+        logger.error(f"❌ Error during detection: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -143,10 +132,10 @@ def detect_objects():
 
 @app.route('/api/test', methods=['GET'])
 def test_detection():
-    """Test endpoint"""
+    """Test endpoint to verify API is working"""
     return jsonify({
         'message': 'API is working!',
-        'yolo_loaded': model is not None,
+        'yolo_loaded': yolo_service is not None,
         'endpoints': {
             'health': 'GET /health',
             'detect': 'POST /api/detect',
@@ -158,19 +147,19 @@ def test_detection():
 if __name__ == '__main__':
     print("""
     ╔═══════════════════════════════════════════════════════╗
-    ║   EPI Recognition API Server (SIMPLIFICADO)             ║
-    ║   https://epi-recognition-system.onrender.com          ║
+    ║   EPI Recognition API Server                          ║
+    ║   http://localhost:5001                               ║
     ╚═══════════════════════════════════════════════════════╝
     """)
 
-    print("🚀 Starting API server...")
-    print("📡 Endpoints:")
-    print("   GET  /health")
-    print("   GET  /api/test")
-    print("   POST /api/detect")
+    logger.info("🚀 Starting API server on http://localhost:5001")
+    logger.info("📡 Endpoints:")
+    logger.info("   GET  /health")
+    logger.info("   GET  /api/test")
+    logger.info("   POST /api/detect")
 
     app.run(
         host='0.0.0.0',
         port=5001,
-        debug=False  # Production mode
+        debug=True
     )
