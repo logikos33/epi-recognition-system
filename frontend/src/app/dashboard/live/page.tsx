@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CheckCircle, XCircle, Users, Shield } from 'lucide-react'
+import { CameraFeed } from '@/components/camera-feed'
+import { supabase } from '@/lib/supabase'
 import type { EPIsDetected } from '@/types/detection'
 
 export default function LivePage() {
@@ -13,6 +15,7 @@ export default function LivePage() {
   const [selectedDetections, setSelectedDetections] = useState<Set<number>>(
     new Set()
   )
+  const [capturedCount, setCapturedCount] = useState(0)
 
   // Auto-select first 9 detections for grid
   useEffect(() => {
@@ -37,6 +40,39 @@ export default function LivePage() {
     return icons[epi] || '❓'
   }
 
+  const handleCapture = async (imageUrl: string) => {
+    // Create a mock detection from captured image
+    const mockDetection = {
+      camera_id: 1, // Default camera
+      epis_detected: {
+        helmet: { detected: Math.random() > 0.3, confidence: 0.8 + Math.random() * 0.2, label: 'Capacete' },
+        vest: { detected: Math.random() > 0.3, confidence: 0.8 + Math.random() * 0.2, label: 'Colete' },
+        gloves: { detected: Math.random() > 0.3, confidence: 0.8 + Math.random() * 0.2, label: 'Luvas' },
+        goggles: { detected: Math.random() > 0.5, confidence: 0.7 + Math.random() * 0.3, label: 'Óculos' },
+        mask: { detected: Math.random() > 0.6, confidence: 0.7 + Math.random() * 0.3, label: 'Máscara' },
+        boots: { detected: Math.random() > 0.3, confidence: 0.8 + Math.random() * 0.2, label: 'Botas' }
+      },
+      confidence: 0.8 + Math.random() * 0.2,
+      is_compliant: Math.random() > 0.4, // Random compliance for demo
+      person_count: Math.floor(Math.random() * 3) + 1
+    }
+
+    try {
+      const { error } = await supabase
+        .from('detections')
+        .insert(mockDetection)
+
+      if (error) {
+        console.error('Error creating detection:', error)
+      } else {
+        setCapturedCount(prev => prev + 1)
+        console.log('Detection created successfully!')
+      }
+    } catch (err) {
+      console.error('Error creating detection:', err)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -52,6 +88,9 @@ export default function LivePage() {
           Detecções em tempo real das câmeras monitoradas
         </p>
       </div>
+
+      {/* Camera Feed - NEW */}
+      <CameraFeed onCapture={handleCapture} />
 
       {/* Stats Bar */}
       <Card>
@@ -94,6 +133,12 @@ export default function LivePage() {
                 </p>
               </div>
             </div>
+
+            {capturedCount > 0 && (
+              <div className="ml-auto text-sm text-muted-foreground">
+                {capturedCount} captura{capturedCount !== 1 ? 's' : ''} hoje
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
