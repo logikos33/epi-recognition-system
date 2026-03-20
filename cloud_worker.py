@@ -329,36 +329,6 @@ class CloudWorker:
             self.logger.error(f"Error updating heartbeat: {e}")
 
 
-async def health_check_server():
-    """
-    Simple health check server for Render/Railway
-    Responds to /health endpoint
-    """
-    from aiohttp import web
-
-    async def health_handler(request):
-        return web.json_response({
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat()
-        })
-
-    app = web.Application()
-    app.router.add_get('/health', health_handler)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
-
-    # Keep server running
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        await runner.cleanup()
-
-
 def main():
     """Main entry point"""
     # Setup logging
@@ -390,3 +360,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
