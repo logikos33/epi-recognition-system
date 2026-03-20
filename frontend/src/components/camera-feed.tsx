@@ -62,11 +62,12 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
       // Get base64 image
       const imageData = canvas.toDataURL('image/jpeg', 0.8)
 
-      // Create abort controller for timeout
+      // Create abort controller for timeout (increased to 15s for YOLO processing)
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
 
       // Call Python API
+      console.log(`🔍 Calling API: ${API_URL}/api/detect`)
       const response = await fetch(`${API_URL}/api/detect`, {
         method: 'POST',
         headers: {
