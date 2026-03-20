@@ -1,3 +1,5 @@
+'use client'
+
 import { useEffect, useState } from 'react'
 import { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'

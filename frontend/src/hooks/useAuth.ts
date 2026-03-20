@@ -1,7 +1,21 @@
+'use client'
+
 import { useEffect, useState } from 'react'
-import { User } from '@supabase/supabase-js'
+import { User as SupabaseUser } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import type { AuthState } from '@/types/auth'
+import type { AuthState, User } from '@/types/auth'
+
+const convertUser = (supabaseUser: SupabaseUser | null): User | null => {
+  if (!supabaseUser) return null
+
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email,
+    full_name: (supabaseUser.user_metadata?.full_name as string) || undefined,
+    avatar_url: (supabaseUser.user_metadata?.avatar_url as string) || undefined,
+    role: (supabaseUser.user_metadata?.role as 'admin' | 'user' | 'viewer') || 'user',
+  }
+}
 
 export function useAuth() {
   const [authState, setAuthState] = useState<AuthState>({
@@ -12,7 +26,7 @@ export function useAuth() {
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      const user: User | null = session?.user ?? null
+      const user = convertUser(session?.user ?? null)
       setAuthState({
         user,
         loading: false,
@@ -23,7 +37,7 @@ export function useAuth() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      const user: User | null = session?.user ?? null
+      const user = convertUser(session?.user ?? null)
       setAuthState({
         user,
         loading: false,

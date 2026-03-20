@@ -1,3 +1,5 @@
+'use client'
+
 import { Suspense } from 'react'
 import { useDetections } from '@/hooks/useDetections'
 import { useCameras } from '@/hooks/useCameras'

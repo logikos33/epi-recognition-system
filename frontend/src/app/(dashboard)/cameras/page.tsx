@@ -53,7 +53,7 @@ export default function CamerasPage() {
   })
 
   const handleCreateCamera = async () => {
-    const { data, error } = await createCamera({
+    const { camera, error } = await createCamera({
       ...formData,
       is_active: true,
       rtsp_url: null,
