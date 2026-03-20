@@ -22,10 +22,12 @@ export function Header() {
   }
 
   const getUserInitials = () => {
-    if (user?.full_name) {
-      return user.full_name
+    const fullName = user?.user_metadata?.full_name || user?.email?.split('@')[0]
+    if (fullName) {
+      return fullName
         .split(' ')
-        .map((n) => n[0])
+        .map((n) => n?.[0])
+        .filter(Boolean)
         .join('')
         .toUpperCase()
         .slice(0, 2)
@@ -58,7 +60,7 @@ export function Header() {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium leading-none">
-                    {user?.full_name || 'Usuário'}
+                    {user?.user_metadata?.full_name || 'Usuário'}
                   </p>
                   <p className="text-xs leading-none text-muted-foreground">
                     {user?.email}
