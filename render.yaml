@@ -5,11 +5,10 @@ services:
   # Cloud Worker Service
   - type: web
     name: epi-recognition-worker
-    env: python
+    env: docker
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python cloud_worker.py
+    # Dockerfile will be used automatically
     # Health check
     healthCheckPath: /health
     # Auto-deploy on git push
