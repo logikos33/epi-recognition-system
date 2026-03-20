@@ -264,6 +264,20 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
       return
     }
 
+    // Check if mediaDevices is supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.error('✗ mediaDevices not supported')
+      setError('Seu navegador não suporta acesso à câmera. Use um navegador moderno como Chrome, Safari ou Firefox.')
+      return
+    }
+
+    // Check if running on HTTPS or localhost (required for camera access)
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      console.error('✗ Not on HTTPS or localhost')
+      setError('Acesso à câmera requer HTTPS. Use localhost ou HTTPS.')
+      return
+    }
+
     try {
       setError(null)
       console.log('=== Iniciando câmera ===')
@@ -395,33 +409,35 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
 
   return (
     <Card className="w-full">
-      <CardHeader>
+      <CardHeader className="space-y-3 pb-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="flex items-center gap-2">
-            <Camera className="h-5 w-5" />
-            Câmera ao Vivo com IA
-            {cameraId && <Badge variant="outline" className="ml-2">ID: {cameraId}</Badge>}
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <Camera className="h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="hidden sm:inline">Câmera ao Vivo com IA</span>
+            <span className="sm:hidden">Câmera ao Vivo</span>
+            {cameraId && <Badge variant="outline" className="ml-2 text-xs">ID: {cameraId}</Badge>}
           </CardTitle>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {isDetecting && (
-              <Badge variant="outline" className="text-purple-600 border-purple-600">
+              <Badge variant="outline" className="text-purple-600 border-purple-600 text-xs">
                 <Activity className="h-3 w-3 mr-1 animate-pulse" />
-                IA Ativa
+                <span className="hidden sm:inline">IA Ativa</span>
+                <span className="sm:hidden">IA</span>
               </Badge>
             )}
             {!apiOnline && isDetecting && (
-              <Badge variant="outline" className="text-orange-600 border-orange-600">
-                ⚠️ API Offline
+              <Badge variant="outline" className="text-orange-600 border-orange-600 text-xs">
+                ⚠️ Offline
               </Badge>
             )}
             {isStreaming && (
-              <Badge variant="outline" className="text-green-600 border-green-600">
+              <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
                 ● Ao Vivo
               </Badge>
             )}
             {isRecording && (
-              <Badge variant="destructive" className="animate-pulse">
-                ● Gravando
+              <Badge variant="destructive" className="animate-pulse text-xs">
+                ● REC
               </Badge>
             )}
           </div>
@@ -429,18 +445,18 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
 
         {/* Detection Stats */}
         {isDetecting && detectedObjects.length > 0 && (
-          <div className="flex items-center gap-4 text-sm mt-2 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-4 text-xs sm:text-sm mt-2 flex-wrap">
             <div className="flex items-center gap-1">
-              <span className="text-muted-foreground">Objetos:</span>
-              <Badge variant="secondary">{detectionStats.objectCount}</Badge>
+              <span className="text-muted-foreground text-xs">Objetos:</span>
+              <Badge variant="secondary" className="text-xs">{detectionStats.objectCount}</Badge>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-muted-foreground">Pessoas:</span>
-              <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200">
+              <span className="text-muted-foreground text-xs">Pessoas:</span>
+              <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 text-xs">
                 {detectionStats.personCount}
               </Badge>
             </div>
-            {detectedObjects.slice(0, 4).map((obj, idx) => (
+            {detectedObjects.slice(0, 3).map((obj, idx) => (
               <Badge key={idx} variant="outline" className="text-xs">
                 {obj.class} {(obj.score * 100).toFixed(0)}%
               </Badge>
@@ -449,7 +465,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
         )}
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 sm:space-y-4">
         {/* Video Feed with Detection Overlay */}
         <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
           {/* Video element */}
@@ -533,9 +549,9 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
         </div>
 
         {/* Controls */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           {!isStreaming ? (
-            <Button onClick={startCamera} className="flex-1" size="lg">
+            <Button onClick={startCamera} className="w-full" size="lg">
               <Video className="h-4 w-4 mr-2" />
               Iniciar Câmera
             </Button>
@@ -544,7 +560,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
               <Button
                 onClick={isRecording ? stopRecording : startRecording}
                 variant={isRecording ? "destructive" : "default"}
-                className="flex-1"
+                className="w-full sm:flex-1"
                 size="lg"
               >
                 {isRecording ? (
@@ -559,14 +575,16 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
                   </>
                 )}
               </Button>
-              <Button onClick={captureImage} variant="outline" disabled={isRecording}>
-                <Camera className="h-4 w-4 mr-2" />
-                Capturar
-              </Button>
-              <Button onClick={stopCamera} variant="outline" size="lg">
-                <VideoOff className="h-4 w-4 mr-2" />
-                Parar
-              </Button>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <Button onClick={captureImage} variant="outline" disabled={isRecording} className="flex-1 sm:flex-none">
+                  <Camera className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">Capturar</span>
+                </Button>
+                <Button onClick={stopCamera} variant="outline" size="lg" className="flex-1 sm:flex-none">
+                  <VideoOff className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">Parar</span>
+                </Button>
+              </div>
             </>
           )}
         </div>
@@ -583,9 +601,9 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
         {capturedImage && (
           <div className="space-y-2">
             <p className="text-sm font-medium">Última Captura:</p>
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-3">
               {/* Miniatura */}
-              <div className="relative w-32 h-20 bg-black rounded-lg overflow-hidden border flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity">
+              <div className="relative w-full sm:w-32 h-24 sm:h-20 bg-black rounded-lg overflow-hidden border flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity">
                 <img
                   src={capturedImage}
                   alt="Captured"
@@ -616,8 +634,8 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
         )}
 
         {/* Instructions */}
-        <div className="bg-muted/50 rounded-lg p-4 text-sm space-y-2">
-          <p className="font-medium">📱 Como usar:</p>
+        <div className="bg-muted/50 rounded-lg p-3 sm:p-4 text-xs sm:text-sm space-y-2">
+          <p className="font-medium text-sm">📱 Como usar:</p>
           <ul className="space-y-1 text-muted-foreground list-disc list-inside">
             <li><strong>Iniciar Câmera:</strong> Ativa câmera e IA de detecção</li>
             <li><strong>IA Ativa:</strong> Detecta pessoas, EPIs e objetos em tempo real</li>

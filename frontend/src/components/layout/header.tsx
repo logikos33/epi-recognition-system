@@ -11,9 +11,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { signOut } from '@/lib/auth'
-import { Shield, LogOut } from 'lucide-react'
+import { Shield, LogOut, Menu } from 'lucide-react'
 
-export function Header() {
+interface HeaderProps {
+  onMenuClick?: () => void
+}
+
+export function Header({ onMenuClick }: HeaderProps) {
   const { user } = useAuth()
 
   const handleLogout = async () => {
@@ -37,20 +41,30 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center">
-        <div className="flex items-center gap-2">
-          <Shield className="h-6 w-6 text-primary" />
-          <Link href="/dashboard" className="text-xl font-bold">
+      <div className="container flex h-16 items-center px-4">
+        <div className="flex items-center gap-2 flex-1">
+          {/* Mobile menu button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden mr-2"
+            onClick={onMenuClick}
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+
+          <Shield className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+          <Link href="/dashboard" className="text-lg sm:text-xl font-bold">
             EPI Recognition
           </Link>
         </div>
 
-        <div className="ml-auto flex items-center gap-4">
+        <div className="ml-auto flex items-center gap-2 sm:gap-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
                 <Avatar className="h-9 w-9">
-                  <AvatarFallback className="bg-primary text-primary-foreground">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-sm">
                     {getUserInitials()}
                   </AvatarFallback>
                 </Avatar>
