@@ -1,22 +1,29 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+// Get environment variables
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-// Log environment variables in development for debugging
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  console.log('Supabase URL configured:', !!supabaseUrl)
-  console.log('Supabase Key configured:', !!supabaseAnonKey)
+// Debug logging (only in browser)
+if (typeof window !== 'undefined') {
+  console.log('=== SUPABASE CONFIG DEBUG ===')
+  console.log('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'CONFIGURED' : 'MISSING')
+  console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'CONFIGURED' : 'MISSING')
+  console.log('Node ENV:', process.env.NODE_ENV)
+  console.log('============================')
 }
 
-if (!supabaseUrl || !supabaseUrl.startsWith('https://')) {
-  console.error('Invalid NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl)
-  throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured correctly')
+// Validate environment variables
+if (!supabaseUrl) {
+  throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing. Please configure environment variables.')
 }
 
-if (!supabaseAnonKey || supabaseAnonKey.length < 10) {
-  console.error('Invalid NEXT_PUBLIC_SUPABASE_ANON_KEY')
-  throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is not configured correctly')
+if (!supabaseAnonKey) {
+  throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is missing. Please configure environment variables.')
+}
+
+if (!supabaseUrl.startsWith('https://')) {
+  throw new Error(`NEXT_PUBLIC_SUPABASE_URL is invalid: ${supabaseUrl}`)
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
