@@ -1,7 +1,8 @@
 services:
+  # Python API com YOLO
   - type: web
     name: epi-recognition-api
-    runtime: python
+    env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python api_server.py
     envVars:
@@ -9,3 +10,9 @@ services:
         value: 3.14.0
       - key: PORT
         value: 5001
+      - key: FLASK_ENV
+        value: production
+    healthCheckPath: /health
+    autoDeploy: true
+    plan: free
+    region: oregon
