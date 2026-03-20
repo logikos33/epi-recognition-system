@@ -153,61 +153,43 @@ function DashboardContent() {
       </Card>
 
       {/* Quick Stats */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Status do Sistema</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Backend Worker</span>
-              <span className="text-sm font-medium text-green-600">● Online</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Database</span>
-              <span className="text-sm font-medium text-green-600">● Connected</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Realtime</span>
-              <span className="text-sm font-medium text-green-600">● Active</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Estatísticas</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Total de Pessoas</span>
-              <span className="text-sm font-medium">{totalPersons}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Confiança Média</span>
-              <span className="text-sm font-medium">
-                {totalDetections > 0
-                  ? `${(
-                      detections.reduce((sum, d) => sum + d.confidence, 0) /
-                      totalDetections *
-                      100
-                    ).toFixed(1)}%`
-                  : 'N/A'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Última Detecção</span>
-              <span className="text-sm font-medium">
-                {detections.length > 0
-                  ? new Date(
-                      detections[0]?.timestamp || ''
-                    ).toLocaleTimeString('pt-BR')
-                  : 'N/A'}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Estatísticas Gerais</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Total de Pessoas Detectadas</span>
+            <span className="text-sm font-medium">{totalPersons}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Confiança Média</span>
+            <span className="text-sm font-medium">
+              {totalDetections > 0
+                ? `${(
+                    detections.reduce((sum, d) => sum + d.confidence, 0) /
+                    totalDetections *
+                    100
+                  ).toFixed(1)}%`
+                : 'N/A'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Última Detecção</span>
+            <span className="text-sm font-medium">
+              {detections.length > 0
+                ? new Date(
+                    detections[0]?.timestamp || ''
+                  ).toLocaleString('pt-BR')
+                : 'N/A'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Total de Câmeras</span>
+            <span className="text-sm font-medium">{cameras.length}</span>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

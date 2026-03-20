@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Shield } from 'lucide-react'
-import { useAuth } from '@/hooks/useAuth'
 import { signIn } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,33 +11,33 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function LoginPage() {
-  const router = useRouter()
-  const { user } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  // Redirect if already logged in
-  if (user) {
-    router.push('/dashboard')
-    return null
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    const { data, error } = await signIn({ email, password })
+    console.log('=== Tentando login ===')
+    console.log('Email:', email)
 
-    if (error) {
-      setError('Email ou senha incorretos')
+    const { data, error: signInError } = await signIn({ email, password })
+
+    if (signInError) {
+      console.error('Erro no login:', signInError)
+      setError(signInError.message || 'Email ou senha incorretos')
       setLoading(false)
       return
     }
 
-    router.push('/dashboard')
+    console.log('=== Login bem-sucedido ===')
+    console.log('Usuário:', data.user?.email)
+
+    // Redirecionamento simples
+    window.location.href = '/'
   }
 
   return (

@@ -6,9 +6,6 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
   Video,
-  AlertTriangle,
-  BarChart3,
-  History,
   Settings,
 } from 'lucide-react'
 
@@ -16,9 +13,6 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Live', href: '/dashboard/live', icon: Video },
   { name: 'Câmeras', href: '/dashboard/cameras', icon: Settings },
-  { name: 'Alertas', href: '/dashboard/alerts', icon: AlertTriangle },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
-  { name: 'Histórico', href: '/dashboard/history', icon: History },
 ]
 
 export function Sidebar() {

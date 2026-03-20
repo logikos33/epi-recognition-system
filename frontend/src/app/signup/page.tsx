@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Shield } from 'lucide-react'
-import { useAuth } from '@/hooks/useAuth'
 import { signUp } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,22 +12,17 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 
 export default function SignupPage() {
   const router = useRouter()
-  const { user } = useAuth()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  // Redirect if already logged in
-  if (user) {
-    router.push('/dashboard')
-    return null
-  }
+  const [success, setSuccess] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setSuccess(false)
     setLoading(true)
 
     const { data, error } = await signUp({
@@ -38,13 +32,21 @@ export default function SignupPage() {
     })
 
     if (error) {
+      console.error('Signup error:', error)
       setError(error.message || 'Erro ao criar conta')
       setLoading(false)
       return
     }
 
-    // Account created successfully
-    router.push('/dashboard')
+    // Check if email confirmation is required
+    if (data?.user && !data.session) {
+      setSuccess(true)
+      setLoading(false)
+      return
+    }
+
+    // Account created and logged in successfully
+    window.location.href = '/'
   }
 
   return (
@@ -67,6 +69,12 @@ export default function SignupPage() {
             {error && (
               <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
                 {error}
+              </div>
+            )}
+            {success && (
+              <div className="p-3 text-sm text-green-600 bg-green-50 dark:bg-green-950 rounded-md border border-green-200 dark:border-green-800">
+                <p className="font-medium mb-1">Conta criada com sucesso!</p>
+                <p className="text-xs">Por favor, confirme seu email clicando no link que enviamos para {email}. Depois faça login.</p>
               </div>
             )}
             <div className="space-y-2">
