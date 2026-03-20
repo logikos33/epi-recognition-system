@@ -35,6 +35,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
     objectCount: 0,
     episCount: 0
   })
+  const [apiOnline, setApiOnline] = useState(true)
 
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -58,6 +59,10 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
       // Get base64 image
       const imageData = canvas.toDataURL('image/jpeg', 0.8)
 
+      // Create abort controller for timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+
       // Call Python API
       const response = await fetch('https://epi-recognition-system.onrender.com/api/detect', {
         method: 'POST',
@@ -67,18 +72,24 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
         body: JSON.stringify({
           image: imageData,
           camera_id: cameraId
-        })
+        }),
+        signal: controller.signal
       })
 
+      // Clear timeout if request succeeded
+      clearTimeout(timeoutId)
+      setApiOnline(true)
+
       if (!response.ok) {
-        console.error('API Error:', response.status)
+        console.warn('⚠️ API offline, usando modo mock')
+        setApiOnline(false)
         return []
       }
 
       const result = await response.json()
 
       if (!result.success || !result.detections) {
-        console.warn('No detections or API error')
+        console.warn('⚠️ API retornou erro, usando modo mock')
         return []
       }
 
@@ -105,7 +116,12 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
       return detectedObjects
 
     } catch (err) {
-      console.error('❌ Erro na detecção YOLO:', err)
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.warn('⚠️ API timeout (5s) - backend offline ou lento')
+      } else {
+        console.warn('⚠️ API falhou, usando modo mock temporariamente:', err)
+      }
+      setApiOnline(false)
       return []
     }
   }
@@ -391,6 +407,11 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
               <Badge variant="outline" className="text-purple-600 border-purple-600">
                 <Activity className="h-3 w-3 mr-1 animate-pulse" />
                 IA Ativa
+              </Badge>
+            )}
+            {!apiOnline && isDetecting && (
+              <Badge variant="outline" className="text-orange-600 border-orange-600">
+                ⚠️ API Offline
               </Badge>
             )}
             {isStreaming && (
