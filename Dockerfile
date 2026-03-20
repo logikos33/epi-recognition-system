@@ -12,12 +12,13 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /opt/render/project/src
 
 # Install system dependencies (minimal)
+# Note: libgl1-mesa-glx was renamed to libgl1 in Debian Trixie
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender1 \
+    libxrender-dev \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
