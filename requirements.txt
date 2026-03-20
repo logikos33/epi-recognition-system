@@ -58,3 +58,7 @@ openpyxl>=3.1.0
 # Additional utilities
 tqdm>=4.66.0
 requests>=2.31.0
+
+# API Dependencies
+flask==3.0.0
+flask-cors==4.0.0
