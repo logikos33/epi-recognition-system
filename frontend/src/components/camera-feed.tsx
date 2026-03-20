@@ -6,6 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Video, VideoOff, Camera, Circle, Square, Brain, Activity } from 'lucide-react'
 
+// API Configuration - Update this when changing deployment
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://epi-recognition-system-production.up.railway.app'
+
 interface CameraFeedProps {
   onCapture?: (imageUrl: string) => void
   cameraId?: number
@@ -64,7 +67,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
       const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
 
       // Call Python API
-      const response = await fetch('https://epi-recognition-system.onrender.com/api/detect', {
+      const response = await fetch(`${API_URL}/api/detect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
