@@ -2,15 +2,17 @@
 # https://render.com/docs
 
 services:
-  # Cloud Worker Service
+  # Cloud Worker Service (Docker - Optimized)
   - type: web
     name: epi-recognition-worker
     env: docker
     region: oregon
     plan: free
-    # Dockerfile will be used automatically
+    # Dockerfile will be used automatically with requirements-worker.txt
     # Health check
     healthCheckPath: /health
+    # Disable auto-deploy temporarily if needed
+    # autoDeploy: false
     # Auto-deploy on git push
     autoDeploy: true
     # Environment variables (set in Render dashboard)
