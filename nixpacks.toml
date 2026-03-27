@@ -1,8 +1,0 @@
-[phases.setup]
-nixPkgs = ["python311", "pip"]
-
-[phases.build]
-cmds = ["python -m pip install --no-cache-dir -r requirements-api.txt"]
-
-[start]
-cmd = "python api_server.py"

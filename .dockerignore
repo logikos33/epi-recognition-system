@@ -1,34 +1,36 @@
-# Frontend (deployed separately on Vercel)
-frontend
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Documentation
+README.md
+*.md
+docs/
+
+# Frontend
 frontend/
+node_modules/
 
-# Virtual Environment
-venv
-ENV
-env
-.venv
-
-# Python cache
-__pycache__
+# Python
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 *.so
 *.egg
-*.egg-info
-dist
-build
-
-# Logs
-*.log
-api.log
-storage/*.log
-
-# Storage (generated at runtime)
-storage/images/*
-storage/annotated/*
-storage/reports/*
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+.venv
 
 # Environment
 .env
@@ -36,55 +38,37 @@ storage/reports/*
 *.local
 
 # IDE
-.vscode
-.idea
+.vscode/
+.idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Git
-.git
-.gitignore
+# Logs
+*.log
+logs/
 
-# Documentation (not needed in Docker)
-README.md
-README_SYSTEM_STATUS.md
-CLAUDE.md
-CLOUD_DEPLOYMENT.md
-RENDER_DEPLOY.md
-YOLO_SETUP.md
-docs/
-
-# Tests (not needed in production)
+# Tests
 tests/
-pytest.ini
-.pytest_cache
+test_*.py
 
-# Misc
+# Scripts
+scripts/
+*.sh
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
 *.tmp
-*.bak
-*.sql
-setup.sh
-setup_github.sh
-quick_test.py
-test_api.py
 
-# Old/unused files
-api_server_old.py
-cloud_worker.py
-main.py
-app.py
-python.py
-
-# Deployment configs (not for Docker)
-render.yaml
-Dockerfile.render.backup
-
-# Models (downloaded at runtime)
-models/*.pt
-models/*.pth
-models/*.onnx
-!models/.gitkeep
+# Railway (will be set by platform)
+railway-up.json

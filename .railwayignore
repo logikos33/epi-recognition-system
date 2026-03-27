@@ -1,3 +1,30 @@
-# Ignore Dockerfile - use Nixpacks instead
-Dockerfile
-Dockerfile.render
+# Ignore frontend
+frontend/
+
+# Ignore development files
+*.md
+README*
+LICENSE
+.env.example
+.gitignore
+
+# Ignore tests
+tests/
+test_*.py
+
+# Ignore development scripts
+setup.sh
+deploy-railway.sh
+
+# Ignore node modules
+node_modules/
+
+# Ignore cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Ignore development database
+*.db
+*.sqlite
+*.sqlite3

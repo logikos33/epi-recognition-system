@@ -1,0 +1,40 @@
+# ============================================
+# RAILWAY DEPLOY COMMANDS
+# Execute APÓS fazer login com 'railway login'
+# ============================================
+
+# 1. Navigate to project directory
+cd "/Users/vitoremanuel/Documents/Logikos/CATH/Repositorio Reconhecimento de EPI "
+
+# 2. Initialize Railway project
+railway init --name "epi-recognition-api"
+
+# 3. Add PostgreSQL database
+railway add postgresql
+
+# 4. Set environment variables
+railway variables set JWT_SECRET_KEY="$(openssl rand -hex 32)"
+railway variables set PORT=5001
+railway variables set PYTHONUNBUFFERED=1
+
+# 5. Deploy to Railway
+railway up
+
+# 6. Check deployment status
+railway status
+
+# 7. View logs
+railway logs
+
+# 8. Get API URL
+railway domain
+
+# ============================================
+# POST-DEPLOY: Setup Database
+# ============================================
+
+# Get DATABASE_URL
+railway variables
+
+# Execute database schema (replace <URL> with actual DATABASE_URL)
+psql <URL> < railway-database-schema.sql

@@ -15,6 +15,18 @@ import datetime
 from datetime import timedelta, timezone
 import uuid
 import re
+import sys
+
+# Add backend directory to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
+
+# Import database modules
+from backend.database import get_db, init_db, SessionLocal
+from backend.auth_db import (
+    create_user, get_user_by_email, get_user_by_id,
+    verify_user_credentials, update_last_login, create_session, verify_session
+)
+from backend.products import ProductService
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -69,12 +81,17 @@ def verify_token(token: str) -> dict:
 
 
 # ============================================
-# MOCK DATABASE (Replace with real DB connection)
+# INITIALIZATION
 # ============================================
 
-# Mock users storage (in production, use PostgreSQL/Supabase)
-mock_users = {}
-mock_detections = []
+# Initialize database connection on startup
+if DB_URL:
+    try:
+        init_db()
+        print("✅ Database connection initialized")
+    except Exception as e:
+        print(f"⚠️  Database initialization failed: {e}")
+        print("⚠️  Some endpoints may not work correctly")
 
 # ============================================
 # AUTH ENDPOINTS
@@ -93,6 +110,7 @@ def register():
         "company_name": "ACME Corp"
     }
     """
+    db = None
     try:
         data = request.get_json()
 
@@ -113,41 +131,42 @@ def register():
         if len(password) < 6:
             return jsonify({'success': False, 'error': 'Password must be at least 6 characters'}), 400
 
-        # Check if user already exists
-        if email in mock_users:
-            return jsonify({'success': False, 'error': 'User already exists'}), 409
+        # Get database session
+        db = next(get_db())
 
-        # Create new user
-        user_id = str(uuid.uuid4())
-        password_hash = hash_password(password)
+        # Create user in database
+        user = create_user(
+            db, email=email, password=password,
+            full_name=full_name, company_name=company_name
+        )
 
-        mock_users[email] = {
-            'id': user_id,
-            'email': email,
-            'password_hash': password_hash,
-            'full_name': full_name,
-            'company_name': company_name,
-            'created_at': datetime.datetime.now().isoformat()
-        }
+        # Generate JWT token
+        token = create_token(user['id'], user['email'])
 
-        # Generate token
-        token = create_token(user_id, email)
+        # Save session to database
+        create_session(db, user['id'], token)
 
         return jsonify({
             'success': True,
             'message': 'User registered successfully',
             'token': token,
             'user': {
-                'id': user_id,
-                'email': email,
-                'full_name': full_name,
-                'company_name': company_name
+                'id': user['id'],
+                'email': user['email'],
+                'full_name': user.get('full_name', ''),
+                'company_name': user.get('company_name', '')
             }
         }), 201
 
+    except ValueError as e:
+        # Handle specific errors (like duplicate email)
+        return jsonify({'success': False, 'error': str(e)}), 409
     except Exception as e:
         print(f"❌ Registration error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -161,6 +180,7 @@ def login():
         "password": "password123"
     }
     """
+    db = None
     try:
         data = request.get_json()
 
@@ -170,17 +190,25 @@ def login():
         email = data['email'].lower().strip()
         password = data['password']
 
-        # Find user
-        user = mock_users.get(email)
+        # Get database session
+        db = next(get_db())
+
+        # Verify credentials
+        user = verify_user_credentials(db, email, password)
+
         if not user:
             return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
 
-        # Verify password
-        if not verify_password(password, user['password_hash']):
-            return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
-
-        # Generate token
+        # Generate JWT token
         token = create_token(user['id'], user['email'])
+
+        # Update last login
+        update_last_login(db, user['id'])
+
+        # Save session to database
+        ip_address = request.remote_addr
+        user_agent = request.headers.get('User-Agent')
+        create_session(db, user['id'], token, ip_address=ip_address, user_agent=user_agent)
 
         return jsonify({
             'success': True,
@@ -197,6 +225,9 @@ def login():
     except Exception as e:
         print(f"❌ Login error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
 
 
 @app.route('/api/auth/verify', methods=['POST'])
@@ -243,6 +274,7 @@ def verify_auth():
 @app.route('/api/auth/me', methods=['GET'])
 def get_current_user():
     """Get current authenticated user"""
+    db = None
     try:
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
@@ -254,7 +286,12 @@ def get_current_user():
         if not payload:
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
 
-        user = mock_users.get(payload['email'])
+        # Get database session
+        db = next(get_db())
+
+        # Get user from database
+        user = get_user_by_id(db, payload['user_id'])
+
         if not user:
             return jsonify({'success': False, 'error': 'User not found'}), 404
 
@@ -265,13 +302,273 @@ def get_current_user():
                 'email': user['email'],
                 'full_name': user.get('full_name', ''),
                 'company_name': user.get('company_name', ''),
-                'created_at': user.get('created_at', '')
+                'phone': user.get('phone', ''),
+                'role': user.get('role', 'user'),
+                'created_at': user.get('created_at', ''),
+                'last_login': user.get('last_login', '')
             }
         }), 200
 
     except Exception as e:
         print(f"❌ Get user error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+# ============================================
+# PRODUCTS ENDPOINTS
+# ============================================
+
+@app.route('/api/products', methods=['GET'])
+def get_products():
+    """
+    Get products for authenticated user
+
+    Query params:
+    - skip: number of records to skip (default 0)
+    - limit: max records to return (default 50)
+    - category: filter by category (optional)
+    - is_active: filter by active status (optional)
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get query parameters
+        skip = int(request.args.get('skip', 0))
+        limit = int(request.args.get('limit', 50))
+        category = request.args.get('category')
+        is_active_str = request.args.get('is_active')
+        is_active = is_active_str.lower() == 'true' if is_active_str else None
+
+        # Get database session
+        db = next(get_db())
+
+        # Fetch products
+        products = ProductService.get_products(
+            db, payload['user_id'],
+            skip=skip, limit=limit,
+            category=category, is_active=is_active
+        )
+
+        return jsonify({
+            'success': True,
+            'products': products,
+            'count': len(products)
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Get products error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/products', methods=['POST'])
+def create_product():
+    """
+    Create new product
+
+    Expects:
+    {
+        "name": "Product Name",
+        "sku": "SKU-123",
+        "category": "Category",
+        "description": "Description",
+        "detection_threshold": 0.85,
+        "volume_cm3": 1000,
+        "weight_g": 500
+    }
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get request data
+        data = request.get_json()
+        if not data or 'name' not in data:
+            return jsonify({'success': False, 'error': 'Product name is required'}), 400
+
+        # Get database session
+        db = next(get_db())
+
+        # Create product
+        product = ProductService.create_product(
+            db, user_id=payload['user_id'],
+            name=data['name'],
+            sku=data.get('sku'),
+            category=data.get('category'),
+            description=data.get('description'),
+            detection_threshold=data.get('detection_threshold', 0.85),
+            volume_cm3=data.get('volume_cm3'),
+            weight_g=data.get('weight_g')
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Product created successfully',
+            'product': product
+        }), 201
+
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        print(f"❌ Create product error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/products/<product_id>', methods=['GET'])
+def get_product(product_id):
+    """Get single product by ID"""
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get database session
+        db = next(get_db())
+
+        # Fetch product
+        product = ProductService.get_product(db, product_id)
+
+        if not product:
+            return jsonify({'success': False, 'error': 'Product not found'}), 404
+
+        # Verify ownership
+        if product['user_id'] != payload['user_id']:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+        return jsonify({
+            'success': True,
+            'product': product
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Get product error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/products/<product_id>', methods=['PUT'])
+def update_product(product_id):
+    """
+    Update product
+
+    Expects:
+    {
+        "name": "Updated Name",
+        "sku": "NEW-SKU",
+        ...
+    }
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get request data
+        data = request.get_json()
+
+        # Get database session
+        db = next(get_db())
+
+        # Update product
+        product = ProductService.update_product(
+            db, product_id, payload['user_id'], **data
+        )
+
+        if not product:
+            return jsonify({'success': False, 'error': 'Product not found or access denied'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Product updated successfully',
+            'product': product
+        }), 200
+
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        print(f"❌ Update product error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/products/<product_id>', methods=['DELETE'])
+def delete_product(product_id):
+    """Delete product (soft delete - sets is_active = False)"""
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get database session
+        db = next(get_db())
+
+        # Delete product
+        success = ProductService.delete_product(db, product_id, payload['user_id'])
+
+        if not success:
+            return jsonify({'success': False, 'error': 'Product not found or access denied'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Product deleted successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Delete product error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
 
 
 # ============================================
