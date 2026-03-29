@@ -223,32 +223,22 @@ def verify_user_credentials(db: Session, email: str, password: str) -> Optional[
 def update_last_login(db: Session, user_id: str) -> bool:
     """
     Update user's last login timestamp.
+    NOTE: Simplified schema doesn't have last_login column, so this is a no-op.
 
     Args:
         db: Database session
         user_id: User UUID
 
     Returns:
-        True if successful, False otherwise
+        True (success - no-op for simplified schema)
     """
     try:
-        query = text("""
-            UPDATE users
-            SET last_login = :last_login
-            WHERE id = :user_id
-        """)
-
-        db.execute(query, {
-            'user_id': user_id,
-            'last_login': datetime.datetime.now(datetime.timezone.utc)
-        })
-        db.commit()
-
+        # Simplified schema doesn't have last_login column
+        # This function is kept for compatibility but does nothing
         return True
 
     except Exception as e:
-        db.rollback()
-        logger.error(f"❌ Error updating last login: {e}")
+        logger.error(f"❌ Error in update_last_login: {e}")
         return False
 
 
@@ -262,14 +252,15 @@ def create_session(
 ) -> bool:
     """
     Save JWT session to database.
+    NOTE: Simplified schema only stores: id, user_id, token, expires_at
 
     Args:
         db: Database session
         user_id: User UUID
         token: JWT token
-        refresh_token: Optional refresh token
-        ip_address: Client IP address
-        user_agent: Client user agent string
+        refresh_token: Optional refresh token (not stored in simplified schema)
+        ip_address: Client IP address (not stored in simplified schema)
+        user_agent: Client user agent string (not stored in simplified schema)
 
     Returns:
         True if successful, False otherwise
@@ -279,18 +270,15 @@ def create_session(
         expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)
 
         query = text("""
-            INSERT INTO sessions (id, user_id, token, refresh_token, expires_at, ip_address, user_agent)
-            VALUES (:id, :user_id, :token, :refresh_token, :expires_at, :ip_address, :user_agent)
+            INSERT INTO sessions (id, user_id, token, expires_at)
+            VALUES (:id, :user_id, :token, :expires_at)
         """)
 
         db.execute(query, {
             'id': session_id,
             'user_id': user_id,
             'token': token,
-            'refresh_token': refresh_token,
-            'expires_at': expires_at,
-            'ip_address': ip_address,
-            'user_agent': user_agent
+            'expires_at': expires_at
         })
         db.commit()
 
