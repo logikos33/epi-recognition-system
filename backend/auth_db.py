@@ -76,9 +76,9 @@ def create_user(
         now = datetime.datetime.now(datetime.timezone.utc)
 
         query = text("""
-            INSERT INTO users (id, email, password_hash, full_name, company_name, phone, created_at, updated_at)
-            VALUES (:id, :email, :password_hash, :full_name, :company_name, :phone, :created_at, :updated_at)
-            RETURNING id, email, full_name, company_name, phone, created_at
+            INSERT INTO users (id, email, password_hash, full_name, company_name, created_at)
+            VALUES (:id, :email, :password_hash, :full_name, :company_name, :created_at)
+            RETURNING id, email, full_name, company_name, created_at
         """)
 
         result = db.execute(query, {
@@ -87,9 +87,7 @@ def create_user(
             'password_hash': password_hash,
             'full_name': full_name,
             'company_name': company_name,
-            'phone': phone,
-            'created_at': now,
-            'updated_at': now
+            'created_at': now
         })
 
         db.commit()
@@ -102,8 +100,7 @@ def create_user(
             'email': user_row[1],
             'full_name': user_row[2],
             'company_name': user_row[3],
-            'phone': user_row[4],
-            'created_at': user_row[5].isoformat() if user_row[5] else None
+            'created_at': user_row[4].isoformat() if user_row[4] else None
         }
 
     except Exception as e:
@@ -128,8 +125,7 @@ def get_user_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
     """
     try:
         query = text("""
-            SELECT id, email, password_hash, full_name, company_name, phone,
-                   is_active, role, created_at, updated_at, last_login
+            SELECT id, email, password_hash, full_name, company_name, created_at
             FROM users
             WHERE email = :email
         """)
@@ -144,12 +140,7 @@ def get_user_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
                 'password_hash': row[2],
                 'full_name': row[3],
                 'company_name': row[4],
-                'phone': row[5],
-                'is_active': row[6],
-                'role': row[7],
-                'created_at': row[8].isoformat() if row[8] else None,
-                'updated_at': row[9].isoformat() if row[9] else None,
-                'last_login': row[10].isoformat() if row[10] else None
+                'created_at': row[5].isoformat() if row[5] else None
             }
 
         return None
@@ -172,8 +163,7 @@ def get_user_by_id(db: Session, user_id: str) -> Optional[Dict[str, Any]]:
     """
     try:
         query = text("""
-            SELECT id, email, full_name, company_name, phone,
-                   is_active, role, created_at, updated_at, last_login
+            SELECT id, email, full_name, company_name, created_at
             FROM users
             WHERE id = :user_id
         """)
@@ -187,12 +177,7 @@ def get_user_by_id(db: Session, user_id: str) -> Optional[Dict[str, Any]]:
                 'email': row[1],
                 'full_name': row[2],
                 'company_name': row[3],
-                'phone': row[4],
-                'is_active': row[5],
-                'role': row[6],
-                'created_at': row[7].isoformat() if row[7] else None,
-                'updated_at': row[8].isoformat() if row[8] else None,
-                'last_login': row[9].isoformat() if row[9] else None
+                'created_at': row[4].isoformat() if row[4] else None
             }
 
         return None
