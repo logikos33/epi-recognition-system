@@ -229,3 +229,26 @@ class TrainingProjectDB:
         db.commit()
 
         return result.fetchone() is not None
+
+    def update_project_status(self, db: Session, project_id: str, status: str) -> bool:
+        """
+        Update only the status of a training project.
+
+        Args:
+            db: Database session
+            project_id: Project UUID
+            status: New status (e.g., 'draft', 'in_progress', 'completed')
+
+        Returns:
+            True if updated, False if project not found
+        """
+        query = text("""
+            UPDATE training_projects
+            SET status = :status, updated_at = NOW()
+            WHERE id = :project_id
+        """)
+
+        result = db.execute(query, {'project_id': project_id, 'status': status})
+        db.commit()
+
+        return result.rowcount > 0

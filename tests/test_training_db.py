@@ -217,3 +217,29 @@ def test_training_projects_table_structure(db):
     assert columns['id']['type'] == 'uuid'
     assert columns['name']['type'] == 'character varying'
     assert columns['target_classes']['type'] == 'jsonb'
+
+
+def test_update_project_status_only(db, test_user):
+    """Test updating only the status of a training project."""
+    project_db = TrainingProjectDB()
+
+    # Create project
+    created = project_db.create_project(
+        db=db,
+        user_id=test_user,
+        name="Status Test Project",
+        target_classes=["helmet"]
+    )
+
+    # Update status using the simplified method
+    result = project_db.update_project_status(db, created['id'], 'in_progress')
+    assert result is True
+
+    # Verify status was updated
+    retrieved = project_db.get_project_by_id(db, created['id'])
+    assert retrieved['status'] == 'in_progress'
+
+    # Test updating non-existent project
+    fake_id = str(uuid.uuid4())
+    result = project_db.update_project_status(db, fake_id, 'completed')
+    assert result is False
