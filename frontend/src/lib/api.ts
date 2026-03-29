@@ -35,9 +35,9 @@ class APIClient {
    * Build headers for request
    */
   private buildHeaders(customHeaders: HeadersInit = {}): HeadersInit {
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...customHeaders,
+      ...(customHeaders as Record<string, string>),
     }
 
     // Add Authorization header if token exists
@@ -45,7 +45,7 @@ class APIClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    return headers
+    return headers as HeadersInit
   }
 
   /**
@@ -189,7 +189,7 @@ class APIClient {
     }
 
     // Build headers (don't set Content-Type for FormData, browser does it automatically with boundary)
-    const headers: HeadersInit = {}
+    const headers: Record<string, string> = {}
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
@@ -216,7 +216,7 @@ class APIClient {
    * Download file
    */
   async download(endpoint: string): Promise<Blob> {
-    const headers: HeadersInit = {}
+    const headers: Record<string, string> = {}
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
@@ -270,6 +270,10 @@ export const API_ENDPOINTS = {
   TRAINING_PROJECTS: '/api/training/projects',
   TRAINING_PROJECT: (id: string) => `/api/training/projects/${id}`,
   TRAINING_PROJECT_STATUS: (id: string) => `/api/training/projects/${id}/status`,
+
+  // Training Videos
+  TRAINING_VIDEOS: (projectId: string) => `/api/training/projects/${projectId}/videos`,
+  TRAINING_VIDEO: (projectId: string, videoId: string) => `/api/training/projects/${projectId}/videos/${videoId}`,
 
   // Training
   TRAINING_IMAGES: '/api/training/images',
@@ -350,4 +354,11 @@ export async function deleteTrainingProject(id: string) {
  */
 export async function updateTrainingProjectStatus(id: string, status: string) {
   return api.patch(API_ENDPOINTS.TRAINING_PROJECT_STATUS(id), { status })
+}
+
+/**
+ * Upload a training video for a project
+ */
+export async function uploadTrainingVideo(projectId: string, file: File) {
+  return api.upload(API_ENDPOINTS.TRAINING_VIDEOS(projectId), file)
 }
