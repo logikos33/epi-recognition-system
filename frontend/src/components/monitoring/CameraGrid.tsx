@@ -1,27 +1,72 @@
 // frontend/src/components/monitoring/CameraGrid.tsx
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useCameraStreams } from '@/hooks/useCameraStreams'
-import type { SessionInfo } from '@/types/monitoring'
+import { useFuelingSessions } from '@/hooks/useFuelingSessions'
+import type { SessionInfo, FuelingSession, Camera } from '@/types/monitoring'
 import { CameraContainer } from './CameraContainer'
 import { ThumbnailsList } from './ThumbnailsList'
 import { CameraListSidebar } from './CameraListSidebar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Video, Plus, RefreshCw, AlertCircle } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Video, Plus, RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
 
 const MAX_CAMERAS = 12
 const PRIMARY_COUNT = 3
+
+/**
+ * Helper function to calculate elapsed time in HH:MM format
+ */
+function calculateElapsedTime(entryTime: Date): string {
+  const now = new Date()
+  const elapsedMs = now.getTime() - entryTime.getTime()
+  const elapsedSeconds = Math.floor(elapsedMs / 1000)
+  const hours = Math.floor(elapsedSeconds / 3600)
+  const minutes = Math.floor((elapsedSeconds % 3600) / 60)
+  const seconds = elapsedSeconds % 60
+
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+}
+
+/**
+ * Helper function to convert FuelingSession to SessionInfo
+ */
+function sessionToSessionInfo(session: FuelingSession): SessionInfo {
+  const entryTime = new Date(session.truck_entry_time)
+  const totalProducts = Object.values(session.products_counted || {}).reduce((sum, count) => sum + count, 0)
+
+  return {
+    sessionId: session.id,
+    licensePlate: session.license_plate,
+    entryTime,
+    elapsedTime: calculateElapsedTime(entryTime),
+    productCount: totalProducts,
+    currentWeight: session.final_weight || 0,
+    status: session.status as 'active' | 'completed' | 'paused',
+  }
+}
 
 /**
  * Main camera grid component with 3 primary + 9 thumbnail cameras
  */
 export function CameraGrid() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [expandedPrimaryId, setExpandedPrimaryId] = useState<number | null>(
-    null
-  )
+  const [expandedPrimaryId, setExpandedPrimaryId] = useState<number | null>(null)
+  const [isCreateSessionOpen, setIsCreateSessionOpen] = useState(false)
+  const [selectedCameraForSession, setSelectedCameraForSession] = useState<Camera | null>(null)
+  const [licensePlateInput, setLicensePlateInput] = useState('')
+  const [elapsedTimeUpdater, setElapsedTimeUpdater] = useState(0)
 
   const {
     cameras,
@@ -40,15 +85,49 @@ export function CameraGrid() {
     refreshInterval: 30000 // 30 seconds
   })
 
-  // Mock session data (will be replaced with real data in Task 2.5)
+  // Fetch active sessions with auto-refresh
+  const {
+    activeSessions,
+    loading: sessionsLoading,
+    error: sessionsError,
+    createSession,
+    isCreating
+  } = useFuelingSessions({
+    autoRefresh: true,
+    refreshInterval: 10000, // 10 seconds
+    filters: { status: 'active' }
+  })
+
+  // Update elapsed time every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsedTimeUpdater(prev => prev + 1)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // Map active sessions to cameras by bay_id
   const sessionsMap = useMemo<Map<number, SessionInfo | null>>(() => {
     const map = new Map<number, SessionInfo | null>()
-    selectedCameraIds.forEach((id) => {
-      // For now, all cameras have no active session
-      map.set(id, null)
+
+    // Initialize all selected cameras with null (no session)
+    selectedCameraIds.forEach((cameraId) => {
+      map.set(cameraId, null)
     })
+
+    // Map active sessions to cameras
+    activeSessions.forEach((session) => {
+      // Find camera that matches this session's bay_id and camera_id
+      const camera = cameras.find(c => c.id === session.camera_id)
+      if (camera && selectedCameraIds.includes(camera.id)) {
+        const sessionInfo = sessionToSessionInfo(session)
+        map.set(camera.id, sessionInfo)
+      }
+    })
+
     return map
-  }, [selectedCameraIds])
+  }, [activeSessions, cameras, selectedCameraIds, elapsedTimeUpdater])
 
   // Toggle camera selection
   const handleToggleCamera = (cameraId: number) => {
@@ -57,6 +136,43 @@ export function CameraGrid() {
     } else {
       addCamera(cameraId)
     }
+  }
+
+  // Open create session dialog for a camera
+  const handleOpenCreateSession = (camera: Camera) => {
+    setSelectedCameraForSession(camera)
+    setLicensePlateInput('')
+    setIsCreateSessionOpen(true)
+  }
+
+  // Handle create session submission
+  const handleCreateSession = async () => {
+    if (!selectedCameraForSession || !licensePlateInput.trim()) {
+      return
+    }
+
+    try {
+      await createSession({
+        bayId: selectedCameraForSession.bay_id,
+        cameraId: selectedCameraForSession.id,
+        licensePlate: licensePlateInput.trim().toUpperCase()
+      })
+
+      // Close dialog and reset state
+      setIsCreateSessionOpen(false)
+      setSelectedCameraForSession(null)
+      setLicensePlateInput('')
+    } catch (error) {
+      console.error('Failed to create session:', error)
+      // TODO: Show error toast to user
+    }
+  }
+
+  // Handle cancel create session
+  const handleCancelCreateSession = () => {
+    setIsCreateSessionOpen(false)
+    setSelectedCameraForSession(null)
+    setLicensePlateInput('')
   }
 
   // Get primary camera objects
@@ -232,6 +348,7 @@ export function CameraGrid() {
                         isExpanded ? null : camera.id
                       )
                     }
+                    onCreateSession={() => handleOpenCreateSession(camera)}
                   />
                 </div>
               )
@@ -249,6 +366,7 @@ export function CameraGrid() {
             sessionsMap={sessionsMap}
             onPromoteToPrimary={promoteToPrimary}
             onRemoveCamera={removeCamera}
+            onCreateSession={handleOpenCreateSession}
           />
         </div>
       )}
@@ -262,6 +380,61 @@ export function CameraGrid() {
         onClose={() => setIsSidebarOpen(false)}
         isOpen={isSidebarOpen}
       />
+
+      {/* Create session dialog */}
+      <Dialog open={isCreateSessionOpen} onOpenChange={setIsCreateSessionOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Nova Sessão de Abastecimento</DialogTitle>
+            <DialogDescription>
+              Crie uma nova sessão para a câmera {selectedCameraForSession?.name} na Baía {selectedCameraForSession?.bay_id}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="license-plate" className="text-right">
+                Placa
+              </Label>
+              <Input
+                id="license-plate"
+                value={licensePlateInput}
+                onChange={(e) => setLicensePlateInput(e.target.value.toUpperCase())}
+                placeholder="ABC-1234"
+                className="col-span-3"
+                maxLength={8}
+                autoFocus
+              />
+            </div>
+            <div className="text-sm text-muted-foreground">
+              <p>Informe a placa do caminhão para iniciar o monitoramento.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCancelCreateSession}
+              disabled={isCreating}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCreateSession}
+              disabled={!licensePlateInput.trim() || isCreating}
+            >
+              {isCreating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Criando...
+                </>
+              ) : (
+                'Criar Sessão'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

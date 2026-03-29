@@ -4,7 +4,7 @@
 import { useRef, useState, useEffect } from 'react'
 import type { Camera, SessionInfo } from '@/types/monitoring'
 import { InfoOverlay } from './InfoOverlay'
-import { Maximize2, Minimize2 } from 'lucide-react'
+import { Maximize2, Minimize2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface CameraContainerProps {
@@ -12,6 +12,7 @@ interface CameraContainerProps {
   sessionInfo: SessionInfo | null
   isExpanded: boolean
   onToggleExpand: () => void
+  onCreateSession?: () => void
   className?: string
 }
 
@@ -23,6 +24,7 @@ export function CameraContainer({
   sessionInfo,
   isExpanded,
   onToggleExpand,
+  onCreateSession,
   className = ''
 }: CameraContainerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -88,6 +90,19 @@ export function CameraContainer({
           <Maximize2 className="w-4 h-4" />
         )}
       </Button>
+
+      {/* Create session button (only show if no active session and callback provided) */}
+      {!sessionInfo && onCreateSession && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onCreateSession}
+          className="absolute bottom-2 left-2 bg-black/50 hover:bg-black/70 text-white"
+          title="Criar nova sessão"
+        >
+          <Plus className="w-4 h-4" />
+        </Button>
+      )}
 
       {/* Detection canvas (for YOLO bounding boxes) */}
       <canvas

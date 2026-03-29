@@ -68,7 +68,7 @@ export function InfoOverlay({ sessionInfo, className = '' }: InfoOverlayProps) {
             <div className="flex items-center gap-2 text-white">
               <Clock className="w-4 h-4" />
               <span className="text-sm">
-                Entrada: {new Date(sessionInfo.entryTime).toLocaleTimeString('pt-BR')}
+                Entrada: {(sessionInfo.entryTime instanceof Date ? sessionInfo.entryTime : new Date(sessionInfo.entryTime)).toLocaleTimeString('pt-BR')}
               </span>
             </div>
           )}
