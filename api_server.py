@@ -27,8 +27,11 @@ from backend.auth_db import (
     create_user, get_user_by_email, get_user_by_id,
     verify_user_credentials, update_last_login, create_session, verify_session
 )
+
+from sqlalchemy import text
 from backend.products import ProductService
 from backend.training_db import TrainingProjectDB
+from backend.camera_service import CameraService
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -1771,6 +1774,196 @@ def activate_model(model_id):
         if db:
             db.close()
 
+
+# ============================================
+# CAMERA MANAGEMENT ENDPOINTS
+# ============================================
+
+@app.route('/api/cameras', methods=['GET'])
+def list_cameras():
+    """List all cameras"""
+    try:
+        db = next(get_db())
+        cameras = CameraService.list_cameras(db)
+        return jsonify({
+            'success': True,
+            'cameras': cameras
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/cameras', methods=['POST'])
+def create_camera():
+    """Create a new camera"""
+    try:
+        data = request.get_json()
+        bay_id = data.get('bay_id')
+        name = data.get('name')
+        rtsp_url = data.get('rtsp_url')
+
+        if not bay_id or not name:
+            return jsonify({
+                'success': False,
+                'error': 'bay_id and name are required'
+            }), 400
+
+        db = next(get_db())
+        camera = CameraService.create_camera(
+            db=db,
+            bay_id=bay_id,
+            name=name,
+            rtsp_url=rtsp_url
+        )
+
+        if camera:
+            return jsonify({
+                'success': True,
+                'camera': camera
+            }), 201
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to create camera'
+            }), 500
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/cameras/<int:camera_id>', methods=['GET'])
+def get_camera(camera_id):
+    """Get camera by ID"""
+    try:
+        db = next(get_db())
+        camera = CameraService.get_camera_by_id(db, camera_id)
+
+        if camera:
+            return jsonify({
+                'success': True,
+                'camera': camera
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Camera not found'
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/cameras/<int:camera_id>', methods=['PUT'])
+def update_camera(camera_id):
+    """Update camera"""
+    try:
+        data = request.get_json()
+        db = next(get_db())
+        camera = CameraService.update_camera(
+            db=db,
+            camera_id=camera_id,
+            name=data.get('name'),
+            rtsp_url=data.get('rtsp_url'),
+            is_active=data.get('is_active'),
+            position_order=data.get('position_order')
+        )
+
+        if camera:
+            return jsonify({
+                'success': True,
+                'camera': camera
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Camera not found or update failed'
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
+def delete_camera(camera_id):
+    """Delete camera"""
+    try:
+        db = next(get_db())
+        success = CameraService.delete_camera(db, camera_id)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Camera deleted'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Camera not found'
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/cameras/by-bay/<int:bay_id>', methods=['GET'])
+def get_cameras_by_bay(bay_id):
+    """Get all cameras for a specific bay"""
+    try:
+        db = next(get_db())
+        cameras = CameraService.get_cameras_by_bay(db, bay_id)
+        return jsonify({
+            'success': True,
+            'cameras': cameras
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/bays', methods=['GET'])
+def list_bays():
+    """List all bays"""
+    try:
+        db = next(get_db())
+        result = db.execute(text("SELECT * FROM bays ORDER BY id"))
+        rows = result.fetchall()
+
+        bays = []
+        for row in rows:
+            bays.append({
+                'id': row[0],
+                'name': row[1],
+                'location': row[2],
+                'scale_integration': row[3],
+                'created_at': row[4].isoformat() if row[4] else None
+            })
+
+        return jsonify({
+            'success': True,
+            'bays': bays
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 # ============================================
 # START SERVER
