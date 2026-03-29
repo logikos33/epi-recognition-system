@@ -300,6 +300,114 @@ class APIClient {
   async listBays(): Promise<{ success: boolean; bays: any[] }> {
     return this.get('/api/bays')
   }
+
+  /**
+   * ==============================
+   * FUELING SESSIONS
+   * ==============================
+   */
+
+  /**
+   * List fueling sessions with optional filters
+   */
+  async listSessions(filters?: {
+    bayId?: number;
+    status?: 'active' | 'completed' | 'paused';
+    limit?: number;
+  }): Promise<{ success: boolean; sessions: any[] }> {
+    const params = new URLSearchParams()
+    if (filters?.bayId !== undefined) params.append('bay_id', filters.bayId.toString())
+    if (filters?.status) params.append('status', filters.status)
+    if (filters?.limit !== undefined) params.append('limit', filters.limit.toString())
+
+    const queryString = params.toString()
+    const endpoint = queryString ? `/api/sessions?${queryString}` : '/api/sessions'
+
+    return this.get(endpoint)
+  }
+
+  /**
+   * Create a new fueling session
+   */
+  async createSession(data: {
+    bayId: number;
+    cameraId: number;
+    licensePlate: string;
+  }): Promise<{ success: boolean; session: any }> {
+    return this.post('/api/sessions', {
+      bay_id: data.bayId,
+      camera_id: data.cameraId,
+      license_plate: data.licensePlate,
+    })
+  }
+
+  /**
+   * Get fueling session by ID
+   */
+  async getSession(sessionId: string): Promise<{ success: boolean; session: any }> {
+    return this.get(`/api/sessions/${sessionId}`)
+  }
+
+  /**
+   * Update fueling session
+   */
+  async updateSession(
+    sessionId: string,
+    data: {
+      licensePlate?: string;
+      truckExitTime?: string;
+      durationSeconds?: number;
+      finalWeight?: number;
+      status?: 'active' | 'completed' | 'paused';
+    }
+  ): Promise<{ success: boolean; session: any }> {
+    return this.put(`/api/sessions/${sessionId}`, {
+      license_plate: data.licensePlate,
+      truck_exit_time: data.truckExitTime,
+      duration_seconds: data.durationSeconds,
+      final_weight: data.finalWeight,
+      status: data.status,
+    })
+  }
+
+  /**
+   * Complete fueling session
+   */
+  async completeSession(
+    sessionId: string,
+    truckExitTime?: string
+  ): Promise<{ success: boolean; session: any }> {
+    return this.post(`/api/sessions/${sessionId}/complete`, {
+      truck_exit_time: truckExitTime,
+    })
+  }
+
+  /**
+   * Add counted product to session
+   */
+  async addCountedProduct(
+    sessionId: string,
+    data: {
+      productType: string;
+      quantity: number;
+      confidence?: number;
+      confirmedByUser?: boolean;
+    }
+  ): Promise<{ success: boolean; product: any }> {
+    return this.post(`/api/sessions/${sessionId}/products`, {
+      product_type: data.productType,
+      quantity: data.quantity,
+      confidence: data.confidence,
+      confirmed_by_user: data.confirmedByUser ?? false,
+    })
+  }
+
+  /**
+   * Get all counted products for a session
+   */
+  async getSessionProducts(sessionId: string): Promise<{ success: boolean; products: any[] }> {
+    return this.get(`/api/sessions/${sessionId}/products`)
+  }
 }
 
 // Export singleton instance
@@ -323,6 +431,15 @@ export const API_ENDPOINTS = {
   // Cameras
   CAMERAS: '/api/cameras',
   CAMERA: (id: string) => `/api/cameras/${id}`,
+
+  // Bays
+  BAYS: '/api/bays',
+
+  // Fueling Sessions
+  SESSIONS: '/api/sessions',
+  SESSION: (id: string) => `/api/sessions/${id}`,
+  SESSION_COMPLETE: (id: string) => `/api/sessions/${id}/complete`,
+  SESSION_PRODUCTS: (id: string) => `/api/sessions/${id}/products`,
 
   // Detections
   DETECTIONS: '/api/detections',
