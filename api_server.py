@@ -33,6 +33,7 @@ from backend.products import ProductService
 from backend.training_db import TrainingProjectDB
 from backend.camera_service import CameraService
 from backend.fueling_session_service import FuelingSessionService
+from backend.ocr_service import OCRService
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -2316,6 +2317,84 @@ def get_session_products_list(session_id):
             'success': False,
             'error': str(e)
         }), 500
+
+
+# ============================================
+# OCR ENDPOINTS
+# ============================================
+
+@app.route('/api/ocr/recognize-license-plate', methods=['POST'])
+def recognize_license_plate():
+    """
+    Recognize license plate from image using OCR
+
+    Expects multipart/form-data:
+    - image: Image file (jpg, png, jpeg, bmp)
+
+    Returns:
+    {
+        "success": true,
+        "license_plate": "ABC-1234",
+        "confidence": 89.5,
+        "valid": true
+    }
+    """
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    temp_file = None
+    try:
+        # Check if image file is present
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image file provided'}), 400
+
+        image_file = request.files['image']
+        if image_file.filename == '':
+            return jsonify({'success': False, 'error': 'No image file selected'}), 400
+
+        # Validate file type
+        filename = secure_filename(image_file.filename)
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.bmp'}
+        file_ext = os.path.splitext(filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid file type. Allowed: {", ".join(allowed_extensions)}'
+            }), 400
+
+        # Save to temp location
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
+            image_file.save(tmp_file.name)
+            temp_file = tmp_file.name
+
+        # Process with OCRService
+        result = OCRService.recognize_license_plate(temp_file)
+
+        # Return result
+        return jsonify({
+            'success': True,
+            'license_plate': result['license_plate'],
+            'confidence': result['confidence'],
+            'valid': result['valid']
+        }), 200
+
+    except Exception as e:
+        print(f"❌ OCR recognition error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        # Cleanup temp file
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
 
 
 # ============================================
