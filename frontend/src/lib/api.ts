@@ -231,6 +231,75 @@ class APIClient {
 
     return response.blob()
   }
+
+  /**
+   * ==============================
+   * CAMERA MANAGEMENT
+   * ==============================
+   */
+
+  /**
+   * List all cameras
+   */
+  async listCameras(): Promise<{ success: boolean; cameras: any[] }> {
+    return this.get('/api/cameras')
+  }
+
+  /**
+   * Create a new camera
+   */
+  async createCamera(data: {
+    bay_id: number;
+    name: string;
+    rtsp_url?: string;
+    is_active?: boolean;
+    position_order?: number;
+  }): Promise<{ success: boolean; camera: any }> {
+    return this.post('/api/cameras', data)
+  }
+
+  /**
+   * Get camera by ID
+   */
+  async getCamera(cameraId: number): Promise<{ success: boolean; camera: any }> {
+    return this.get(`/api/cameras/${cameraId}`)
+  }
+
+  /**
+   * Update camera
+   */
+  async updateCamera(
+    cameraId: number,
+    data: {
+      name?: string;
+      rtsp_url?: string;
+      is_active?: boolean;
+      position_order?: number;
+    }
+  ): Promise<{ success: boolean; camera: any }> {
+    return this.put(`/api/cameras/${cameraId}`, data)
+  }
+
+  /**
+   * Delete camera
+   */
+  async deleteCamera(cameraId: number): Promise<{ success: boolean; message: string }> {
+    return this.delete(`/api/cameras/${cameraId}`)
+  }
+
+  /**
+   * Get cameras by bay
+   */
+  async getCamerasByBay(bayId: number): Promise<{ success: boolean; cameras: any[] }> {
+    return this.get(`/api/cameras/by-bay/${bayId}`)
+  }
+
+  /**
+   * List all bays
+   */
+  async listBays(): Promise<{ success: boolean; bays: any[] }> {
+    return this.get('/api/bays')
+  }
 }
 
 // Export singleton instance
