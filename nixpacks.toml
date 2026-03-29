@@ -1,0 +1,18 @@
+[phases.setup]
+nixPkgs = ["postgresql", "libpq"]
+
+[phases.build]
+nixPkgs = ["pkg-config", "libpq", "postgresql"]
+
+[phases.install]
+nixPkgs = ["opencv", "python311"]
+
+[variables]
+PYTHON_VERSION = "3.11"
+PORT = "5001"
+
+[start]
+cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 api_server:app"
+
+[build]
+nixPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender-dev", "libgomp1"]
