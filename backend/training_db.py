@@ -71,13 +71,14 @@ class TrainingProjectDB:
             'updated_at': row[7].isoformat() if row[7] else None
         }
 
-    def get_project_by_id(self, db: Session, project_id: str) -> Optional[Dict[str, Any]]:
+    def get_project(self, db: Session, project_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a training project by ID.
 
         Args:
             db: Database session
             project_id: Project UUID
+            user_id: User UUID
 
         Returns:
             Dictionary with project data or None if not found
@@ -85,10 +86,10 @@ class TrainingProjectDB:
         query = text("""
             SELECT id, user_id, name, description, target_classes, status, created_at, updated_at
             FROM training_projects
-            WHERE id = :project_id
+            WHERE id = :project_id AND user_id = :user_id
         """)
 
-        result = db.execute(query, {'project_id': project_id})
+        result = db.execute(query, {'project_id': project_id, 'user_id': user_id})
         row = result.fetchone()
 
         if not row:
@@ -105,7 +106,7 @@ class TrainingProjectDB:
             'updated_at': row[7].isoformat() if row[7] else None
         }
 
-    def list_projects(self, db: Session, user_id: str) -> List[Dict[str, Any]]:
+    def list_user_projects(self, db: Session, user_id: str) -> List[Dict[str, Any]]:
         """
         List all training projects for a user.
 
@@ -208,24 +209,25 @@ class TrainingProjectDB:
             'updated_at': row[7].isoformat() if row[7] else None
         }
 
-    def delete_project(self, db: Session, project_id: str) -> bool:
+    def delete_project(self, db: Session, project_id: str, user_id: str) -> bool:
         """
         Delete a training project.
 
         Args:
             db: Database session
             project_id: Project UUID
+            user_id: User UUID
 
         Returns:
             True if deleted, False if not found
         """
         query = text("""
             DELETE FROM training_projects
-            WHERE id = :project_id
+            WHERE id = :project_id AND user_id = :user_id
             RETURNING id
         """)
 
-        result = db.execute(query, {'project_id': project_id})
+        result = db.execute(query, {'project_id': project_id, 'user_id': user_id})
         db.commit()
 
         return result.fetchone() is not None

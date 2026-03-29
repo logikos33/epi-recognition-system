@@ -86,7 +86,7 @@ def test_get_training_project_by_id(db, test_user):
     )
 
     # Retrieve by ID
-    retrieved = project_db.get_project_by_id(db, created['id'])
+    retrieved = project_db.get_project(db, created['id'], test_user)
 
     assert retrieved is not None
     assert retrieved['id'] == created['id']
@@ -112,7 +112,7 @@ def test_list_training_projects_by_user(db, test_user):
     )
 
     # List projects
-    projects = project_db.list_projects(db, test_user)
+    projects = project_db.list_user_projects(db, test_user)
 
     assert len(projects) >= 2
     project_names = [p['name'] for p in projects]
@@ -162,11 +162,11 @@ def test_delete_training_project(db, test_user):
     )
 
     # Delete project
-    result = project_db.delete_project(db, created['id'])
+    result = project_db.delete_project(db, created['id'], test_user)
     assert result is True
 
     # Verify deletion
-    retrieved = project_db.get_project_by_id(db, created['id'])
+    retrieved = project_db.get_project(db, created['id'], test_user)
     assert retrieved is None
 
 
@@ -236,10 +236,15 @@ def test_update_project_status_only(db, test_user):
     assert result is True
 
     # Verify status was updated
-    retrieved = project_db.get_project_by_id(db, created['id'])
+    retrieved = project_db.get_project(db, created['id'], test_user)
     assert retrieved['status'] == 'in_progress'
 
     # Test updating non-existent project
     fake_id = str(uuid.uuid4())
     result = project_db.update_project_status(db, fake_id, 'completed')
     assert result is False
+
+    # Test retrieving with wrong user_id returns None
+    wrong_user = str(uuid.uuid4())
+    retrieved = project_db.get_project(db, created['id'], wrong_user)
+    assert retrieved is None
