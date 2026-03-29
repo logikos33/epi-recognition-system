@@ -10,6 +10,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Whitelist of allowed fields for update_session() to prevent SQL injection
+ALLOWED_UPDATE_FIELDS = {
+    'license_plate',
+    'truck_exit_time',
+    'duration_seconds',
+    'final_weight',
+    'status'
+}
+
 
 class FuelingSessionService:
     """Service for managing fueling sessions"""
@@ -57,6 +66,7 @@ class FuelingSessionService:
                 'truck_entry_time': row[4].isoformat() if row[4] else None,
                 'truck_exit_time': row[5].isoformat() if row[5] else None,
                 'duration_seconds': row[6],
+                # Note: products_counted is JSONB field - returns dict/list, not integer
                 'products_counted': row[7],
                 'final_weight': row[8],
                 'status': row[9],
@@ -95,6 +105,7 @@ class FuelingSessionService:
                 'truck_entry_time': row[4].isoformat() if row[4] else None,
                 'truck_exit_time': row[5].isoformat() if row[5] else None,
                 'duration_seconds': row[6],
+                # Note: products_counted is JSONB field - returns dict/list, not integer
                 'products_counted': row[7],
                 'final_weight': row[8],
                 'status': row[9],
@@ -154,6 +165,7 @@ class FuelingSessionService:
                     'truck_entry_time': row[4].isoformat() if row[4] else None,
                     'truck_exit_time': row[5].isoformat() if row[5] else None,
                     'duration_seconds': row[6],
+                    # Note: products_counted is JSONB field - returns dict/list, not integer
                     'products_counted': row[7],
                     'final_weight': row[8],
                     'status': row[9],
@@ -183,9 +195,18 @@ class FuelingSessionService:
             Updated session dict or None
         """
         try:
-            # Build dynamic UPDATE query
+            # Build dynamic UPDATE query with field validation to prevent SQL injection
             update_fields = []
             params = {'session_id': session_id}
+
+            # Map parameter names to actual column names for validation
+            field_mapping = {
+                'license_plate': 'license_plate',
+                'truck_exit_time': 'truck_exit_time',
+                'duration_seconds': 'duration_seconds',
+                'final_weight': 'final_weight',
+                'status': 'status'
+            }
 
             if license_plate is not None:
                 update_fields.append("license_plate = :license_plate")
@@ -206,6 +227,13 @@ class FuelingSessionService:
             if status is not None:
                 update_fields.append("status = :status")
                 params['status'] = status
+
+            # Validate all fields are in allowed whitelist (SQL injection prevention)
+            for field in update_fields:
+                field_name = field.split(' =')[0].strip()
+                if field_name not in ALLOWED_UPDATE_FIELDS:
+                    logger.error(f"❌ Invalid field '{field_name}' not in ALLOWED_UPDATE_FIELDS")
+                    raise ValueError(f"Invalid field '{field_name}' for update")
 
             if not update_fields:
                 return FuelingSessionService.get_session_by_id(db, session_id)
@@ -229,6 +257,7 @@ class FuelingSessionService:
                 'truck_entry_time': row[4].isoformat() if row[4] else None,
                 'truck_exit_time': row[5].isoformat() if row[5] else None,
                 'duration_seconds': row[6],
+                # Note: products_counted is JSONB field - returns dict/list, not integer
                 'products_counted': row[7],
                 'final_weight': row[8],
                 'status': row[9],
@@ -256,29 +285,19 @@ class FuelingSessionService:
             if truck_exit_time is None:
                 truck_exit_time = datetime.now()
 
-            # Get session to calculate duration
-            session = FuelingSessionService.get_session_by_id(db, session_id)
-            if not session:
-                return None
-
-            # Calculate duration if truck_entry_time exists
-            duration_seconds = None
-            if session['truck_entry_time']:
-                entry_time = datetime.fromisoformat(session['truck_entry_time'])
-                duration_seconds = int((truck_exit_time - entry_time).total_seconds())
-
+            # Atomic UPDATE with SQL-based duration calculation to prevent race condition
+            # This eliminates the read-then-write pattern that could cause inconsistencies
             query = text("""
                 UPDATE fueling_sessions
                 SET status = 'completed',
                     truck_exit_time = :truck_exit_time,
-                    duration_seconds = :duration_seconds
+                    duration_seconds = EXTRACT(EPOCH FROM (:truck_exit_time - truck_entry_time))::INTEGER
                 WHERE id = :session_id
                 RETURNING *
             """)
             result = db.execute(query, {
                 'session_id': session_id,
-                'truck_exit_time': truck_exit_time,
-                'duration_seconds': duration_seconds
+                'truck_exit_time': truck_exit_time
             })
             db.commit()
             row = result.fetchone()
@@ -292,6 +311,7 @@ class FuelingSessionService:
                 'truck_entry_time': row[4].isoformat() if row[4] else None,
                 'truck_exit_time': row[5].isoformat() if row[5] else None,
                 'duration_seconds': row[6],
+                # Note: products_counted is JSONB field - returns dict/list, not integer
                 'products_counted': row[7],
                 'final_weight': row[8],
                 'status': row[9],
