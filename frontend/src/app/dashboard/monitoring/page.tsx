@@ -5,19 +5,9 @@ import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Camera, LayoutDashboard, Settings } from 'lucide-react'
 import { AuthProtected } from '@/components/auth-protected'
+import { CameraGrid } from '@/components/monitoring/CameraGrid'
 
 // Placeholder components (will implement in next tasks)
-function CameraGridTab() {
-  return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">Camera Grid</h2>
-      <div className="bg-muted rounded-lg h-96 flex items-center justify-center">
-        <p className="text-muted-foreground">Camera grid coming soon...</p>
-      </div>
-    </div>
-  )
-}
-
 function DashboardTab() {
   return (
     <div className="p-6">
@@ -74,7 +64,7 @@ export default function MonitoringPage() {
           </div>
 
           <TabsContent value="cameras" className="flex-1 m-0">
-            <CameraGridTab />
+            <CameraGrid />
           </TabsContent>
 
           <TabsContent value="dashboard" className="flex-1 m-0">
