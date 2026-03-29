@@ -4,6 +4,7 @@ With Authentication, Database, and YOLO Detection
 """
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 import base64
 import numpy as np
 import os
@@ -1065,6 +1066,245 @@ def update_project_status(project_id):
 
     except Exception as e:
         print(f"❌ Update project status error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+# ============================================
+# TRAINING VIDEOS ENDPOINTS
+# ============================================
+
+@app.route('/api/training/videos', methods=['POST'])
+def upload_training_video():
+    """
+    Upload a video to a training project
+
+    Expects multipart/form-data:
+    - video: Video file (mp4, avi, mov)
+    - project_id: Project UUID
+
+    Returns:
+    - video: Video metadata
+    - extracted_frames: Number of frames extracted
+    """
+    db = None
+    temp_file = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Check if video file is present
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'error': 'No video file provided'}), 400
+
+        video_file = request.files['video']
+        if video_file.filename == '':
+            return jsonify({'success': False, 'error': 'No video file selected'}), 400
+
+        # Get project_id
+        project_id = request.form.get('project_id')
+        if not project_id:
+            return jsonify({'success': False, 'error': 'project_id is required'}), 400
+
+        # Verify project ownership
+        db = next(get_db())
+        project = TrainingProjectDB.get_project(db, project_id, user_id)
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found or access denied'}), 404
+
+        # Validate file size (max 500MB)
+        video_file.seek(0, os.SEEK_END)
+        file_size = video_file.tell()
+        video_file.seek(0)
+
+        MAX_SIZE = 500 * 1024 * 1024  # 500MB
+        if file_size > MAX_SIZE:
+            return jsonify({'success': False, 'error': f'File size exceeds 500MB limit'}), 400
+
+        # Validate file type
+        filename = secure_filename(video_file.filename)
+        allowed_extensions = {'.mp4', '.avi', '.mov', '.mkv'}
+        file_ext = os.path.splitext(filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({'success': False, 'error': f'Invalid file type. Allowed: {", ".join(allowed_extensions)}'}), 400
+
+        # Save to temp location
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
+            video_file.save(tmp_file.name)
+            temp_file = tmp_file.name
+
+        # Process video using VideoProcessor
+        from backend.video_processor import VideoProcessor
+        processor = VideoProcessor()
+
+        result = processor.process_video(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            video_path=temp_file,
+            filename=filename
+        )
+
+        if not result['success']:
+            return jsonify(result), 500
+
+        # Extract frames (1 frame per second)
+        frames_result = processor.extract_frames(
+            db=db,
+            video_id=result['video']['id'],
+            user_id=user_id,
+            frames_per_second=1
+        )
+
+        return jsonify({
+            'success': True,
+            'video': result['video'],
+            'extracted_frames': frames_result.get('extracted_frames', 0)
+        }), 201
+
+    except Exception as e:
+        print(f"❌ Upload video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        # Cleanup temp file
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+        if db:
+            db.close()
+
+
+@app.route('/api/training/projects/<project_id>/videos', methods=['GET'])
+def list_project_videos(project_id):
+    """List all videos for a training project"""
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get database session
+        db = next(get_db())
+
+        # Verify project ownership
+        project = TrainingProjectDB.get_project(db, project_id, user_id)
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found or access denied'}), 404
+
+        # List videos
+        from backend.video_db import VideoService
+        videos = VideoService.list_project_videos(db, project_id, user_id)
+
+        return jsonify({
+            'success': True,
+            'videos': videos,
+            'count': len(videos)
+        }), 200
+
+    except Exception as e:
+        print(f"❌ List videos error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/videos/<video_id>', methods=['GET'])
+def get_training_video(video_id):
+    """Get a specific video by ID"""
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get database session
+        db = next(get_db())
+
+        # Get video
+        from backend.video_db import VideoService
+        video = VideoService.get_video(db, video_id, user_id)
+
+        if not video:
+            return jsonify({'success': False, 'error': 'Video not found or access denied'}), 404
+
+        return jsonify({
+            'success': True,
+            'video': video
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Get video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/videos/<video_id>', methods=['DELETE'])
+def delete_training_video(video_id):
+    """Delete a training video (cascade deletes frames and annotations)"""
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get database session
+        db = next(get_db())
+
+        # Delete video
+        from backend.video_db import VideoService
+        deleted = VideoService.delete_video(db, video_id, user_id)
+
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Video not found or access denied'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Video deleted successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Delete video error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
         if db:
