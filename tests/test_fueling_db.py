@@ -143,3 +143,19 @@ def test_counted_products_table_structure():
         ]
         for col in required_columns:
             assert col in columns, f"Column {col} missing from counted_products"
+
+
+def test_sample_bays_data():
+    """Test that sample bays data was inserted"""
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT COUNT(*) FROM bays"))
+        count = result.scalar()
+        assert count >= 3, f"Expected at least 3 bays, got {count}"
+
+
+def test_sample_cameras_data():
+    """Test that sample cameras data was inserted"""
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT COUNT(*) FROM cameras"))
+        count = result.scalar()
+        assert count >= 5, f"Expected at least 5 cameras, got {count}"
