@@ -54,14 +54,14 @@ class ProductService:
 
             query = text("""
                 INSERT INTO products (
-                    id, user_id, name, sku, category, description, image_url,
-                    detection_threshold, is_active, volume_cm3, weight_g, created_at, updated_at
+                    id, user_id, name, sku, category, description,
+                    detection_threshold, is_active, created_at
                 )
                 VALUES (
-                    :id, :user_id, :name, :sku, :category, :description, :image_url,
-                    :detection_threshold, TRUE, :volume_cm3, :weight_g, :created_at, :updated_at
+                    :id, :user_id, :name, :sku, :category, :description,
+                    :detection_threshold, TRUE, :created_at
                 )
-                RETURNING *
+                RETURNING id, user_id, name, sku, category, description, detection_threshold, is_active, created_at
             """)
 
             result = db.execute(query, {
@@ -91,13 +91,9 @@ class ProductService:
                 'sku': row[3],
                 'category': row[4],
                 'description': row[5],
-                'image_url': row[6],
-                'detection_threshold': float(row[7]),
-                'is_active': bool(row[8]),
-                'volume_cm3': float(row[9]) if row[9] else None,
-                'weight_g': float(row[10]) if row[10] else None,
-                'created_at': row[11].isoformat() if row[11] else None,
-                'updated_at': row[12].isoformat() if row[12] else None
+                'detection_threshold': float(row[6]),
+                'is_active': bool(row[7]),
+                'created_at': row[8].isoformat() if row[8] else None
             }
 
         except Exception as e:
@@ -147,10 +143,8 @@ class ProductService:
             where_clause = " AND ".join(conditions)
 
             query = text(f"""
-                SELECT id, user_id, name, sku, category, description, image_url,
-                       detection_threshold, is_active, volume_cm3, weight_g,
-                       created_at, updated_at,
-                       (SELECT COUNT(*) FROM training_images WHERE product_id = products.id) as training_images_count
+                SELECT id, user_id, name, sku, category, description,
+                       detection_threshold, is_active, created_at
                 FROM products
                 WHERE {where_clause}
                 ORDER BY created_at DESC
@@ -169,14 +163,9 @@ class ProductService:
                     'sku': row[3],
                     'category': row[4],
                     'description': row[5],
-                    'image_url': row[6],
-                    'detection_threshold': float(row[7]),
-                    'is_active': bool(row[8]),
-                    'volume_cm3': float(row[9]) if row[9] else None,
-                    'weight_g': float(row[10]) if row[10] else None,
-                    'created_at': row[11].isoformat() if row[11] else None,
-                    'updated_at': row[12].isoformat() if row[12] else None,
-                    'training_images_count': row[13]
+                    'detection_threshold': float(row[6]),
+                    'is_active': bool(row[7]),
+                    'created_at': row[8].isoformat() if row[8] else None
                 })
 
             return products
