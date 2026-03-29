@@ -20,7 +20,7 @@ def upgrade() -> None:
     # Training Projects
     op.create_table(
         'training_projects',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('uuid_generate_v4()')),
+        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('name', sa.VARCHAR(255), nullable=False),
         sa.Column('description', sa.TEXT(), nullable=True),
@@ -34,7 +34,7 @@ def upgrade() -> None:
     # Training Videos
     op.create_table(
         'training_videos',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('uuid_generate_v4()')),
+        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('project_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('filename', sa.VARCHAR(255), nullable=False),
         sa.Column('storage_path', sa.TEXT(), nullable=False),
@@ -48,7 +48,7 @@ def upgrade() -> None:
     # Training Frames
     op.create_table(
         'training_frames',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('uuid_generate_v4()')),
+        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('video_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('frame_number', sa.INTEGER(), nullable=False),
         sa.Column('storage_path', sa.TEXT(), nullable=False),
@@ -60,7 +60,7 @@ def upgrade() -> None:
     # Annotations
     op.create_table(
         'training_annotations',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('uuid_generate_v4()')),
+        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('frame_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('class_name', sa.VARCHAR(100), nullable=False),
         sa.Column('bbox_x', sa.DECIMAL(10, 2), nullable=False),
@@ -79,7 +79,7 @@ def upgrade() -> None:
     # Trained Models
     op.create_table(
         'trained_models',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('uuid_generate_v4()')),
+        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('project_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('model_name', sa.VARCHAR(255), nullable=False),
         sa.Column('version', sa.INTEGER(), nullable=False),
