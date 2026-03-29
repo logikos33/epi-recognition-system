@@ -1782,6 +1782,15 @@ def activate_model(model_id):
 @app.route('/api/cameras', methods=['GET'])
 def list_cameras():
     """List all cameras"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
     try:
         db = next(get_db())
         cameras = CameraService.list_cameras(db)
@@ -1799,6 +1808,15 @@ def list_cameras():
 @app.route('/api/cameras', methods=['POST'])
 def create_camera():
     """Create a new camera"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
     try:
         data = request.get_json()
         bay_id = data.get('bay_id')
@@ -1840,6 +1858,15 @@ def create_camera():
 @app.route('/api/cameras/<int:camera_id>', methods=['GET'])
 def get_camera(camera_id):
     """Get camera by ID"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
     try:
         db = next(get_db())
         camera = CameraService.get_camera_by_id(db, camera_id)
@@ -1865,6 +1892,15 @@ def get_camera(camera_id):
 @app.route('/api/cameras/<int:camera_id>', methods=['PUT'])
 def update_camera(camera_id):
     """Update camera"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
     try:
         data = request.get_json()
         db = next(get_db())
@@ -1898,6 +1934,15 @@ def update_camera(camera_id):
 @app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
 def delete_camera(camera_id):
     """Delete camera"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
     try:
         db = next(get_db())
         success = CameraService.delete_camera(db, camera_id)
@@ -1923,6 +1968,15 @@ def delete_camera(camera_id):
 @app.route('/api/cameras/by-bay/<int:bay_id>', methods=['GET'])
 def get_cameras_by_bay(bay_id):
     """Get all cameras for a specific bay"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
     try:
         db = next(get_db())
         cameras = CameraService.get_cameras_by_bay(db, bay_id)
@@ -1940,6 +1994,15 @@ def get_cameras_by_bay(bay_id):
 @app.route('/api/bays', methods=['GET'])
 def list_bays():
     """List all bays"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
     try:
         db = next(get_db())
         result = db.execute(text("SELECT * FROM bays ORDER BY id"))

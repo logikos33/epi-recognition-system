@@ -103,3 +103,43 @@ def test_delete_camera(client):
 
     assert response.status_code == 200
     assert data['success'] is True
+
+
+def test_unauthorized_access():
+    """Test that unauthorized requests are rejected"""
+    # Create a client without authentication
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        # Test without token
+        response = client.get('/api/cameras')
+        assert response.status_code == 401
+        data = json.loads(response.data)
+        assert data['success'] is False
+        assert 'Authorization token required' in data['error']
+
+        # Test with invalid token
+        response = client.get('/api/cameras', headers={'Authorization': 'Bearer invalid-token'})
+        assert response.status_code == 401
+        data = json.loads(response.data)
+        assert data['success'] is False
+        assert 'Invalid or expired token' in data['error']
+
+        # Test POST without token
+        response = client.post('/api/cameras', json={'name': 'Test'})
+        assert response.status_code == 401
+
+        # Test other endpoints without token
+        response = client.get('/api/cameras/123')
+        assert response.status_code == 401
+
+        response = client.put('/api/cameras/123', json={'name': 'Test'})
+        assert response.status_code == 401
+
+        response = client.delete('/api/cameras/123')
+        assert response.status_code == 401
+
+        response = client.get('/api/cameras/by-bay/123')
+        assert response.status_code == 401
+
+        response = client.get('/api/bays')
+        assert response.status_code == 401
