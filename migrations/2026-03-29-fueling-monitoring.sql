@@ -52,7 +52,7 @@ CREATE TABLE counted_products (
     confirmed_by_user BOOLEAN DEFAULT FALSE,
     is_ai_suggestion BOOLEAN DEFAULT TRUE,
     corrected_to_type VARCHAR(100),
-    recorded_at TIMESTAMP DEFAULT NOW()
+    timestamp TIMESTAMP DEFAULT NOW()
 );
 
 -- User Layouts (Layouts salvos por usuário)
@@ -71,7 +71,7 @@ CREATE INDEX idx_sessions_plate ON fueling_sessions(license_plate);
 CREATE INDEX idx_sessions_status ON fueling_sessions(status);
 CREATE INDEX idx_sessions_entry ON fueling_sessions(truck_entry_time DESC);
 CREATE INDEX idx_products_session ON counted_products(session_id);
-CREATE INDEX idx_products_recorded_at ON counted_products(recorded_at);
+CREATE INDEX idx_products_timestamp ON counted_products(timestamp);
 
 -- Insert sample data
 INSERT INTO bays (name, location, scale_integration) VALUES
