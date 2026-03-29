@@ -1579,6 +1579,200 @@ def export_training_dataset(project_id):
 
 
 # ============================================
+# YOLO TRAINING ENDPOINTS
+# ============================================
+
+@app.route('/api/training/projects/<project_id>/train', methods=['POST'])
+def start_training(project_id):
+    """
+    Start YOLO training for a project
+
+    Request body:
+    {
+        "config": {
+            "epochs": 100,
+            "batch_size": 16,
+            "image_size": 640,
+            "learning_rate": 0.01,
+            "optimizer": "sgd",
+            "device": "cpu",
+            "workers": 8
+        },
+        "augmentation": {
+            "hsv_h": 0.015,
+            "hsv_s": 0.7,
+            "hsv_v": 0.4,
+            "degrees": 0.0,
+            "translate": 0.1,
+            "scale": 0.5,
+            "flipud": 0.0,
+            "fliplr": 0.5,
+            "mosaic": 1.0,
+            "mixup": 0.0
+        },
+        "model": "yolov8n.pt"
+    }
+    """
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({'success': False, 'error': 'Missing authorization header'}), 401
+
+    token = auth_header.split(' ')[1] if ' ' in auth_header else auth_header
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    db = None
+    try:
+        db = next(get_db())
+
+        # Verify project ownership
+        project_db = TrainingProjectDB()
+        project = project_db.get_project(db, project_id, payload['user_id'])
+
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found'}), 404
+
+        # Get request data
+        data = request.get_json() or {}
+        config = data.get('config', {})
+        augmentation = data.get('augmentation', {})
+        model = data.get('model', 'yolov8n.pt')
+
+        # Validate required config
+        if not config.get('epochs'):
+            return jsonify({'success': False, 'error': 'epochs is required'}), 400
+
+        # Import trainer
+        from backend.yolo_trainer import YOLOTrainer
+
+        trainer = YOLOTrainer()
+        result = trainer.start_training(
+            db=db,
+            project_id=project_id,
+            config=config,
+            augmentation=augmentation,
+            model=model
+        )
+
+        if not result['success']:
+            return jsonify(result), 500
+
+        return jsonify({
+            'success': True,
+            'training_id': result['training_id'],
+            'message': result.get('message', 'Training started successfully')
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Start training error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/projects/<project_id>/training-status', methods=['GET'])
+def get_training_status(project_id):
+    """
+    Get training job status for a project
+
+    Returns:
+    {
+        "success": true,
+        "status": "running",  # not_started, running, completed, failed
+        "model": {
+            "id": "...",
+            "model_name": "...",
+            "map50": 0.85,
+            "precision": 0.88,
+            "recall": 0.82,
+            ...
+        }
+    }
+    """
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({'success': False, 'error': 'Missing authorization header'}), 401
+
+    token = auth_header.split(' ')[1] if ' ' in auth_header else auth_header
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    db = None
+    try:
+        db = next(get_db())
+
+        # Verify project ownership
+        project_db = TrainingProjectDB()
+        project = project_db.get_project(db, project_id, payload['user_id'])
+
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found'}), 404
+
+        # Get training status
+        from backend.yolo_trainer import YOLOTrainer
+
+        trainer = YOLOTrainer()
+        result = trainer.get_training_status(db, project_id)
+
+        if not result['success']:
+            return jsonify(result), 500
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        print(f"❌ Get training status error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/models/<model_id>/activate', methods=['POST'])
+def activate_model(model_id):
+    """
+    Set a trained model as active for its project
+
+    Only the project owner can activate models
+    """
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({'success': False, 'error': 'Missing authorization header'}), 401
+
+    token = auth_header.split(' ')[1] if ' ' in auth_header else auth_header
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    db = None
+    try:
+        db = next(get_db())
+
+        # Activate model
+        from backend.yolo_trainer import YOLOTrainer
+
+        trainer = YOLOTrainer()
+        result = trainer.activate_model(db, model_id, payload['user_id'])
+
+        if not result['success']:
+            return jsonify(result), 400 if 'error' in result else 404
+
+        return jsonify({
+            'success': True,
+            'message': f'Model {result.get("model_name")} activated successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Activate model error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+# ============================================
 # START SERVER
 # ============================================
 
