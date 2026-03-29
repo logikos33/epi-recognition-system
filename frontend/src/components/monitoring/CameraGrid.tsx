@@ -20,10 +20,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Video, Plus, RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
+import { Video, Plus, RefreshCw, AlertCircle, Loader2, CheckCircle2, Clock } from 'lucide-react'
 
 const MAX_CAMERAS = 12
 const PRIMARY_COUNT = 3
+const MIN_SESSION_DURATION_MINUTES = 5 // Minimum duration before showing complete button
 
 /**
  * Helper function to calculate elapsed time in HH:MM format
@@ -64,7 +65,9 @@ export function CameraGrid() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [expandedPrimaryId, setExpandedPrimaryId] = useState<number | null>(null)
   const [isCreateSessionOpen, setIsCreateSessionOpen] = useState(false)
+  const [isCompleteSessionOpen, setIsCompleteSessionOpen] = useState(false)
   const [selectedCameraForSession, setSelectedCameraForSession] = useState<Camera | null>(null)
+  const [selectedSessionToComplete, setSelectedSessionToComplete] = useState<SessionInfo | null>(null)
   const [licensePlateInput, setLicensePlateInput] = useState('')
   const [elapsedTimeUpdater, setElapsedTimeUpdater] = useState(0)
 
@@ -91,7 +94,9 @@ export function CameraGrid() {
     loading: sessionsLoading,
     error: sessionsError,
     createSession,
-    isCreating
+    completeSession,
+    isCreating,
+    isCompleting
   } = useFuelingSessions({
     autoRefresh: true,
     refreshInterval: 10000, // 10 seconds
@@ -173,6 +178,47 @@ export function CameraGrid() {
     setIsCreateSessionOpen(false)
     setSelectedCameraForSession(null)
     setLicensePlateInput('')
+  }
+
+  // Open complete session confirmation dialog
+  const handleOpenCompleteSession = (sessionInfo: SessionInfo) => {
+    setSelectedSessionToComplete(sessionInfo)
+    setIsCompleteSessionOpen(true)
+  }
+
+  // Handle complete session submission
+  const handleCompleteSession = async () => {
+    if (!selectedSessionToComplete) {
+      return
+    }
+
+    try {
+      await completeSession(
+        selectedSessionToComplete.sessionId,
+        new Date().toISOString()
+      )
+
+      // Close dialog and reset state
+      setIsCompleteSessionOpen(false)
+      setSelectedSessionToComplete(null)
+    } catch (error) {
+      console.error('Failed to complete session:', error)
+      // TODO: Show error toast to user
+    }
+  }
+
+  // Handle cancel complete session
+  const handleCancelCompleteSession = () => {
+    setIsCompleteSessionOpen(false)
+    setSelectedSessionToComplete(null)
+  }
+
+  // Check if session can be completed (minimum duration elapsed)
+  const canCompleteSession = (sessionInfo: SessionInfo): boolean => {
+    const now = new Date()
+    const elapsedMs = now.getTime() - sessionInfo.entryTime.getTime()
+    const elapsedMinutes = elapsedMs / (1000 * 60)
+    return elapsedMinutes >= MIN_SESSION_DURATION_MINUTES
   }
 
   // Get primary camera objects
@@ -349,6 +395,14 @@ export function CameraGrid() {
                       )
                     }
                     onCreateSession={() => handleOpenCreateSession(camera)}
+                    onCompleteSession={
+                      sessionInfo && sessionInfo.status === 'active'
+                        ? () => handleOpenCompleteSession(sessionInfo)
+                        : undefined
+                    }
+                    canCompleteSession={
+                      sessionInfo ? canCompleteSession(sessionInfo) : false
+                    }
                   />
                 </div>
               )
@@ -367,6 +421,8 @@ export function CameraGrid() {
             onPromoteToPrimary={promoteToPrimary}
             onRemoveCamera={removeCamera}
             onCreateSession={handleOpenCreateSession}
+            onCompleteSession={handleOpenCompleteSession}
+            canCompleteSession={canCompleteSession}
           />
         </div>
       )}
@@ -430,6 +486,100 @@ export function CameraGrid() {
                 </>
               ) : (
                 'Criar Sessão'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Complete session confirmation dialog */}
+      <Dialog open={isCompleteSessionOpen} onOpenChange={setIsCompleteSessionOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Finalizar Sessão de Abastecimento</DialogTitle>
+            <DialogDescription>
+              Confirme a finalização da sessão para a placa {selectedSessionToComplete?.licensePlate}.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedSessionToComplete && (
+            <div className="grid gap-4 py-4">
+              {/* Session summary */}
+              <div className="bg-muted rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Placa do Veículo:</span>
+                  <span className="font-semibold">{selectedSessionToComplete.licensePlate}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Hora de Entrada:</span>
+                  <span className="font-mono text-sm">
+                    {selectedSessionToComplete.entryTime.toLocaleTimeString('pt-BR')}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Tempo Decorrido:</span>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-muted-foreground" />
+                    <span className="font-mono font-semibold text-lg">
+                      {selectedSessionToComplete.elapsedTime}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Produtos Contados:</span>
+                  <span className="font-semibold text-lg">
+                    {selectedSessionToComplete.productCount}
+                  </span>
+                </div>
+                {selectedSessionToComplete.currentWeight > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Peso Final:</span>
+                    <span className="font-semibold">
+                      {selectedSessionToComplete.currentWeight.toLocaleString('pt-BR')} kg
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Warning message */}
+              <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-800 dark:text-amber-200">
+                    <p className="font-semibold mb-1">Confirmação necessária</p>
+                    <p className="text-muted-foreground">
+                      Certifique-se de que o caminhão tenha deixado a baia antes de finalizar a sessão.
+                      Esta ação não pode ser desfeita.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCancelCompleteSession}
+              disabled={isCompleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCompleteSession}
+              disabled={isCompleting}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {isCompleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Finalizando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Finalizar Sessão
+                </>
               )}
             </Button>
           </DialogFooter>

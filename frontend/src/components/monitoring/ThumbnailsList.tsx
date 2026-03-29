@@ -14,6 +14,8 @@ interface ThumbnailsListProps {
   onPromoteToPrimary: (cameraId: number) => void
   onRemoveCamera: (cameraId: number) => void
   onCreateSession: (camera: Camera) => void
+  onCompleteSession?: (sessionInfo: SessionInfo) => void
+  canCompleteSession?: (sessionInfo: SessionInfo) => boolean
 }
 
 /**
@@ -24,7 +26,9 @@ export function ThumbnailsList({
   sessionsMap,
   onPromoteToPrimary,
   onRemoveCamera,
-  onCreateSession
+  onCreateSession,
+  onCompleteSession,
+  canCompleteSession
 }: ThumbnailsListProps) {
   const [hoveredCameraId, setHoveredCameraId] = useState<number | null>(null)
 
@@ -62,6 +66,14 @@ export function ThumbnailsList({
                 isExpanded={false}
                 onToggleExpand={() => {}}
                 onCreateSession={() => onCreateSession(camera)}
+                onCompleteSession={
+                  sessionInfo && sessionInfo.status === 'active' && onCompleteSession
+                    ? () => onCompleteSession(sessionInfo)
+                    : undefined
+                }
+                canCompleteSession={
+                  sessionInfo && canCompleteSession ? canCompleteSession(sessionInfo) : false
+                }
                 className="h-full"
               />
             </div>

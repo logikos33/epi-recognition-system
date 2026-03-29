@@ -4,7 +4,7 @@
 import { useRef, useState, useEffect } from 'react'
 import type { Camera, SessionInfo } from '@/types/monitoring'
 import { InfoOverlay } from './InfoOverlay'
-import { Maximize2, Minimize2, Plus } from 'lucide-react'
+import { Maximize2, Minimize2, Plus, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface CameraContainerProps {
@@ -13,6 +13,8 @@ interface CameraContainerProps {
   isExpanded: boolean
   onToggleExpand: () => void
   onCreateSession?: () => void
+  onCompleteSession?: () => void
+  canCompleteSession?: boolean
   className?: string
 }
 
@@ -25,6 +27,8 @@ export function CameraContainer({
   isExpanded,
   onToggleExpand,
   onCreateSession,
+  onCompleteSession,
+  canCompleteSession = false,
   className = ''
 }: CameraContainerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -101,6 +105,19 @@ export function CameraContainer({
           title="Criar nova sessão"
         >
           <Plus className="w-4 h-4" />
+        </Button>
+      )}
+
+      {/* Complete session button (only show if active session and can complete) */}
+      {sessionInfo && sessionInfo.status === 'active' && onCompleteSession && canCompleteSession && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onCompleteSession}
+          className="absolute bottom-2 left-2 bg-green-600/80 hover:bg-green-700/90 text-white animate-pulse"
+          title="Finalizar sessão de abastecimento"
+        >
+          <CheckCircle2 className="w-5 h-5" />
         </Button>
       )}
 
