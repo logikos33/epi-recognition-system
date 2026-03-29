@@ -1,7 +1,7 @@
 // frontend/src/hooks/useFuelingSessions.ts
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { FuelingSession, CountedProduct } from '@/types/monitoring'
@@ -15,7 +15,7 @@ interface SessionFilters {
 interface CreateSessionData {
   bayId: number
   cameraId: number
-  licensePlate?: string
+  licensePlate: string
 }
 
 interface UpdateSessionData {
@@ -39,6 +39,17 @@ interface UseFuelingSessionsOptions {
 }
 
 /**
+ * Query key factory for fueling sessions
+ * Defined outside component to prevent recreation on every render
+ */
+const getQueryKeys = {
+  all: ['sessions'] as const,
+  filtered: (filters: SessionFilters) => ['sessions', filters] as const,
+  byId: (id: string) => ['session', id] as const,
+  products: (id: string) => ['session', id, 'products'] as const,
+}
+
+/**
  * Hook for managing fueling sessions with React Query
  * Provides caching, auto-refresh, and optimistic updates
  */
@@ -50,17 +61,6 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
   } = options
 
   const queryClient = useQueryClient()
-  const [error, setError] = useState<string | null>(null)
-
-  /**
-   * Query key factory for fueling sessions
-   */
-  const getQueryKeys = {
-    all: ['sessions'] as const,
-    filtered: (filters: SessionFilters) => ['sessions', filters] as const,
-    byId: (id: string) => ['session', id] as const,
-    products: (id: string) => ['session', id, 'products'] as const,
-  }
 
   /**
    * Fetch sessions with filters
@@ -68,23 +68,16 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
   const {
     data: sessions = [],
     isLoading: loadingSessions,
+    error: sessionsError,
     refetch: refetchSessions
   } = useQuery({
     queryKey: getQueryKeys.filtered(filters),
     queryFn: async () => {
-      try {
-        const result = await api.listSessions(filters)
-        if (result.success) {
-          setError(null)
-          return result.sessions
-        }
-        setError('Failed to fetch sessions')
-        return []
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-        setError(errorMessage)
-        return []
+      const result = await api.listSessions(filters)
+      if (result.success) {
+        return result.sessions
       }
+      throw new Error('Failed to fetch sessions')
     },
     refetchInterval: autoRefresh ? refreshInterval : false,
     staleTime: 5000, // Consider data stale after 5 seconds
@@ -92,32 +85,30 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
 
   /**
    * Active sessions (filtered from sessions list)
+   * Memoized to prevent recomputation on every render
    */
-  const activeSessions = sessions.filter(s => s.status === 'active')
+  const activeSessions = useMemo(
+    () => sessions.filter(s => s.status === 'active'),
+    [sessions]
+  )
+
+  /**
+   * Error state from React Query
+   */
+  const error = sessionsError?.message || null
 
   /**
    * Create session mutation
    */
   const createSessionMutation = useMutation({
     mutationFn: async (data: CreateSessionData): Promise<FuelingSession> => {
-      try {
-        const result = await api.createSession({
-          bay_id: data.bayId,
-          camera_id: data.cameraId,
-          license_plate: data.licensePlate
-        })
+      const result = await api.createSession(data)
 
-        if (!result.success) {
-          throw new Error('Failed to create session')
-        }
-
-        setError(null)
-        return result.session
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-        setError(errorMessage)
-        throw err
+      if (!result.success) {
+        throw new Error('Failed to create session')
       }
+
+      return result.session
     },
     onSuccess: (newSession) => {
       // Invalidate and refetch sessions list
@@ -138,7 +129,6 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
       const result = await api.getSession(sessionId)
 
       if (result.success) {
-        setError(null)
         // Cache the session data
         queryClient.setQueryData(
           getQueryKeys.byId(sessionId),
@@ -147,34 +137,25 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
         return result.session
       }
 
-      setError('Session not found')
       return null
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setError(errorMessage)
+      // Error is handled by React Query, just return null
       return null
     }
-  }, [queryClient, getQueryKeys])
+  }, [queryClient])
 
   /**
    * Update session mutation
    */
   const updateSessionMutation = useMutation({
     mutationFn: async ({ sessionId, data }: { sessionId: string; data: UpdateSessionData }): Promise<FuelingSession> => {
-      try {
-        const result = await api.updateSession(sessionId, data)
+      const result = await api.updateSession(sessionId, data)
 
-        if (!result.success) {
-          throw new Error('Failed to update session')
-        }
-
-        setError(null)
-        return result.session
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-        setError(errorMessage)
-        throw err
+      if (!result.success) {
+        throw new Error('Failed to update session')
       }
+
+      return result.session
     },
     onSuccess: (updatedSession, { sessionId }) => {
       // Update cache for this session
@@ -192,20 +173,13 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
    */
   const completeSessionMutation = useMutation({
     mutationFn: async ({ sessionId, truckExitTime }: { sessionId: string; truckExitTime?: string }): Promise<FuelingSession> => {
-      try {
-        const result = await api.completeSession(sessionId, truckExitTime)
+      const result = await api.completeSession(sessionId, truckExitTime)
 
-        if (!result.success) {
-          throw new Error('Failed to complete session')
-        }
-
-        setError(null)
-        return result.session
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-        setError(errorMessage)
-        throw err
+      if (!result.success) {
+        throw new Error('Failed to complete session')
       }
+
+      return result.session
     },
     onSuccess: (completedSession) => {
       // Update cache for this session
@@ -223,25 +197,13 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
    */
   const addProductMutation = useMutation({
     mutationFn: async ({ sessionId, data }: { sessionId: string; data: AddProductData }): Promise<CountedProduct> => {
-      try {
-        const result = await api.addCountedProduct(sessionId, {
-          product_type: data.productType,
-          quantity: data.quantity,
-          confidence: data.confidence,
-          confirmed_by_user: data.confirmedByUser
-        })
+      const result = await api.addCountedProduct(sessionId, data)
 
-        if (!result.success) {
-          throw new Error('Failed to add product')
-        }
-
-        setError(null)
-        return result.product
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-        setError(errorMessage)
-        throw err
+      if (!result.success) {
+        throw new Error('Failed to add product')
       }
+
+      return result.product
     },
     onSuccess: (newProduct, { sessionId }) => {
       // Invalidate products list for this session
@@ -259,15 +221,12 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
       const result = await api.getSessionProducts(sessionId)
 
       if (result.success) {
-        setError(null)
         return result.products
       }
 
-      setError('Failed to fetch products')
       return []
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setError(errorMessage)
+      // Error is handled by React Query, just return empty array
       return []
     }
   }, [])
@@ -276,24 +235,17 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
    * List sessions with custom filters (overrides default filters)
    */
   const listSessions = useCallback(async (customFilters?: SessionFilters): Promise<void> => {
-    try {
-      const result = await api.listSessions(customFilters || filters)
+    const result = await api.listSessions(customFilters || filters)
 
-      if (result.success) {
-        setError(null)
-        // Update cache with new filters
-        queryClient.setQueryData(
-          getQueryKeys.filtered(customFilters || filters),
-          result.sessions
-        )
-      } else {
-        setError('Failed to fetch sessions')
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setError(errorMessage)
+    if (result.success) {
+      // Update cache with new filters
+      queryClient.setQueryData(
+        getQueryKeys.filtered(customFilters || filters),
+        result.sessions
+      )
     }
-  }, [filters, queryClient, getQueryKeys])
+    // Errors are handled by React Query
+  }, [filters, queryClient])
 
   /**
    * Wrapper functions to match the required interface
@@ -319,7 +271,7 @@ export function useFuelingSessions(options: UseFuelingSessionsOptions = {}) {
    */
   const refetch = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getQueryKeys.all })
-  }, [queryClient, getQueryKeys])
+  }, [queryClient])
 
   return {
     sessions,
