@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 import re
 import logging
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Any
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class OCRService:
     def extract_license_plate(
         image_path_or_array: Union[str, np.ndarray],
         language: str = 'por'
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Extract text from image using Tesseract OCR.
 
@@ -165,7 +165,7 @@ class OCRService:
             }
 
     @staticmethod
-    def validate_license_plate(text: str) -> Dict[str, any]:
+    def validate_license_plate(text: str) -> Dict[str, Any]:
         """
         Validate Brazilian license plate format.
 
@@ -212,7 +212,7 @@ class OCRService:
             }
 
     @staticmethod
-    def recognize_license_plate(image_path_or_array: Union[str, np.ndarray]) -> Dict[str, any]:
+    def recognize_license_plate(image_path_or_array: Union[str, np.ndarray]) -> Dict[str, Any]:
         """
         Complete OCR pipeline: preprocess, extract, and validate license plate.
 
