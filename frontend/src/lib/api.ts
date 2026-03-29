@@ -483,6 +483,9 @@ export const API_ENDPOINTS = {
   VERIFICATION_CORRECT: (id: string) => `/api/verification/${id}/correct`,
   VERIFICATION_STATS: '/api/verification/stats',
 
+  // OCR
+  OCR_RECOGNIZE_LICENSE_PLATE: '/api/ocr/recognize-license-plate',
+
   // Export
   EXPORT_SESSION: (id: string) => `/api/export/session/${id}`,
   EXPORT_DOWNLOAD: (fileId: string) => `/api/export/download/${fileId}`,
