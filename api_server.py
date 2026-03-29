@@ -772,7 +772,7 @@ def create_training_project():
         # Verify JWT token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
 
         token = auth_header.split(' ')[1]
         payload = verify_token(token)
@@ -793,6 +793,9 @@ def create_training_project():
         # Validate required fields
         if not name:
             return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+        if not isinstance(target_classes, list):
+            return jsonify({'success': False, 'error': 'Target classes must be an array'}), 400
 
         if not target_classes or len(target_classes) == 0:
             return jsonify({'success': False, 'error': 'Target classes are required'}), 400
@@ -831,7 +834,7 @@ def list_training_projects():
         # Verify JWT token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
 
         token = auth_header.split(' ')[1]
         payload = verify_token(token)
@@ -868,7 +871,7 @@ def get_training_project(project_id):
         # Verify JWT token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
 
         token = auth_header.split(' ')[1]
         payload = verify_token(token)
@@ -917,7 +920,7 @@ def update_training_project(project_id):
         # Verify JWT token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
 
         token = auth_header.split(' ')[1]
         payload = verify_token(token)
@@ -970,7 +973,7 @@ def delete_training_project(project_id):
         # Verify JWT token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
 
         token = auth_header.split(' ')[1]
         payload = verify_token(token)
@@ -1011,14 +1014,14 @@ def update_project_status(project_id):
         "status": "in_progress"
     }
 
-    Valid statuses: draft, annotating, training, completed, failed
+    Valid statuses: draft, in_progress, training, completed, failed
     """
     db = None
     try:
         # Verify JWT token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
 
         token = auth_header.split(' ')[1]
         payload = verify_token(token)

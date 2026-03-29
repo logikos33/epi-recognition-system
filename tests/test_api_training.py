@@ -22,14 +22,6 @@ def client():
             'company_name': 'Test Company'
         })
 
-        # Handle case where user already exists
-        if response.status_code == 409:
-            # Try logging in instead
-            response = client.post('/api/auth/login', json={
-                'email': 'training-test@local.dev',
-                'password': '123456'
-            })
-
         assert response.status_code in [200, 201], f"Failed to setup test user: {response.data}"
         token = response.json['token']
         headers = {'Authorization': f'Bearer {token}'}
@@ -83,6 +75,21 @@ def test_create_training_project_missing_target_classes(client):
     data = response.json
     assert data['success'] is False
     assert 'target' in data['error'].lower()
+
+
+def test_create_training_project_invalid_target_classes_type(client):
+    """Test that target_classes must be an array, not a string."""
+    client, headers = client
+
+    response = client.post('/api/training/projects', headers=headers, json={
+        'name': 'Test Project',
+        'target_classes': 'helmet'  # String instead of array
+    })
+
+    assert response.status_code == 400
+    data = response.json
+    assert data['success'] is False
+    assert 'array' in data['error'].lower()
 
 
 def test_create_training_project_unauthorized():
