@@ -5,6 +5,8 @@
  * Replaces Supabase client with REST API calls.
  */
 
+import { FuelingSession, CountedProduct } from '@/types/monitoring'
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001'
 
 class APIClient {
@@ -314,7 +316,7 @@ class APIClient {
     bayId?: number;
     status?: 'active' | 'completed' | 'paused';
     limit?: number;
-  }): Promise<{ success: boolean; sessions: any[] }> {
+  }): Promise<{ success: boolean; sessions: FuelingSession[] }> {
     const params = new URLSearchParams()
     if (filters?.bayId !== undefined) params.append('bay_id', filters.bayId.toString())
     if (filters?.status) params.append('status', filters.status)
@@ -333,7 +335,7 @@ class APIClient {
     bayId: number;
     cameraId: number;
     licensePlate: string;
-  }): Promise<{ success: boolean; session: any }> {
+  }): Promise<{ success: boolean; session: FuelingSession }> {
     return this.post('/api/sessions', {
       bay_id: data.bayId,
       camera_id: data.cameraId,
@@ -344,7 +346,7 @@ class APIClient {
   /**
    * Get fueling session by ID
    */
-  async getSession(sessionId: string): Promise<{ success: boolean; session: any }> {
+  async getSession(sessionId: string): Promise<{ success: boolean; session: FuelingSession }> {
     return this.get(`/api/sessions/${sessionId}`)
   }
 
@@ -360,14 +362,15 @@ class APIClient {
       finalWeight?: number;
       status?: 'active' | 'completed' | 'paused';
     }
-  ): Promise<{ success: boolean; session: any }> {
-    return this.put(`/api/sessions/${sessionId}`, {
-      license_plate: data.licensePlate,
-      truck_exit_time: data.truckExitTime,
-      duration_seconds: data.durationSeconds,
-      final_weight: data.finalWeight,
-      status: data.status,
-    })
+  ): Promise<{ success: boolean; session: FuelingSession }> {
+    const payload: Record<string, any> = {}
+    if (data.licensePlate !== undefined) payload.license_plate = data.licensePlate
+    if (data.truckExitTime !== undefined) payload.truck_exit_time = data.truckExitTime
+    if (data.durationSeconds !== undefined) payload.duration_seconds = data.durationSeconds
+    if (data.finalWeight !== undefined) payload.final_weight = data.finalWeight
+    if (data.status !== undefined) payload.status = data.status
+
+    return this.put(`/api/sessions/${sessionId}`, payload)
   }
 
   /**
@@ -376,7 +379,7 @@ class APIClient {
   async completeSession(
     sessionId: string,
     truckExitTime?: string
-  ): Promise<{ success: boolean; session: any }> {
+  ): Promise<{ success: boolean; session: FuelingSession }> {
     return this.post(`/api/sessions/${sessionId}/complete`, {
       truck_exit_time: truckExitTime,
     })
@@ -393,7 +396,7 @@ class APIClient {
       confidence?: number;
       confirmedByUser?: boolean;
     }
-  ): Promise<{ success: boolean; product: any }> {
+  ): Promise<{ success: boolean; product: CountedProduct }> {
     return this.post(`/api/sessions/${sessionId}/products`, {
       product_type: data.productType,
       quantity: data.quantity,
@@ -405,7 +408,7 @@ class APIClient {
   /**
    * Get all counted products for a session
    */
-  async getSessionProducts(sessionId: string): Promise<{ success: boolean; products: any[] }> {
+  async getSessionProducts(sessionId: string): Promise<{ success: boolean; products: CountedProduct[] }> {
     return this.get(`/api/sessions/${sessionId}/products`)
   }
 }
