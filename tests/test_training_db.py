@@ -137,6 +137,7 @@ def test_update_training_project(db, test_user):
     updated = project_db.update_project(
         db=db,
         project_id=created['id'],
+        user_id=test_user,
         name="Updated Name",
         description="Updated description",
         target_classes=["helmet", "vest", "gloves"],
@@ -232,7 +233,7 @@ def test_update_project_status_only(db, test_user):
     )
 
     # Update status using the simplified method
-    result = project_db.update_project_status(db, created['id'], 'in_progress')
+    result = project_db.update_project_status(db, created['id'], test_user, 'in_progress')
     assert result is True
 
     # Verify status was updated
@@ -241,10 +242,23 @@ def test_update_project_status_only(db, test_user):
 
     # Test updating non-existent project
     fake_id = str(uuid.uuid4())
-    result = project_db.update_project_status(db, fake_id, 'completed')
+    result = project_db.update_project_status(db, fake_id, test_user, 'completed')
     assert result is False
 
     # Test retrieving with wrong user_id returns None
     wrong_user = str(uuid.uuid4())
     retrieved = project_db.get_project(db, created['id'], wrong_user)
     assert retrieved is None
+
+    # Test that user cannot update another user's project (security test)
+    updated = project_db.update_project(
+        db=db,
+        project_id=created['id'],
+        user_id=wrong_user,
+        name="Hacked Name"
+    )
+    assert updated is None  # Should return None when user doesn't own the project
+
+    # Test that user cannot update status of another user's project (security test)
+    result = project_db.update_project_status(db, created['id'], wrong_user, 'completed')
+    assert result is False  # Should return False when user doesn't own the project
