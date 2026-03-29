@@ -27,6 +27,7 @@ from backend.auth_db import (
     verify_user_credentials, update_last_login, create_session, verify_session
 )
 from backend.products import ProductService
+from backend.training_db import TrainingProjectDB
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -748,6 +749,323 @@ def get_detections():
     except Exception as e:
         print(f"❌ Get detections error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# TRAINING PROJECTS ENDPOINTS
+# ============================================
+
+@app.route('/api/training/projects', methods=['POST'])
+def create_training_project():
+    """
+    Create a new training project
+
+    Expects JSON:
+    {
+        "name": "Project name",
+        "description": "Optional description",
+        "target_classes": ["class1", "class2"]
+    }
+    """
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Request body required'}), 400
+
+        name = data.get('name')
+        description = data.get('description')
+        target_classes = data.get('target_classes', [])
+
+        # Validate required fields
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+        if not target_classes or len(target_classes) == 0:
+            return jsonify({'success': False, 'error': 'Target classes are required'}), 400
+
+        # Get database session
+        db = next(get_db())
+
+        # Create project using TrainingProjectDB
+        project = TrainingProjectDB.create_project(
+            db=db,
+            user_id=user_id,
+            name=name,
+            description=description,
+            target_classes=target_classes
+        )
+
+        return jsonify({
+            'success': True,
+            'message': 'Training project created successfully',
+            'project': project
+        }), 201
+
+    except Exception as e:
+        print(f"❌ Create training project error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/projects', methods=['GET'])
+def list_training_projects():
+    """List all training projects for current user"""
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get database session
+        db = next(get_db())
+
+        # List projects using TrainingProjectDB
+        projects = TrainingProjectDB.list_user_projects(db, user_id)
+
+        return jsonify({
+            'success': True,
+            'projects': projects,
+            'count': len(projects)
+        }), 200
+
+    except Exception as e:
+        print(f"❌ List training projects error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/projects/<project_id>', methods=['GET'])
+def get_training_project(project_id):
+    """Get a specific training project by ID"""
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get database session
+        db = next(get_db())
+
+        # Get project using TrainingProjectDB
+        project = TrainingProjectDB.get_project(db, project_id, user_id)
+
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'project': project
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Get training project error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/projects/<project_id>', methods=['PUT'])
+def update_training_project(project_id):
+    """
+    Update a training project
+
+    Expects JSON (all fields optional):
+    {
+        "name": "New name",
+        "description": "New description",
+        "target_classes": ["class1", "class2"],
+        "status": "in_progress"
+    }
+    """
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Request body required'}), 400
+
+        # Get database session
+        db = next(get_db())
+
+        # Update project using TrainingProjectDB
+        project = TrainingProjectDB.update_project(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            name=data.get('name'),
+            description=data.get('description'),
+            target_classes=data.get('target_classes'),
+            status=data.get('status')
+        )
+
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found or access denied'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Training project updated successfully',
+            'project': project
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Update training project error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/projects/<project_id>', methods=['DELETE'])
+def delete_training_project(project_id):
+    """Delete a training project"""
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get database session
+        db = next(get_db())
+
+        # Delete project using TrainingProjectDB
+        deleted = TrainingProjectDB.delete_project(db, project_id, user_id)
+
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Project not found or access denied'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Training project deleted successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Delete training project error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/projects/<project_id>/status', methods=['PATCH'])
+def update_project_status(project_id):
+    """
+    Update only the status of a training project
+
+    Expects JSON:
+    {
+        "status": "in_progress"
+    }
+
+    Valid statuses: draft, annotating, training, completed, failed
+    """
+    db = None
+    try:
+        # Verify JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing or invalid authorization header'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+
+        # Get request data
+        data = request.get_json()
+        if not data or 'status' not in data:
+            return jsonify({'success': False, 'error': 'Status field is required'}), 400
+
+        status = data['status']
+
+        # Validate status value
+        valid_statuses = ['draft', 'in_progress', 'training', 'completed', 'failed']
+        if status not in valid_statuses:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'
+            }), 400
+
+        # Get database session
+        db = next(get_db())
+
+        # Update status using TrainingProjectDB
+        updated = TrainingProjectDB.update_project_status(db, project_id, user_id, status)
+
+        if not updated:
+            return jsonify({'success': False, 'error': 'Project not found or access denied'}), 404
+
+        # Get updated project
+        project = TrainingProjectDB.get_project(db, project_id, user_id)
+
+        return jsonify({
+            'success': True,
+            'message': 'Project status updated successfully',
+            'project': project
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Update project status error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
 
 
 # ============================================
