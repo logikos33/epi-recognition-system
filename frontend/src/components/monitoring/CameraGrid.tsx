@@ -169,7 +169,7 @@ export function CameraGrid() {
       setLicensePlateInput('')
     } catch (error) {
       console.error('Failed to create session:', error)
-      // TODO: Show error toast to user
+      alert('Falha ao criar sessão: ' + (error instanceof Error ? error.message : 'Tente novamente'))
     }
   }
 
@@ -189,6 +189,23 @@ export function CameraGrid() {
   // Handle complete session submission
   const handleCompleteSession = async () => {
     if (!selectedSessionToComplete) {
+      console.error('Cannot complete session: no session selected')
+      setIsCompleteSessionOpen(false)
+      return
+    }
+
+    if (!selectedSessionToComplete.sessionId) {
+      console.error('Cannot complete session: missing session ID')
+      alert('Erro: ID da sessão não encontrado. Tente novamente.')
+      setIsCompleteSessionOpen(false)
+      return
+    }
+
+    // Verify session is still active
+    if (selectedSessionToComplete.status !== 'active') {
+      console.error('Session is not active:', selectedSessionToComplete.status)
+      alert('Erro: Esta sessão não está mais ativa.')
+      setIsCompleteSessionOpen(false)
       return
     }
 
@@ -203,7 +220,7 @@ export function CameraGrid() {
       setSelectedSessionToComplete(null)
     } catch (error) {
       console.error('Failed to complete session:', error)
-      // TODO: Show error toast to user
+      alert('Falha ao finalizar sessão: ' + (error instanceof Error ? error.message : 'Tente novamente'))
     }
   }
 
