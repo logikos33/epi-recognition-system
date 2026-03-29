@@ -1312,6 +1312,273 @@ def delete_training_video(video_id):
 
 
 # ============================================
+# ANNOTATION ENDPOINTS
+# ============================================
+
+@app.route('/api/training/annotations', methods=['POST'])
+def create_annotation():
+    """Create a new annotation for a frame"""
+    try:
+        # Verify authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+        data = request.get_json()
+
+        # Validate required fields
+        required_fields = ['frame_id', 'class_name', 'bbox_x', 'bbox_y', 'bbox_width', 'bbox_height']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+
+        # Get database session
+        db = next(get_db())
+
+        # Create annotation
+        from backend.annotation_db import AnnotationDB
+        annotation_db = AnnotationDB()
+
+        annotation = annotation_db.create_annotation(
+            db=db,
+            frame_id=data['frame_id'],
+            class_name=data['class_name'],
+            bbox_x=float(data['bbox_x']),
+            bbox_y=float(data['bbox_y']),
+            bbox_width=float(data['bbox_width']),
+            bbox_height=float(data['bbox_height']),
+            is_ai_generated=data.get('is_ai_generated', False),
+            confidence=data.get('confidence'),
+            created_by=user_id
+        )
+
+        # Mark frame as annotated
+        from sqlalchemy import text
+        db.execute(text("""
+            UPDATE training_frames
+            SET is_annotated = TRUE
+            WHERE id = :frame_id
+        """), {'frame_id': data['frame_id']})
+        db.commit()
+
+        return jsonify({
+            'success': True,
+            'annotation': annotation
+        }), 201
+
+    except Exception as e:
+        print(f"❌ Create annotation error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/frames/<frame_id>/annotations', methods=['GET'])
+def get_frame_annotations(frame_id):
+    """Get all annotations for a specific frame"""
+    try:
+        # Verify authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get database session
+        db = next(get_db())
+
+        # Get annotations
+        from backend.annotation_db import AnnotationDB
+        annotation_db = AnnotationDB()
+
+        annotations = annotation_db.get_frame_annotations(db, frame_id)
+
+        return jsonify({
+            'success': True,
+            'annotations': annotations
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Get annotations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/annotations/<annotation_id>', methods=['PUT'])
+def update_annotation(annotation_id):
+    """Update an existing annotation"""
+    try:
+        # Verify authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        data = request.get_json()
+
+        # Get database session
+        db = next(get_db())
+
+        # Update annotation
+        from backend.annotation_db import AnnotationDB
+        annotation_db = AnnotationDB()
+
+        updated = annotation_db.update_annotation(
+            db=db,
+            annotation_id=annotation_id,
+            class_name=data.get('class_name'),
+            bbox_x=data.get('bbox_x'),
+            bbox_y=data.get('bbox_y'),
+            bbox_width=data.get('bbox_width'),
+            bbox_height=data.get('bbox_height'),
+            is_reviewed=data.get('is_reviewed')
+        )
+
+        if not updated:
+            return jsonify({'success': False, 'error': 'Annotation not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Annotation updated successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Update annotation error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/training/annotations/<annotation_id>', methods=['DELETE'])
+def delete_annotation(annotation_id):
+    """Delete an annotation"""
+    try:
+        # Verify authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get database session
+        db = next(get_db())
+
+        # Delete annotation
+        from backend.annotation_db import AnnotationDB
+        annotation_db = AnnotationDB()
+
+        deleted = annotation_db.delete_annotation(db, annotation_id)
+
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Annotation not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Annotation deleted successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Delete annotation error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+# ============================================
+# YOLO EXPORT ENDPOINTS
+# ============================================
+
+@app.route('/api/training/projects/<project_id>/export-dataset', methods=['POST'])
+def export_training_dataset(project_id):
+    """Export annotations to YOLO format"""
+    try:
+        # Verify authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        user_id = payload['user_id']
+        data = request.get_json()
+        train_val_split = data.get('train_val_split', 0.8)
+
+        # Verify project ownership
+        db = next(get_db())
+        from backend.training_db import TrainingProjectDB
+        project_db = TrainingProjectDB()
+        project = project_db.get_project(db, project_id, user_id)
+
+        if not project:
+            return jsonify({'success': False, 'error': 'Project not found'}), 404
+
+        # Create temp directory for export
+        import tempfile
+        export_dir = tempfile.mkdtemp()
+
+        # Export dataset
+        from backend.yolo_exporter import YOLOExporter
+        exporter = YOLOExporter()
+
+        result = exporter.export_project(db, project_id, export_dir, train_val_split)
+
+        if not result['success']:
+            return jsonify(result), 500
+
+        # Create ZIP file
+        import zipfile
+        zip_path = os.path.join(export_dir, 'yolo_dataset.zip')
+
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(export_dir):
+                for file in files:
+                    if file != 'yolo_dataset.zip':
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, export_dir)
+                        zipf.write(file_path, arcname)
+
+        # TODO: Upload ZIP to MinIO and return download URL
+        # For now, just return metadata
+        return jsonify({
+            'success': True,
+            'train_samples': result['train_samples'],
+            'val_samples': result['val_samples'],
+            'message': 'Dataset exported successfully (ZIP creation not yet implemented)'
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Export dataset error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+# ============================================
 # START SERVER
 # ============================================
 
