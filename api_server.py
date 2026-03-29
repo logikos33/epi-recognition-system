@@ -32,6 +32,7 @@ from sqlalchemy import text
 from backend.products import ProductService
 from backend.training_db import TrainingProjectDB
 from backend.camera_service import CameraService
+from backend.fueling_session_service import FuelingSessionService
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -2027,6 +2028,295 @@ def list_bays():
             'success': False,
             'error': str(e)
         }), 500
+
+# ============================================
+# FUELING SESSIONS API
+# ============================================
+
+@app.route('/api/sessions', methods=['POST'])
+def create_fueling_session():
+    """Create a new fueling session"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json()
+        bay_id = data.get('bay_id')
+        camera_id = data.get('camera_id')
+        license_plate = data.get('license_plate')
+
+        if not bay_id or not camera_id or not license_plate:
+            return jsonify({
+                'success': False,
+                'error': 'bay_id, camera_id, and license_plate are required'
+            }), 400
+
+        db = next(get_db())
+        session = FuelingSessionService.create_session(
+            db=db,
+            bay_id=bay_id,
+            camera_id=camera_id,
+            license_plate=license_plate
+        )
+
+        if session:
+            return jsonify({
+                'success': True,
+                'session': session
+            }), 201
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to create session'
+            }), 500
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessions', methods=['GET'])
+def list_fueling_sessions():
+    """List fueling sessions with optional filters"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        # Get query parameters
+        bay_id = request.args.get('bay_id', type=int)
+        status = request.args.get('status')
+        limit = request.args.get('limit', 50, type=int)
+
+        db = next(get_db())
+        sessions = FuelingSessionService.list_sessions(
+            db=db,
+            bay_id=bay_id,
+            status=status,
+            limit=limit
+        )
+
+        return jsonify({
+            'success': True,
+            'sessions': sessions
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessions/<session_id>', methods=['GET'])
+def get_fueling_session(session_id):
+    """Get fueling session by ID"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+        session = FuelingSessionService.get_session_by_id(db, session_id)
+
+        if session:
+            return jsonify({
+                'success': True,
+                'session': session
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Session not found'
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessions/<session_id>', methods=['PUT'])
+def update_fueling_session(session_id):
+    """Update fueling session"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json()
+        db = next(get_db())
+        session = FuelingSessionService.update_session(
+            db=db,
+            session_id=session_id,
+            license_plate=data.get('license_plate'),
+            truck_exit_time=data.get('truck_exit_time'),
+            duration_seconds=data.get('duration_seconds'),
+            final_weight=data.get('final_weight'),
+            status=data.get('status')
+        )
+
+        if session:
+            return jsonify({
+                'success': True,
+                'session': session
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Session not found or update failed'
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessions/<session_id>/complete', methods=['POST'])
+def complete_fueling_session(session_id):
+    """Mark fueling session as completed"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        truck_exit_time = data.get('truck_exit_time')
+
+        db = next(get_db())
+        session = FuelingSessionService.complete_session(
+            db=db,
+            session_id=session_id,
+            truck_exit_time=truck_exit_time
+        )
+
+        if session:
+            return jsonify({
+                'success': True,
+                'session': session
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Session not found or complete failed'
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessions/<session_id>/products', methods=['POST'])
+def add_session_counted_product(session_id):
+    """Add a counted product to a session"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json()
+        product_type = data.get('product_type')
+        quantity = data.get('quantity')
+        confidence = data.get('confidence')
+        confirmed_by_user = data.get('confirmed_by_user', False)
+
+        if not product_type or quantity is None:
+            return jsonify({
+                'success': False,
+                'error': 'product_type and quantity are required'
+            }), 400
+
+        db = next(get_db())
+        product = FuelingSessionService.add_counted_product(
+            db=db,
+            session_id=session_id,
+            product_type=product_type,
+            quantity=quantity,
+            confidence=confidence,
+            confirmed_by_user=confirmed_by_user
+        )
+
+        if product:
+            return jsonify({
+                'success': True,
+                'product': product
+            }), 201
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Session not found'
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessions/<session_id>/products', methods=['GET'])
+def get_session_products_list(session_id):
+    """Get all counted products for a session"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+        products = FuelingSessionService.get_session_products(db, session_id)
+
+        return jsonify({
+            'success': True,
+            'products': products
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 
 # ============================================
 # START SERVER

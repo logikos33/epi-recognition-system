@@ -248,6 +248,10 @@ class FuelingSessionService:
             db.commit()
             row = result.fetchone()
 
+            if not row:
+                logger.warning(f"⚠️ Session {session_id} not found for update")
+                return None
+
             logger.info(f"✅ Updated fueling session {session_id}")
             return {
                 'id': str(row[0]),
@@ -301,6 +305,10 @@ class FuelingSessionService:
             })
             db.commit()
             row = result.fetchone()
+
+            if not row:
+                logger.warning(f"⚠️ Session {session_id} not found for completion")
+                return None
 
             logger.info(f"✅ Completed fueling session {session_id}")
             return {
