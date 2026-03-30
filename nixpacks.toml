@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ["postgresql", "libpq"]
+nixPkgs = ["postgresql", "libpq", "ffmpeg"]
 
 [phases.build]
 nixPkgs = ["pkg-config", "libpq", "postgresql"]
 
 [phases.install]
-nixPkgs = ["opencv", "python311"]
+nixPkgs = ["opencv", "python311", "ffmpeg"]
 
 [variables]
 PYTHON_VERSION = "3.11"
