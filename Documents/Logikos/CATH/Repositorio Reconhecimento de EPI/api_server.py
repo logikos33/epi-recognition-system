@@ -1391,17 +1391,46 @@ def upload_training_video():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'No file selected'}), 400
 
-        # Get video duration (requires opening the file)
+        # FIX 1: Validate file extension
+        allowed_extensions = {'.mp4', '.avi', '.mkv', '.mov'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({'success': False, 'error': 'Invalid file type. Use MP4, AVI, MKV, or MOV'}), 400
+
+        # FIX 2: Validate MIME type
+        allowed_mime_types = {'video/mp4', 'video/avi', 'video/x-matroska', 'video/quicktime'}
+        if file.content_type and file.content_type not in allowed_mime_types:
+            return jsonify({'success': False, 'error': f'Invalid MIME type: {file.content_type}'}), 400
+
+        # FIX 3: Validate file size (500MB limit)
+        MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'success': False, 'error': 'File too large. Maximum size is 500MB'}), 413
+
+        # Get video duration using cv2.VideoCapture (reads metadata, not entire file)
         import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
-            file.save(tmp_file.name)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
+            # Stream upload to temp file (avoid loading entire file in memory)
+            chunk_size = 4096
+            while True:
+                chunk = file.stream.read(chunk_size)
+                if not chunk:
+                    break
+                tmp_file.write(chunk)
+            tmp_file.flush()
+
+            # Get video metadata without reading entire file
             cap = cv2.VideoCapture(tmp_file.name)
             fps = cap.get(cv2.CAP_PROP_FPS)
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration = frame_count / fps if fps > 0 else 0
             cap.release()
 
-            # Read file content
+            # Read file content from temp file
             with open(tmp_file.name, 'rb') as f:
                 file_content = f.read()
 
@@ -1415,6 +1444,17 @@ def upload_training_video():
             file_content=file_content,
             duration=duration
         )
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+
+    except Exception as e:
+        logger.error(f"❌ Upload video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 
         if result['success']:
             return jsonify(result)
