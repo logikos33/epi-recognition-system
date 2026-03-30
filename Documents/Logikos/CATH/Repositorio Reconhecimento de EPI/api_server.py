@@ -1760,6 +1760,164 @@ def delete_training_image(image_id: str):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+
+# ============================================================================
+# Annotation Endpoints
+# ============================================================================
+
+from backend.annotation_service import AnnotationService
+
+annotation_service = AnnotationService()
+
+
+@app.route('/api/training/frames/<frame_id>/annotations', methods=['GET'])
+def get_frame_annotations(frame_id: str):
+    """Get all annotations for a frame in YOLO format."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        annotations = annotation_service.get_frame_annotations(db, frame_id)
+
+        return jsonify({'success': True, 'annotations': annotations})
+
+    except Exception as e:
+        logger.error(f"❌ Get annotations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/annotations', methods=['POST'])
+def save_frame_annotations(frame_id: str):
+    """Save annotations for a frame (bulk replace)."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        data = request.get_json()
+        if not data or 'annotations' not in data:
+            return jsonify({'success': False, 'error': 'Missing annotations array'}), 400
+
+        annotations = data['annotations']
+
+        # Validate annotation format
+        for ann in annotations:
+            required_keys = {'class_id', 'x_center', 'y_center', 'width', 'height'}
+            if not all(k in ann for k in required_keys):
+                return jsonify({'success': False, 'error': 'Invalid annotation format'}), 400
+
+        db = next(get_db())
+        success = annotation_service.save_annotations(db, frame_id, annotations)
+
+        if success:
+            return jsonify({'success': True, 'message': f'Saved {len(annotations)} annotations'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save annotations'}), 500
+
+    except Exception as e:
+        logger.error(f"❌ Save annotations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/copy-from/<source_id>', methods=['POST'])
+def copy_frame_annotations(frame_id: str, source_id: str):
+    """Copy annotations from another frame."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        success = annotation_service.copy_annotations_from_frame(db, frame_id, source_id)
+
+        if success:
+            return jsonify({'success': True, 'message': 'Annotations copied'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to copy annotations'}), 500
+
+    except Exception as e:
+        logger.error(f"❌ Copy annotations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/predict', methods=['POST'])
+def predict_frame_annotations(frame_id: str):
+    """
+    Run YOLO pre-detection on a frame.
+
+    Returns detected objects in YOLO format (normalized coordinates).
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        # Get frame path
+        db = next(get_db())
+        query = text("""
+            SELECT storage_path FROM frames WHERE id = :frame_id
+        """)
+        result = db.execute(query, {'frame_id': frame_id})
+        row = result.fetchone()
+
+        if not row:
+            return jsonify({'success': False, 'error': 'Frame not found'}), 404
+
+        frame_path = row[0]
+
+        # Run YOLO prediction (using YOLOProcessor)
+        from backend.yolo_processor import YOLOProcessor
+        processor = YOLOProcessor()
+        
+        detections = processor.detect_objects(frame_path)
+        
+        # Convert to YOLO format
+        annotations = []
+        for det in detections:
+            annotations.append({
+                'class_id': det.get('class_id', 0),
+                'x_center': det.get('x_center', 0.5),
+                'y_center': det.get('y_center', 0.5),
+                'width': det.get('width', 0.1),
+                'height': det.get('height', 0.1),
+                'confidence': det.get('confidence', 0.0)
+            })
+
+        logger.info(f"✅ YOLO prediction: {len(annotations)} objects detected")
+
+        return jsonify({
+            'success': True,
+            'annotations': annotations,
+            'model': 'yolov8n.pt'
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Predict annotations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # WebSocket Test Endpoint
 # ============================================================================
 
