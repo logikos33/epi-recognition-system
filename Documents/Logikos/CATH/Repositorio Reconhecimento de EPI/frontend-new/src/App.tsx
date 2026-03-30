@@ -497,9 +497,9 @@ const ClassesPage = () => (
 
 // Training Page
 // Training Page with Tabs
-const [trainingTab, setTrainingTab] = useState('videos');
 
 const TrainingPage = () => {
+  const [trainingTab, setTrainingTab] = useState('videos');
   const renderTrainingTab = () => {
     switch(trainingTab) {
       case 'videos':
