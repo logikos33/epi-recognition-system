@@ -1617,6 +1617,12 @@ def serve_frame_image(frame_id: str):
             return jsonify({'success': False, 'error': 'Frame not found'}), 404
 
         frame_path = row[0]
+
+        # Check if file exists before trying to serve it
+        if not os.path.exists(frame_path):
+            logger.error(f"❌ Frame image file not found: {frame_path}")
+            return jsonify({'success': False, 'error': 'Frame image file not found on disk'}), 404
+
         return send_from_directory(os.path.dirname(frame_path), os.path.basename(frame_path))
 
     except Exception as e:
