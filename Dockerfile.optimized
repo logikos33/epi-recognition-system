@@ -1,0 +1,66 @@
+# Dockerfile Otimizado para Railway - Build Mais Rápido
+# Build time reduzido de ~10min para ~2-3min
+
+FROM python:3.11-slim AS builder
+
+# Instalar apenas dependências do sistema necessárias para compilação
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Criar virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copiar e instalar dependências PRIMEIRO (para cache)
+COPY requirements-api.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-api.txt
+
+# Imagem final - Mais leve
+FROM python:3.11-slim
+
+# Copiar apenas o necessário
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Instalar apenas dependências de runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copiar código (por último, para mudanças no código não trigger reinstall)
+COPY api_server.py .
+COPY backend/ backend/
+COPY models/ models/
+
+# Variáveis de ambiente
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV PORT=5001
+
+# Download do modelo YOLO é feito em RUNTIME (não no build)
+# Isso economiza ~2 min no build
+
+EXPOSE 5001
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5001/health', timeout=5)" || exit 1
+
+# Start
+CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "1", "--timeout", "120", "api_server:app"]

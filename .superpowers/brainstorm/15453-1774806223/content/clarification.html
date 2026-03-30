@@ -1,0 +1,61 @@
+<h2>Confusão Detectada! 🕵️</h2>
+<p class="subtitle">Preciso confirmar com você</p>
+
+<div class="mockup" style="margin-top: 2rem;">
+  <div class="mockup-header">Análise do Código</div>
+  <div class="mockup-body" style="padding: 1.5rem;">
+    <h3 style="margin-bottom: 1rem;">O que encontrei:</h3>
+
+    <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+      <strong style="color: #92400e;">⚠️ Página /dashboard/live:</strong>
+      <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+        Esta página usa o componente <code>CameraFeed</code> que tem o canvas/vídeo.
+      </p>
+    </div>
+
+    <div style="background: #d1fae5; padding: 1rem; border-radius: 8px;">
+      <strong style="color: #065f46;">✓ Página /dashboard/cameras:</strong>
+      <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+        Esta página NÃO tem canvas/vídeo - é apenas uma tabela de gerenciamento de câmeras IP.
+      </p>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top: 2rem;">O erro aparece em qual destes cenários?</h3>
+
+<div class="options">
+  <div class="option" data-choice="actually-live" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Na página Live (/dashboard/live)</h3>
+      <p>Eu me confundi - é na página de monitoramento ao vivo mesmo</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="both-pages" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Em AMBAS as páginas</h3>
+      <p>O erro aparece tanto na Live quanto na página de Câmeras</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="not-sure" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Não tenho certeza</h3>
+      <p>Você pode verificar o console do navegador para ver exatamente onde está o erro?</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 2rem;">
+  <h3>🔍 Como verificar:</h3>
+  <ol style="font-size: 0.95rem; line-height: 1.6;">
+    <li>Abra o DevTools do navegador (F12 ou Cmd+Option+I)</li>
+    <li>Vá para a aba Console</li>
+    <li>Navegue para /dashboard/live e depois para /dashboard/cameras</li>
+    <li>Veja em qual página o erro aparece</li>
+  </ol>
+</div>

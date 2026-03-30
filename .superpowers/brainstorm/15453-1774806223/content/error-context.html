@@ -1,0 +1,38 @@
+<h2>Contexto do Erro</h2>
+<p class="subtitle">Em qual página o erro aparece?</p>
+
+<div class="options">
+  <div class="option" data-choice="live-page" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Página "Live" (/dashboard/live)</h3>
+      <p>O erro ocorre quando abro a página de monitoramento ao vivo</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="cameras-page" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Página "Câmeras" (/dashboard/cameras)</h3>
+      <p>O erro aparece na página de gerenciamento de câmeras</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="homepage" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Dashboard principal (/dashboard)</h3>
+      <p>O erro ocorre logo ao entrar no dashboard</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 2rem;">
+  <h3>Análise técnica preliminar:</h3>
+  <p style="font-size: 0.95rem;">Se o erro é imediato, provavelmente há um <code>useEffect</code> ou componente que está tentando acessar o canvas/vídeo antes dos elementos estarem montados no DOM.</p>
+</div>
+
+<div class="section">
+  <h3>Solução provável:</h3>
+  <p style="font-size: 0.95rem;">Adicionar verificações de null e garantir que o vídeo está pronto (videoWidth > 0) antes de tentar desenhar no canvas.</p>
+</div>
