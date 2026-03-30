@@ -1,380 +1,271 @@
-# EPI Recognition System
+# EPI Recognition System - HLS Streaming
 
-Sistema de monitoramento inteligente para detectar se colaboradores estão utilizando EPIs (Equipamentos de Proteção Individual) através de câmeras.
+Sistema de reconhecimento de EPI com **streaming HLS em tempo real** e **detecção YOLO**.
 
-## 🎯 Visão Geral
+[![Python](https://img.shields.io/badge/Python-3.11-blue)]()
+[![Flask](https://img.shields.io/badge/Flask-2.0-green)]()
+[![Next.js](https://img.shields.io/badge/Next.js-14-black)]())
+[![YOLOv8](https://img.shields.io/badge/YOLOv8-latest-orange)]())
+[![Railway](https://img.shields.io/badge/Railway-deployed-purple)]()
 
-O sistema utiliza arquitetura multi-agente com visão computacional para automatizar a fiscalização de compliance de EPIs em ambientes de trabalho, gerando alertas e relatórios visuais em tempo real.
+## 🎯 Features
+
+- **5-12 Câmeras IP Simultâneas** - Suporta Intelbras, Hikvision e Generic ONVIF
+- **Streaming HLS em Tempo Real** - Latência < 3 segundos
+- **Detecção YOLO Contínua** - 5 FPS com bounding boxes via WebSocket
+- **Auto-Restart de Streams** - Recuperação automática de falhas
+- **Health Monitoring** - Métricas detalhadas de todos os streams
+- **Interface Web Responsiva** - Grid de 12 câmeras (3 grandes + 9 miniaturas)
 
 ## 🏗️ Arquitetura
 
 ```
-epi_recognition_system/
-├── agents/                      # Agentes do sistema
-│   ├── recognition_agent.py     # Detecção de EPIs com YOLO
-│   ├── annotation_agent.py      # Anotação e metadados
-│   ├── orchestrator_agent.py    # Coordenação de todos os agentes
-│   └── reporting_agent/         # Dashboard com Streamlit
-│       ├── dashboard_main.py    # Dashboard principal
-│       ├── alerts.py            # Página de alertas
-│       ├── analytics.py         # Página de análises
-│       └── history.py           # Página de histórico
-├── models/                      # Modelos de dados
-│   ├── database.py              # SQLAlchemy models
-│   └── schemas.py               # Pydantic schemas
-├── services/                    # Serviços
-│   ├── yolo_service.py          # Wrapper YOLO
-│   ├── database_service.py      # Operações de banco de dados
-│   └── camera_service.py        # Captura de vídeo
-├── utils/                       # Utilitários
-│   ├── config.py                # Configurações
-│   └── logger.py                # Logging
-├── storage/                     # Armazenamento
-├── tests/                       # Testes
-├── main.py                      # Ponto de entrada
-├── requirements.txt             # Dependências
-└── .env.example                 # Variáveis de ambiente
+IP Cameras (RTSP) → FFmpeg → HLS Segments → Browser (hls.js)
+                        ↓
+                    YOLO Detection (5 FPS)
+                        ↓
+                  WebSocket (Socket.IO)
+                        ↓
+            Frontend (React/Next.js + Overlay)
 ```
 
-## 🚀 Funcionalidades
+## 🚀 Quick Start
 
-- ✅ Detecção em tempo real de múltiplos EPIs (capacete, luvas, óculos, colete, botas)
-- ✅ Monitoramento de múltiplas câmeras simultaneamente
-- ✅ Dashboard interativo com Streamlit
-- ✅ Sistema de alertas para não conformidades
-- ✅ Relatórios de compliance e análises
-- ✅ Armazenamento de histórico de detecções
-- ✅ Visualização de bounding boxes e estatísticas
+### Pré-requisitos
 
-## 📋 Requisitos
+- Python 3.11+
+- PostgreSQL 13+
+- FFmpeg (para streaming)
+- Node.js 18+ (para frontend)
 
-- Python 3.8+
-- PostgreSQL (ou SQLite para desenvolvimento)
-- Webcam ou câmeras RTSP
-- YOLOv8 model (baixado automaticamente)
-
-## 🔧 Instalação Rápida
-
-### Opção 1: Setup Automático (Recomendado)
+### Instalação
 
 ```bash
-# Clone o repositório
-git clone <repository-url>
-cd "Repositorio Reconhecimento de EPI"
+# Clone repositório
+git clone <repo-url>
+cd "Repositorio Reconhecimento de EPI "
 
-# Execute o script de setup
-chmod +x setup.sh
-./setup.sh
-```
-
-O script irá:
-- ✅ Verificar Python
-- ✅ Criar ambiente virtual
-- ✅ Instalar dependências
-- ✅ Configurar variáveis de ambiente
-- ✅ Executar testes iniciais
-
-### Opção 2: Instalação Manual
-
-1. Clone o repositório:
-```bash
-git clone <repository-url>
-cd "Repositorio Reconhecimento de EPI"
-```
-
-2. Crie um ambiente virtual:
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate  # Windows
-```
-
-3. Instale as dependências:
-```bash
+# Backend
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-```
 
-4. Configure as variáveis de ambiente:
-```bash
+# Frontend
+cd frontend
+npm install
+
+# Configurar ambiente
 cp .env.example .env
-# Edite o arquivo .env com suas configurações
+# Editar .env com DATABASE_URL e JWT_SECRET_KEY
 ```
 
-5. Execute o teste rápido:
-```bash
-python quick_test.py
-```
-
-## 🎮 Uso
-
-### Iniciar o Sistema Completo
+### Executar Localmente
 
 ```bash
-python main.py start
+# Backend (Terminal 1)
+source venv/bin/activate
+export $(cat .env | grep -v '^#' | xargs)
+python api_server.py
+
+# Frontend (Terminal 2)
+cd frontend
+npm run dev
 ```
 
-### Testar com uma Imagem
+- **API**: http://localhost:5001
+- **Frontend**: http://localhost:3000
+- **Health Check**: http://localhost:5001/health
+
+## 📦 Deploy no Railway
 
 ```bash
-python main.py test --image caminho/para/imagem.jpg
+git push origin main
 ```
 
-### Testar com Vídeo
+Railway automaticamente:
+1. Detecta `nixpacks.toml`
+2. Instala FFmpeg
+3. Build com Nixpacks (2-3 min)
+4. Inicia serviço
 
-```bash
-python main.py test --video caminho/para/video.mp4
-```
+Ver documentação completa: [RAILWAY_FFMPEG_CONFIG.md](RAILWAY_FFMPEG_CONFIG.md)
 
-### Monitorar Câmera Específica
+## 🧪 Testing
 
-```bash
-python main.py camera --camera-id 0 --duration 60
-```
-
-### Abrir Dashboard
-
-```bash
-python main.py dashboard
-```
-
-### Ver Status do Sistema
-
-```bash
-python main.py status
-```
-
-## 📱 Testar com Câmera do Celular
-
-A maneira mais fácil de testar o sistema é usar seu celular como câmera!
-
-### Android
-
-1. Instale o app **IP Webcam** (Play Store)
-2. Abra o app e inicie o servidor
-3. Anote o IP mostrado (ex: `http://192.168.1.100:8080`)
-4. Use no sistema:
-   ```bash
-   # Adicione a URL ao .env
-   echo "CAMERA_RTSP_URLS=http://192.168.1.100:8080/video" >> .env
-
-   # Ou teste diretamente
-   python main.py camera --camera-id 0 --duration 30
-   ```
-
-### iOS
-
-1. Instale o app **CamTester** (App Store)
-2. Inicie o servidor
-3. Use a URL HTTP fornecida
-
-**📚 Guia completo:** [docs/CAMERA_SETUP.md](docs/CAMERA_SETUP.md)
-
-## 🧪 Teste Rápido
-
-Execute o script de teste para verificar se tudo está funcionando:
-
-```bash
-python quick_test.py
-```
-
-Este script irá testar:
-- ✅ Versão do Python
-- ✅ Dependências instaladas
-- ✅ Modelo YOLO
-- ✅ Webcam
-- ✅ Detecção de objetos
-- ✅ Banco de dados
-
-**📚 Guia completo:** [docs/TEST_MODEL.md](docs/TEST_MODEL.md)
-
-## 🎨 Dashboard
-
-O sistema possui 4 páginas principais:
-
-1. **Dashboard Principal**: Visão geral com KPIs e métricas em tempo real
-2. **Alertas**: Lista de violações com filtros e ações de resolução
-3. **Análises**: Gráficos e tendências de compliance
-4. **Histórico**: Busca e visualização de detecções passadas
-
-### Abrir o Dashboard
-
-```bash
-streamlit run agents/reporting_agent/dashboard_main.py
-```
-
-Ou utilize o comando:
-
-```bash
-python main.py dashboard
-```
-
-## 🔧 Configuração
-
-### Variáveis de Ambiente Principais
-
-```bash
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/epi_monitoring
-
-# YOLO Model
-YOLO_MODEL_PATH=models/yolov8n.pt
-DETECTION_CONFIDENCE_THRESHOLD=0.5
-
-# Cameras
-CAMERA_RTSP_URLS=rtsp://camera1,rtsp://camera2
-
-# Streamlit
-STREAMLIT_PORT=8501
-```
-
-### Tipos de EPI Configuráveis
-
-- `helmet`: Capacete (obrigatório)
-- `gloves`: Luvas (obrigatório)
-- `glasses`: Óculos (obrigatório)
-- `vest`: Colete (obrigatório)
-- `boots`: Botas (opcional)
-
-## 🧪 Testes
-
-Executar todos os testes:
+### Testes Unitários
 
 ```bash
 pytest tests/ -v
 ```
 
-Executar testes específicos:
+### Testes E2E
 
 ```bash
-pytest tests/test_recognition.py -v
-pytest tests/test_orchestrator.py -v
-pytest tests/test_database.py -v
+./run-e2e-tests.sh
 ```
 
-## 📊 Pipeline de Processamento
-
-```
-┌─────────────────┐
-│  Camera Feed    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────────────────────────┐
-│         ORCHESTRATOR AGENT              │
-│  ┌──────────────────────────────────┐   │
-│  │  1. Capture Frame                │   │
-│  └────────────┬─────────────────────┘   │
-│               ▼                         │
-│  ┌──────────────────────────────────┐   │
-│  │  2. RECOGNITION AGENT            │   │
-│  │     (YOLO Detection)             │   │
-│  └────────────┬─────────────────────┘   │
-│               ▼                         │
-│  ┌──────────────────────────────────┐   │
-│  │  3. ANNOTATION AGENT             │   │
-│  │     (Metadata + Save)            │   │
-│  └────────────┬─────────────────────┘   │
-│               ▼                         │
-│  ┌──────────────────────────────────┐   │
-│  │  4. Save to PostgreSQL           │   │
-│  └────────────┬─────────────────────┘   │
-│               ▼                         │
-│  ┌──────────────────────────────────┐   │
-│  │  5. REPORTING AGENT              │   │
-│  │     (Update Dashboard)           │   │
-│  └──────────────────────────────────┘   │
-└─────────────────────────────────────────┘
+Ou manualmente:
+```bash
+pytest tests/test_e2e_hls_streaming.py -v -s
 ```
 
-## 🛠️ Desenvolvimento
+## 📚 Documentação
 
-### Adicionar Nova Câmera
+- **CLAUDE.md** - Guia completa para desenvolvedores
+- **RAILWAY_FFMPEG_CONFIG.md** - Configuração FFmpeg no Railway
+- **docs/superpowers/implementation-report/hls-streaming-implementation-2026-03-29.md** - Relatório técnico completo
 
-```python
-from agents.orchestrator_agent import get_orchestrator_agent
+## 🔧 API Endpoints
 
-orchestrator = get_orchestrator_agent()
-camera_id = orchestrator.add_camera(
-    name="Camera 1",
-    location="Fábrica - Linha A",
-    rtsp_url="rtsp://192.168.1.100:554/stream"
-)
+### Autenticação
+- `POST /api/auth/register` - Registrar usuário
+- `POST /api/auth/login` - Login e obter token JWT
+
+### Câmeras IP
+- `GET /api/cameras` - Listar câmeras
+- `POST /api/cameras` - Criar câmera (auto-gera RTSP URL)
+- `GET /api/cameras/<id>` - Obter câmera
+- `PUT /api/cameras/<id>` - Atualizar câmera
+- `DELETE /api/cameras/<id>` - Deletar câmera
+- `POST /api/cameras/test` - Testar conectividade RTSP
+
+### Streams HLS
+- `POST /api/cameras/<id>/stream/start` - Iniciar stream HLS + YOLO
+- `POST /api/cameras/<id>/stream/stop` - Parar stream
+- `GET /api/cameras/<id>/stream/status` - Status do stream
+- `GET /api/streams/status` - Status de todos os streams
+- `GET /streams/health` - Health report detalhado (Task 17)
+
+### HLS Files
+- `GET /streams/<camera_id>/stream.m3u8` - Playlist HLS
+- `GET /streams/<camera_id>/<segment>.ts` - Segmentos de vídeo
+
+## 🛠️ Development
+
+### Backend Structure
+
+```
+api_server.py                 # Flask app com todos os endpoints
+backend/
+├── database.py               # SQLAlchemy connection pool
+├── auth_db.py                # Autenticação JWT
+├── ip_camera_service.py      # CRUD de câmeras IP
+├── rtsp_builder.py           # Gerador URLs RTSP
+├── stream_manager.py         # Gerenciador FFmpeg/HLS
+└── yolo_processor.py        # Detecção YOLO contínua
 ```
 
-### Customizar Tipos de EPI
+### Frontend Structure
 
-Edite `utils/config.py`:
-
-```python
-EPI_TYPES = {
-    "helmet": {"required": True, "label": "Capacete"},
-    "gloves": {"required": True, "label": "Luvas"},
-    # ... adicione mais EPIs
-}
+```
+frontend/src/
+├── components/
+│   ├── hls-camera-feed.tsx   # Player HLS com overlay YOLO
+│   └── camera-grid.tsx        # Grid de 12 câmeras
+├── types/
+│   └── camera.ts              # Interfaces TypeScript
+├── hooks/
+│   └── useCameraStreams.ts    # Hook para streams
+└── lib/
+    └── api.ts                 # Cliente REST API
 ```
 
-## 📈 Métricas e KPIs
+## 🔒 Segurança
 
-O sistema monitora:
-- Taxa de compliance por EPI
-- Volume de detecções
-- Alertas gerados
-- Tendências temporais
-- Performance por câmera
+- **JWT Authentication** - Tokens assinados com expiração de 7 dias
+- **Password Hashing** - bcrypt com salt
+- **User Ownership** - Verificação de propriedade em todos os endpoints
+- **Path Traversal Protection** - Validação de filenames
+- **Input Validation** - Validação de IP, port, FPS
+- **Password Masking** - Senhas mascaradas em respostas API
 
-## 🔐 Segurança
+## 📊 Performance
 
-- As câmeras RTSP devem estar em rede segura
-- Use senhas fortes no PostgreSQL
-- Configure firewall para portas do Streamlit
-- Implemente HTTPS em produção
+**Configuração Atual (Low Latency):**
+- **Latência**: 2-3 segundos
+- **Throughput**: 5-12 câmeras simultâneas
+- **YOLO FPS**: 5 FPS por câmera
+- **HLS Segments**: 1 segundo
+- **Playlist Size**: 3 segments (buffer de 3s)
+
+**Trade-offs:**
+- Maior qualidade = maior latência
+- Mais câmeras = mais CPU
+- FPS mais alto = mais CPU
 
 ## 🐛 Troubleshooting
 
-### YOLO Model Não Encontrado
+### Stream não inicia
 
+1. Verificar conectividade RTSP:
 ```bash
-# O modelo será baixado automaticamente na primeira execução
-# Se falhar, baixe manualmente:
-wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt
+curl -X POST http://localhost:5001/api/cameras/test \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"ip":"192.168.1.100","port":554,"manufacturer":"generic"}'
 ```
 
-### Erro de Conexão com Câmera
-
+2. Verificar se FFmpeg está instalado:
 ```bash
-# Teste a conexão RTSP:
-ffplay rtsp://camera_url
+ffmpeg -version
 ```
 
-### Database Connection Error
-
+3. Checar logs:
 ```bash
-# Verifique se o PostgreSQL está rodando:
-sudo systemctl status postgresql
-
-# Ou use SQLite para desenvolvimento:
-DATABASE_URL=sqlite:///./epi_monitoring.db
+railway logs | grep ffmpeg
 ```
 
-## 📝 Licença
+### WebSocket não conecta
 
-Este projeto foi desenvolvido para fins de demonstração e uso interno.
+1. Verificar se handler está ativo:
+```bash
+curl http://localhost:5001/ws/test
+```
 
-## 👥 Contribuindo
+2. Checar token no browser console:
+```javascript
+localStorage.getItem('token')
+```
 
-Contribuições são bem-vindas! Por favor:
+### High CPU usage
 
-1. Fork o projeto
-2. Crie uma branch para sua feature
-3. Commit suas mudanças
-4. Push para a branch
-5. Abra um Pull Request
+Reduzir qualidade:
+```bash
+FFMPEG_RESOLUTION=640x360
+FFMPEG_PRESET=ultrafast
+```
 
-## 📞 Suporte
+Mais detalhes em: [CLAUDE.md](CLAUDE.md#troubleshooting)
 
-Para dúvidas ou problemas, abra uma issue no repositório.
+## 📈 Status do Projeto
+
+**✅ Implementado (Tasks 1-20):**
+- ✅ Database schema (7 tabelas incluindo ip_cameras)
+- ✅ JWT authentication
+- ✅ **HLS Streaming System completo** (Tasks 1-19)
+- ✅ YOLO detection em tempo real
+- ✅ WebSocket real-time
+- ✅ Error handling avançado
+- ✅ Health monitoring
+- ✅ E2E test suite
+- ✅ Railway deployment configurado
+- ✅ 87 testes passando
+
+**🔜 Roadmap:**
+- Training images upload
+- Custom YOLO model training
+- DeepSORT tracking
+- Human verification queue
+
+## 📄 Licença
+
+Confidencial - Propriedade da CATH
+
+## 👥 Contribuidores
+
+- Vitore Emanuel - Desenvolvedor
+- Claude Sonnet 4.5 - AI Assistant (Autonomous implementation: Tasks 4-20)
 
 ---
 
-Desenvolvido com ❤️ para melhorar a segurança no trabalho
+**Última atualização**: Março 2026
+**Versão**: 2.0.0 (HLS Streaming System)

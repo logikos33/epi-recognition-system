@@ -39,15 +39,25 @@ Este projeto possui 5 agentes especializados para automatizar tarefas comuns:
 
 ## Project Overview
 
-**EPI Recognition System** - A product counting and detection system using YOLOv8 computer vision, designed to automatically count and verify products during vehicle loading operations. The system combines real-time object detection with user verification for high accuracy (85%+ target).
+**EPI Recognition System** - Sistema de reconhecimento de EPI com streaming HLS em tempo real e detecção YOLO. O sistema suporta 5-12 câmeras IP simultâneas com latência < 3 segundos, contagem automática de produtos e verificação humana.
 
 ### Tech Stack
-- **Backend**: Flask (Python 3.11) with PostgreSQL on Railway
-- **Frontend**: Next.js (TypeScript) - migrating from Supabase to REST API
-- **AI/ML**: YOLOv8 for object detection (planned: custom-trained models per product)
-- **Deployment**: Railway with Nixpacks (2-3 min builds, not Docker)
-- **Database**: PostgreSQL with simplified schema (6 tables)
-- **Authentication**: JWT tokens with bcrypt password hashing
+- **Backend**: Flask (Python 3.11) com PostgreSQL no Railway
+- **Frontend**: Next.js 14 (TypeScript) com hls.js e socket.io-client
+- **Streaming**: FFmpeg para transcodificação RTSP→HLS
+- **AI/ML**: YOLOv8 para detecção de objetos em tempo real (5 FPS)
+- **WebSocket**: Flask-SocketIO para broadcast de detecções
+- **Deployment**: Railway com Nixpacks (2-3 min builds, FFmpeg incluído)
+- **Database**: PostgreSQL com schema simplificado (7 tabelas, incluindo ip_cameras)
+- **Authentication**: JWT tokens com bcrypt password hashing
+
+### HLS Streaming Features
+- **5-12 câmeras IP simultâneas** com fabricantes suportados: Intelbras, Hikvision, Generic ONVIF
+- **Latência < 3 segundos** com otimizações FFmpeg (preset ultrafast, segments 1s, playlist 3)
+- **Detecção YOLO contínua** a 5 FPS com bounding boxes em tempo real via WebSocket
+- **Auto-restart** de streams mortos (máx 3 tentativas)
+- **Health monitoring** com relatórios detalhados
+- **Error handling avançado** com reconexão automática (exponential backoff)
 
 ---
 
@@ -89,6 +99,133 @@ frontend/src/
 6. `sessions` - id, user_id, token, expires_at, created_at (JWT sessions)
 
 **Important**: Schema is simplified from original 13 tables. Columns removed: `phone`, `updated_at`, `last_login`, `refresh_token`, `ip_address`, `user_agent`, `image_url`, `volume_cm3`, `weight_g`.
+
+**HLS Streaming Tables** (migrations/002_create_cameras_table.sql):
+7. `ip_cameras` - Câmeras IP para streaming HLS (suporta Intelbras, Hikvision, Generic)
+
+---
+
+## HLS Streaming System
+
+### Overview
+
+Sistema completo de streaming HLS com detecção YOLO em tempo real para câmeras IP.
+
+**Arquitetura:**
+```
+IP Camera (RTSP) → FFmpeg → HLS (m3u8 + ts segments) → Browser (hls.js)
+                    ↓
+                 YOLO Detection (5 FPS)
+                    ↓
+              WebSocket (detections)
+                    ↓
+           Frontend (overlay boxes)
+```
+
+### Backend Modules
+
+**IP Camera Service** (`backend/ip_camera_service.py`):
+- CRUD completo para câmeras IP
+- Auto-geração de URLs RTSP por fabricante
+- Mascaramento de senhas em respostas
+- Métodos: `create_camera`, `list_cameras_by_user`, `get_camera_by_id`, `update_camera`, `delete_camera`
+
+**RTSP Builder** (`backend/rtsp_builder.py`):
+- Gera URLs RTSP específicas por fabricante
+- Suporta: Intelbras, Hikvision, Generic ONVIF
+- Valida endereço IP e porta
+
+**Stream Manager** (`backend/stream_manager.py`):
+- Gerencia processos FFmpeg para HLS
+- Health monitoring (30s intervals)
+- Auto-restart de streams mortos (máx 3 tentativas)
+- Métodos: `start_stream`, `stop_stream`, `get_stream_status`, `get_all_streams_status`, `get_stream_health_report`
+
+**YOLO Processor** (`backend/yolo_processor.py`):
+- Detecção contínua em threads (5 FPS padrão)
+- Parser de detecções YOLO
+- Callback para broadcast via WebSocket
+- Graceful shutdown
+
+### API Endpoints
+
+**Autenticação:**
+- `POST /api/auth/register` - Registrar usuário
+- `POST /api/auth/login` - Login e obter token JWT
+
+**Câmeras IP:**
+- `GET /api/cameras` - Listar câmeras do usuário
+- `POST /api/cameras` - Criar nova câmera (auto-gera RTSP URL)
+- `GET /api/cameras/<id>` - Obter câmera por ID
+- `PUT /api/cameras/<id>` - Atualizar câmera
+- `DELETE /api/cameras/<id>` - Deletar câmera
+- `POST /api/cameras/test` - Testar conectividade RTSP
+
+**Streams HLS:**
+- `POST /api/cameras/<id>/stream/start` - Iniciar stream HLS + YOLO
+- `POST /api/cameras/<id>/stream/stop` - Parar stream
+- `GET /api/cameras/<id>/stream/status` - Status do stream
+- `GET /api/streams/status` - Status de todos os streams
+- `GET /streams/health` - Health report detalhado (Task 17)
+- `GET /streams/<camera_id>/<filename>` - Servir arquivos HLS
+
+### Frontend Components
+
+**HLS Camera Feed** (`frontend/src/components/hls-camera-feed.tsx`):
+- Player de vídeo HLS com hls.js
+- Reconexão automática (exponential backoff, max 5 tentativas)
+- WebSocket para detecções em tempo real
+- Canvas overlay para bounding boxes YOLO
+- Indicadores visuais de status
+- Suporte a Safari (HLS nativo)
+- Error handling avançado (Task 17)
+
+**Camera Grid** (`frontend/src/components/camera-grid.tsx`):
+- Grid responsivo para 12 câmeras (3 grandes + 9 miniaturas)
+- Toggle buttons para seleção
+- Estados de loading e error
+
+**Types** (`frontend/src/types/camera.ts`):
+- `Camera` - Interface completa de câmera IP
+- `Detection` - Payload WebSocket de detecções
+- `DetectionBox` - Bounding box com coordenadas
+- `StreamStatus` - Status do stream HLS
+
+### Environment Variables
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:pass@host:port/db
+
+# JWT
+JWT_SECRET_KEY=secret-key-min-32-chars
+
+# FFmpeg (opcional - têm defaults)
+FFMPEG_LOG_LEVEL=warning
+FFMPEG_PRESET=ultrafast
+FFMPEG_VIDEO_BITRATE=512k
+FFMPEG_RESOLUTION=640x360
+
+# HLS (opcional - têm defaults)
+HLS_SEGMENT_DURATION=1
+HLS_PLAYLIST_SIZE=3
+
+# Health Monitoring (opcional - têm defaults)
+STREAM_HEALTH_CHECK_INTERVAL=30
+MAX_STREAM_RESTARTS=3
+```
+
+### Frontend URL Configuration
+
+Create `.env.local` in frontend directory:
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:5001
+```
+
+For Railway production:
+```bash
+NEXT_PUBLIC_API_URL=https://your-app.railway.app
+```
 
 ---
 
@@ -291,21 +428,241 @@ The system is designed for future expansion:
 
 ---
 
+## Railway Deployment
+
+### Quick Deploy
+
+```bash
+# 1. Push to main branch
+git add .
+git commit -m "feat: description"
+git push origin main
+
+# 2. Railway auto-deploys (2-3 min build)
+# FFmpeg is installed automatically via nixpacks.toml
+
+# 3. Check deployment status
+railway status
+
+# 4. View logs
+railway logs
+```
+
+### Environment Variables in Railway
+
+Set these in Railway dashboard:
+```bash
+DATABASE_URL=postgresql://...
+JWT_SECRET_KEY=your-secret-key-min-32-chars
+PORT=5001
+```
+
+Optional (for FFmpeg tuning):
+```bash
+FFMPEG_PRESET=ultrafast
+FFMPEG_VIDEO_BITRATE=512k
+STREAM_HEALTH_CHECK_INTERVAL=30
+```
+
+### Monitoring
+
+**Health Endpoints:**
+- `GET /health` - System health
+- `GET /streams/health` - Streams health report (Task 17)
+- `GET /api/streams/status` - All streams status
+
+**Logs:**
+```bash
+railway logs                    # Real-time logs
+railway logs -n 100            # Last 100 lines
+railway logs --tail            # Follow logs
+```
+
+**Troubleshooting:**
+- Check FFmpeg installation: `railway logs | grep ffmpeg`
+- High CPU? Reduce quality: `FFMPEG_RESOLUTION=640x360`
+- Stream crashes? Check RTSP connectivity
+
+Full guide: `RAILWAY_FFMPEG_CONFIG.md`
+
+---
+
+## HLS Testing
+
+### End-to-End Tests (Task 19)
+
+Run complete E2E test suite:
+
+```bash
+# Using test runner (recommended)
+./run-e2e-tests.sh
+
+# Using pytest directly
+pytest tests/test_e2e_hls_streaming.py -v -s
+```
+
+**Test Coverage:**
+1. User authentication flow
+2. Camera CRUD operations
+3. Stream lifecycle (start → status → health → stop)
+4. Camera connectivity testing
+5. Security validation
+6. System health checks
+
+**Prerequisites:**
+- API server running on http://localhost:5001
+- PostgreSQL database configured
+- FFmpeg installed (optional, for stream tests)
+
+### Manual Testing
+
+**1. Test Authentication:**
+```bash
+# Register
+curl -X POST http://localhost:5001/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@local.dev","password":"123456","full_name":"Test"}'
+
+# Login
+curl -X POST http://localhost:5001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@local.dev","password":"123456"}'
+```
+
+**2. Create Camera:**
+```bash
+TOKEN="eyJhbGc..."
+
+curl -X POST http://localhost:5001/api/cameras \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Test Camera",
+    "manufacturer": "intelbras",
+    "ip": "192.168.1.100",
+    "port": 554,
+    "username": "admin",
+    "password": "password123"
+  }'
+```
+
+**3. Start Stream:**
+```bash
+curl -X POST http://localhost:5001/api/cameras/1/stream/start \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**4. Check Status:**
+```bash
+curl http://localhost:5001/streams/1/stream.m3u8 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**1. API server won't start**
+```bash
+# Kill old process
+pkill -9 -f "python.*api_server"
+
+# Check port 5001
+lsof -i :5001
+
+# Restart server
+python api_server.py
+```
+
+**2. FFmpeg not found**
+```bash
+# Install FFmpeg
+brew install ffmpeg  # macOS
+
+# Verify
+ffmpeg -version
+```
+
+**3. Stream won't start**
+```bash
+# Check RTSP connectivity
+curl -X POST http://localhost:5001/api/cameras/test \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"manufacturer":"generic","ip":"192.168.1.100","port":554}'
+
+# Check logs
+tail -f logs/api_server.log
+```
+
+**4. WebSocket not connecting**
+```bash
+# Check WebSocket handler in api_server.py
+# Should see: socketio = SocketIO(...)
+
+# Test WebSocket endpoint
+curl http://localhost:5001/ws/test
+```
+
+**5. HLS not playing in browser**
+```bash
+# Check HLS file exists
+ls -la streams/1/
+
+# Check HLS content
+cat streams/1/stream.m3u8
+
+# Verify hls.js is loaded
+# Browser console: check for Hls object
+```
+
+### Error Messages
+
+**"401 Unauthorized"**:
+- Token expired or missing
+- Solution: Login again to get new token
+
+**"Camera not found"**:
+- Camera doesn't exist or belongs to different user
+- Solution: Check camera ID and ownership
+
+**"Stream failed to start"**:
+- FFmpeg crashed or RTSP unreachable
+- Solution: Check logs, verify RTSP URL, test connectivity
+
+**"HLS authentication limitation"**:
+- Browser limitation, can't send custom headers for HLS
+- Solution: Use signed URLs or proxy server (planned)
+
+---
+
 ## Project Status (March 2026)
 
-**✅ Complete:**
-- Railway PostgreSQL deployment (6 tables)
-- JWT authentication (register, login, verify)
-- Products CRUD (create, list, update, delete)
-- YOLOv8 base model integration
-- Local development environment
-- Nixpacks build optimization (2-3 min)
+**✅ Complete (Tasks 1-20):**
+- ✅ Railway PostgreSQL deployment (7 tabelas incluindo ip_cameras)
+- ✅ JWT authentication (register, login, verify)
+- ✅ Products CRUD (create, list, update, delete)
+- ✅ **HLS Streaming System** (Tasks 1-19) - 100% completo
+  - IP camera management (RTSP builder, CRUD)
+  - FFmpeg transcoding (StreamManager com health monitoring)
+  - YOLO detection contínua (YOLOProcessor)
+  - WebSocket real-time (Flask-SocketIO)
+  - Frontend HLS player (hls-camera-feed, camera-grid)
+  - Error handling avançado (auto-restart, reconexão)
+  - Railway FFmpeg config (nixpacks.toml)
+  - E2E test suite completo
+- ✅ YOLOv8 base model integration
+- ✅ Local development environment
+- ✅ Nixpacks build optimization (2-3 min)
+- ✅ Code quality (15 issues corrigidas)
+- ✅ 87 testes passando
 
-**⏳ In Progress:**
-- Frontend migration to REST API (partial)
-- Railway production deployment
+**⏳ Deprecated:**
+- Frontend migration to REST API (completo)
+- Railway production deployment (configurado)
 
-**🔜 Planned:**
+**🔜 Planned (Future Phases):**
 - Training images upload
 - Annotation system
 - Custom YOLO model training
