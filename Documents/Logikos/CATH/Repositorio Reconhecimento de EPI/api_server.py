@@ -100,9 +100,9 @@ def on_detection_result(result: dict):
 yolo_processor_manager.set_detection_callback(on_detection_result)
 
 
-# ============================================================================
+# ===================================================
 # JWT Authentication Helper
-# ============================================================================
+# ===================================================
 
 def verify_jwt_token(auth_header: str) -> dict:
     """
@@ -127,9 +127,9 @@ def verify_jwt_token(auth_header: str) -> dict:
     return payload
 
 
-# ============================================================================
+# ===================================================
 # Authentication Routes
-# ============================================================================
+# ===================================================
 
 @app.route('/api/auth/register', methods=['POST'])
 def register():
@@ -270,9 +270,9 @@ def verify_token(token: str) -> dict:
         return None
 
 
-# ============================================================================
+# ===================================================
 # WebSocket Events
-# ============================================================================
+# ===================================================
 
 @socketio.on('connect')
 def handle_connect():
@@ -315,9 +315,9 @@ def handle_unsubscribe_camera(data):
     emit('unsubscribed', {'camera_id': camera_id, 'room': room})
 
 
-# ============================================================================
+# ===================================================
 # HLS File Serving
-# ============================================================================
+# ===================================================
 
 @app.route('/streams/<int:camera_id>/<path:filename>')
 def serve_hls_file(camera_id, filename):
@@ -367,9 +367,9 @@ def serve_hls_file(camera_id, filename):
         return jsonify({'error': 'HLS file not found'}), 404
 
 
-# ============================================================================
+# ===================================================
 # Stream Management Endpoints
-# ============================================================================
+# ===================================================
 
 @app.route('/api/cameras/<int:camera_id>/stream/start', methods=['POST'])
 def start_stream(camera_id):
@@ -552,9 +552,9 @@ def get_all_streams_status():
     })
 
 
-# ============================================================================
+# ===================================================
 # Health Check
-# ============================================================================
+# ===================================================
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -572,9 +572,9 @@ def health_check():
     })
 
 
-# ============================================================================
+# ===================================================
 # YOLO Classes Management
-# ============================================================================
+# ===================================================
 
 @app.route('/api/classes', methods=['GET'])
 def list_classes():
@@ -1356,11 +1356,11 @@ def get_classes_yaml():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ============================================================================
+# ===================================================
 
-# ============================================================================
+# ===================================================
 # Video Upload and Frame Extraction Endpoints
-# ============================================================================
+# ===================================================
 
 from backend.video_service import VideoService
 
@@ -1801,9 +1801,377 @@ def delete_training_image(image_id: str):
 
 
 
-# ============================================================================
+
+@app.route('/api/training/dataset/stats', methods=['GET'])
+def get_dataset_stats():
+    """Get training dataset statistics."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+
+        # Total frames and annotation status
+        frame_stats_query = text("""
+            SELECT
+                COUNT(*) as total_frames,
+                COUNT(*) FILTER (WHERE is_annotated = TRUE) as annotated_frames,
+                COUNT(*) FILTER (WHERE is_annotated = FALSE) as pending_frames
+            FROM frames
+        """)
+        frame_stats = db.execute(frame_stats_query).fetchone()
+
+        # Class breakdown
+        class_stats_query = text("""
+            SELECT
+                c.id, c.nome, c.cor_hex,
+                COUNT(fa.id) as annotation_count
+            FROM classes_yolo c
+            LEFT JOIN frame_annotations fa ON fa.class_id = c.id
+            GROUP BY c.id, c.nome, c.cor_hex
+            ORDER BY annotation_count DESC
+        """)
+        class_stats = db.execute(class_stats_query).fetchall()
+
+        # Total annotations
+        total_annotations = sum(row[3] for row in class_stats)
+
+        # Calculate train/val split (80/20)
+        annotated_frames = frame_stats[1] or 0
+        train_split = int(annotated_frames * 0.8)
+        val_split = annotated_frames - train_split
+
+        # Build issues list
+        issues = []
+        if annotated_frames < 50:
+            issues.append(f'Apenas {annotated_frames} frames anotados (mínimo: 50)')
+
+        class_count = len([c for c in class_stats if c[3] > 0])
+        if class_count < 2:
+            issues.append(f'Apenas {class_count} classes com anotações (mínimo: 2)')
+
+        percentage = (annotated_frames / frame_stats[0] * 100) if frame_stats[0] > 0 else 0
+
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total_frames': frame_stats[0],
+                'annotated_frames': annotated_frames,
+                'pending_frames': frame_stats[2] or 0,
+                'annotation_percentage': round(percentage, 1),
+                'classes': [
+                    {
+                        'id': row[0],
+                        'name': row[1],
+                        'color': row[2],
+                        'annotation_count': row[3]
+                    }
+                    for row in class_stats
+                ],
+                'total_annotations': total_annotations,
+                'train_split': train_split,
+                'val_split': val_split,
+                'ready_to_train': len(issues) == 0,
+                'issues': issues
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Dataset stats error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
+# ===================================================
+# Training Control Endpoints
+# ===================================================
+
+active_training_jobs = {}  # Track active training jobs
+
+
+@app.route('/api/training/start', methods=['POST'])
+def start_training():
+    """Start YOLO training job."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        data = request.get_json()
+
+        # Validate configuration
+        required_fields = ['epochs', 'batch_size', 'image_size', 'base_model']
+        if not all(f in data for f in required_fields):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        config = {
+            'epochs': int(data['epochs']),
+            'batch_size': int(data['batch_size']),
+            'image_size': int(data['image_size']),
+            'base_model': data['base_model'],
+            'device': 'auto'
+        }
+
+        augmentation = {
+            'hsv_h': 0.015,
+            'hsv_s': 0.7,
+            'hsv_v': 0.4,
+            'degrees': 0.0,
+            'translate': 0.1,
+            'scale': 0.5,
+            'fliplr': 0.5,
+            'mosaic': 1.0
+        }
+
+        # Export dataset first
+        from backend.yolo_exporter import YOLOExporter
+        exporter = YOLOExporter()
+
+        db = next(get_db())
+
+        # Create temporary project for training
+        from datetime import datetime, timezone
+        project_result = TrainingProjectDB.create_project(
+            db=db,
+            user_id=payload['user_id'],
+            name=f"Training_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            description='Auto-generated project for training'
+        )
+
+        if not project_result.get('id'):
+            return jsonify({'success': False, 'error': 'Failed to create project'}), 500
+
+        project_id = project_result['id']
+
+        # Export dataset
+        export_result = exporter.export_project(
+            db=db,
+            project_id=project_id,
+            output_dir='datasets',
+            train_val_split=0.8
+        )
+
+        if not export_result['success']:
+            return jsonify({'success': False, 'error': 'Failed to export dataset'}), 500
+
+        # Start training using YOLOTrainer
+        from backend.yolo_trainer import YOLOTrainer
+        trainer = YOLOTrainer()
+
+        training_result = trainer.start_training(
+            db=db,
+            project_id=project_id,
+            config=config,
+            augmentation=augmentation,
+            model=config['base_model']
+        )
+
+        if training_result['success']:
+            active_training_jobs[project_id] = {
+                'status': 'running',
+                'started_at': datetime.now(timezone.utc).isoformat(),
+                'config': config
+            }
+            return jsonify({
+                'success': True,
+                'training_id': training_result['training_id'],
+                'project_id': project_id,
+                'message': 'Training started successfully'
+            })
+        else:
+            return jsonify({'success': False, 'error': training_result['error']}), 500
+
+    except Exception as e:
+        logger.error(f"❌ Start training error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/status', methods=['GET'])
+def get_training_status():
+    """Get status of active training job."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        # Get most recent training job for user
+        db = next(get_db())
+        query = text("""
+            SELECT tp.id, tp.name, tp.status, tp.created_at,
+                   tm.id as model_id, tm.map50, tm.map75, tm.precision, tm.recall,
+                   tm.training_epochs, tm.training_time_seconds, tm.is_active
+            FROM training_projects tp
+            LEFT JOIN trained_models tm ON tm.project_id = tp.id
+            WHERE tp.user_id = :user_id
+            ORDER BY tp.created_at DESC
+            LIMIT 1
+        """)
+
+        result = db.execute(query, {'user_id': payload['user_id']})
+        row = result.fetchone()
+
+        if not row:
+            return jsonify({
+                'success': True,
+                'status': 'not_started',
+                'training': None
+            })
+
+        project_status = row[2]
+
+        return jsonify({
+            'success': True,
+            'status': project_status,
+            'training': {
+                'project_id': str(row[0]),
+                'project_name': row[1],
+                'model_id': str(row[4]) if row[4] else None,
+                'map50': float(row[5]) if row[5] else None,
+                'precision': float(row[7]) if row[7] else None,
+                'epochs': row[9],
+                'training_time_seconds': row[10],
+                'is_active': row[11],
+                'created_at': row[3].isoformat() if row[3] else None
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Training status error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/stop', methods=['POST'])
+def stop_training():
+    """Stop active training job."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        # Update training status to stopped
+        db = next(get_db())
+        query = text("""
+            UPDATE training_projects
+            SET status = 'stopped', updated_at = NOW()
+            WHERE user_id = :user_id AND status = 'training'
+            RETURNING id
+        """)
+        result = db.execute(query, {'user_id': payload['user_id']})
+        db.commit()
+
+        if result.fetchone():
+            return jsonify({'success': True, 'message': 'Training stopped'})
+        else:
+            return jsonify({'success': False, 'error': 'No active training found'}), 404
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Stop training error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/history', methods=['GET'])
+def get_training_history():
+    """Get training history for user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        query = text("""
+            SELECT tp.id, tp.name, tp.status, tp.created_at,
+                   tm.map50, tm.precision, tm.is_active,
+                   tm.training_epochs, tm.training_time_seconds
+            FROM training_projects tp
+            LEFT JOIN trained_models tm ON tm.project_id = tp.id
+            WHERE tp.user_id = :user_id
+            ORDER BY tp.created_at DESC
+        """)
+
+        result = db.execute(query, {'user_id': payload['user_id']})
+        rows = result.fetchall()
+
+        history = [
+            {
+                'project_id': str(row[0]),
+                'name': row[1],
+                'status': row[2],
+                'created_at': row[3].isoformat() if row[3] else None,
+                'map50': float(row[4]) if row[4] else None,
+                'precision': float(row[5]) if row[5] else None,
+                'is_active': row[6],
+                'epochs': row[7],
+                'training_time_seconds': row[8]
+            }
+            for row in rows
+        ]
+
+        return jsonify({'success': True, 'history': history})
+
+    except Exception as e:
+        logger.error(f"❌ Training history error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/models/<model_id>/activate', methods=['POST'])
+def activate_model(model_id: str):
+    """Set a trained model as active."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        from backend.yolo_trainer import YOLOTrainer
+        trainer = YOLOTrainer()
+
+        db = next(get_db())
+        result = trainer.activate_model(db, model_id, payload['user_id'])
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+
+    except Exception as e:
+        logger.error(f"❌ Activate model error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ===================================================
 # Annotation Endpoints
-# ============================================================================
+# ===================================================
 
 from backend.annotation_service import AnnotationService
 
@@ -1959,7 +2327,7 @@ def predict_frame_annotations(frame_id: str):
 
 
 # WebSocket Test Endpoint
-# ============================================================================
+# ===================================================
 
 @app.route('/ws/test', methods=['GET'])
 def websocket_test():
@@ -1972,9 +2340,9 @@ def websocket_test():
     })
 
 
-# ============================================================================
+# ===================================================
 # Application Entry Point
-# ============================================================================
+# ===================================================
 
 if __name__ == '__main__':
     logger.info("=" * 60)
