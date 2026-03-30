@@ -2629,6 +2629,343 @@ def recognize_license_plate():
 
 
 # ============================================
+
+# ============================================
+# YOLO CLASSES MANAGEMENT API
+# ============================================
+
+@app.route('/api/classes', methods=['GET'])
+def list_classes():
+    """List all YOLO classes with statistics"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+
+        query = text("""
+            SELECT 
+                c.*,
+                COUNT(DISTINCT i.id) as total_imagens,
+                COUNT(DISTINCT i.id) FILTER (WHERE i.validada = true) as imagens_validadas,
+                COALESCE(SUM(cd.quantidade), 0) as total_deteccoes
+            FROM classes_yolo c
+            LEFT JOIN imagens_treinamento i ON i.classe_id = c.id
+            LEFT JOIN contagens_deteccao cd ON cd.classe_id = c.id
+            WHERE c.ativo = true
+            GROUP BY c.id
+            ORDER BY c.class_index ASC
+        """)
+
+        result = db.execute(query)
+        classes = [dict(row._mapping) for row in result.fetchall()]
+
+        return jsonify({
+            'success': True,
+            'classes': classes
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/classes', methods=['POST'])
+def create_class():
+    """Create a new YOLO class - updates class_index automatically"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json()
+        nome = data.get('nome')
+        descricao = data.get('descricao')
+        valor_unitario = data.get('valor_unitario', 0.00)
+        unidade = data.get('unidade', 'unidade')
+        cor_hex = data.get('cor_hex', '#00FF00')
+
+        if not nome:
+            return jsonify({
+                'success': False,
+                'error': 'nome is required'
+            }), 400
+
+        db = next(get_db())
+
+        # Get next available class_index
+        max_index_query = text("""
+            SELECT COALESCE(MAX(class_index), -1) + 1 AS proximo
+            FROM classes_yolo
+        """)
+        result = db.execute(max_index_query)
+        class_index = result.fetchone()[0]
+
+        # Insert new class
+        insert_query = text("""
+            INSERT INTO classes_yolo
+            (nome, descricao, valor_unitario, unidade, cor_hex, class_index)
+            VALUES (:nome, :descricao, :valor_unitario, :unidade, :cor_hex, :class_index)
+            RETURNING *
+        """)
+
+        result = db.execute(insert_query, {
+            'nome': nome,
+            'descricao': descricao,
+            'valor_unitario': valor_unitario,
+            'unidade': unidade,
+            'cor_hex': cor_hex,
+            'class_index': class_index
+        })
+
+        db.commit()
+        new_class = dict(result.fetchone()._mapping)
+
+        return jsonify({
+            'success': True,
+            'classe': new_class,
+            'mensagem': f'Classe "{nome}" adicionada como índice {class_index}.'
+        }), 201
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/classes/<int:class_id>', methods=['PATCH'])
+def update_class(class_id: int):
+    """Update YOLO class configuration"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json()
+        valor_unitario = data.get('valor_unitario')
+        unidade = data.get('unidade')
+        descricao = data.get('descricao')
+        cor_hex = data.get('cor_hex')
+        ativo = data.get('ativo')
+
+        db = next(get_db())
+
+        update_query = text("""
+            UPDATE classes_yolo SET
+                valor_unitario = COALESCE(:valor_unitario, valor_unitario),
+                unidade = COALESCE(:unidade, unidade),
+                descricao = COALESCE(:descricao, descricao),
+                cor_hex = COALESCE(:cor_hex, cor_hex),
+                ativo = COALESCE(:ativo, ativo),
+                atualizado_em = NOW()
+            WHERE id = :class_id
+            RETURNING *
+        """)
+
+        result = db.execute(update_query, {
+            'class_id': class_id,
+            'valor_unitario': valor_unitario,
+            'unidade': unidade,
+            'descricao': descricao,
+            'cor_hex': cor_hex,
+            'ativo': ativo
+        })
+
+        db.commit()
+
+        if result.rowcount == 0:
+            return jsonify({
+                'success': False,
+                'error': 'Class not found'
+            }), 404
+
+        updated_class = dict(result.fetchone()._mapping)
+
+        return jsonify({
+            'success': True,
+            'classe': updated_class,
+            'mensagem': 'Classe atualizada'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/deteccoes/registrar', methods=['POST'])
+def register_detections():
+    """Register YOLO detections with automatic value calculation"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json()
+        camera_id = data.get('camera_id')
+        sessao_id = data.get('sessao_id')
+        deteccoes = data.get('deteccoes', [])
+
+        if not camera_id or not sessao_id:
+            return jsonify({
+                'success': False,
+                'error': 'camera_id and sessao_id are required'
+            }), 400
+
+        db = next(get_db())
+
+        # Group detections by class_index
+        contagem = {}
+        for det in deteccoes:
+            class_index = det.get('class_index')
+            if class_index is not None:
+                contagem[class_index] = contagem.get(class_index, 0) + 1
+
+        resultados = []
+
+        for class_index, quantidade in contagem.items():
+            # Get class info
+            class_query = text("""
+                SELECT * FROM classes_yolo
+                WHERE class_index = :class_index AND ativo = true
+            """)
+            class_result = db.execute(class_query, {'class_index': class_index})
+            classe_row = class_result.fetchone()
+
+            if not classe_row:
+                continue
+
+            classe = dict(classe_row._mapping)
+
+            # Insert or update detection count
+            valor_total = quantidade * classe['valor_unitario']
+            
+            upsert_query = text("""
+                INSERT INTO contagens_deteccao
+                (camera_id, classe_id, quantidade, valor_total, sessao_id)
+                VALUES (:camera_id, :classe_id, :quantidade, :valor_total, :sessao_id)
+                ON CONFLICT (camera_id, classe_id, sessao_id)
+                DO UPDATE SET
+                    quantidade = contagens_deteccao.quantidade + EXCLUDED.quantidade,
+                    detectado_em = NOW()
+                RETURNING *
+            """)
+
+            result = db.execute(upsert_query, {
+                'camera_id': camera_id,
+                'classe_id': classe['id'],
+                'quantidade': quantidade,
+                'valor_total': valor_total,
+                'sessao_id': sessao_id
+            })
+
+            db.commit()
+
+            registro = dict(result.fetchone()._mapping)
+
+            resultados.append({
+                'classe': classe['nome'],
+                'classe_id': classe['id'],
+                'quantidade': registro['quantidade'],
+                'valor_unitario': float(classe['valor_unitario']),
+                'unidade': classe['unidade'],
+                'valor_total': float(valor_total),
+                'cor': classe['cor_hex'],
+                'class_index': class_index
+            })
+
+        valor_total_sessao = sum(r['valor_total'] for r in resultados)
+
+        return jsonify({
+            'success': True,
+            'sessao_id': sessao_id,
+            'deteccoes': resultados,
+            'valor_total_sessao': valor_total_sessao,
+            'total_itens': sum(r['quantidade'] for r in resultados)
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessoes/<string:sessao_id>/resumo', methods=['GET'])
+def get_session_summary(sessao_id: str):
+    """Get summary of detections for a session"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+
+        query = text("""
+            SELECT
+                c.nome AS classe,
+                c.unidade,
+                c.valor_unitario,
+                c.cor_hex,
+                c.class_index,
+                cd.quantidade,
+                cd.quantidade * c.valor_unitario AS valor_total
+            FROM contagens_deteccao cd
+            JOIN classes_yolo c ON c.id = cd.classe_id
+            WHERE cd.sessao_id = :sessao_id
+            ORDER BY cd.quantidade DESC
+        """)
+
+        result = db.execute(query, {'sessao_id': sessao_id})
+        itens = [dict(row._mapping) for row in result.fetchall()]
+
+        total_geral = sum(float(item['valor_total']) for item in itens)
+        total_itens = sum(item['quantidade'] for item in itens)
+
+        return jsonify({
+            'success': True,
+            'sessao_id': sessao_id,
+            'itens': itens,
+            'total_geral': total_geral,
+            'total_itens': total_itens
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 # START SERVER
 # ============================================
 
