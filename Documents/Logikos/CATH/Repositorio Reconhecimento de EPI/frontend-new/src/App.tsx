@@ -1141,12 +1141,27 @@ const TrainingAnnotateTab = ({ videoId, onBack }) => {
   const [frames, setFrames] = useState([])
   const [selectedFrame, setSelectedFrame] = useState(null)
   const [loading, setLoading] = useState(false)
+  const timelineRef = useRef(null)
 
   useEffect(() => {
     if (videoId) {
       loadFrames()
     }
   }, [videoId])
+
+  // Scroll selected frame into view in timeline
+  useEffect(() => {
+    if (selectedFrame && timelineRef.current) {
+      const timeline = timelineRef.current
+      const selectedElement = timeline.querySelector(`[data-frame-id="${selectedFrame.id}"]`)
+      if (selectedElement) {
+        const timelineRect = timeline.getBoundingClientRect()
+        const elementRect = selectedElement.getBoundingClientRect()
+        const scrollLeft = timeline.scrollLeft + (elementRect.left - timelineRect.left) - (timelineRect.width / 2) + (elementRect.width / 2)
+        timeline.scrollTo({ left: scrollLeft, behavior: 'smooth' })
+      }
+    }
+  }, [selectedFrame])
 
   const loadFrames = async () => {
     if (!videoId) return
@@ -1297,14 +1312,14 @@ const TrainingAnnotateTab = ({ videoId, onBack }) => {
           </p>
         </div>
       ) : (
-        <div style={{ display: 'flex', height: 'calc(100vh - 140px)' }}>
-          {/* Left Panel - Frame Display (75%) */}
+        <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)' }}>
+          {/* Main Frame Display Area */}
           <div style={{
-            flex: '0 0 75%',
+            flex: 1,
             display: 'flex',
             flexDirection: 'column',
-            borderRight: '1px solid var(--border)',
-            background: '#0d1117'
+            background: '#0d1117',
+            minHeight: 0
           }}>
             {/* Toolbar */}
             <div style={{
@@ -1371,44 +1386,42 @@ const TrainingAnnotateTab = ({ videoId, onBack }) => {
               alignItems: 'center',
               justifyContent: 'center',
               padding: '24px',
-              overflow: 'auto'
+              overflow: 'auto',
+              minHeight: 0
             }}>
               {selectedFrame ? (
-                <div style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  position: 'relative'
-                }}>
-                  <img
-                    src={`/api/training/frames/${selectedFrame.id}/image`}
-                    alt={`Frame ${selectedFrame.frame_number}`}
-                    style={{
-                      maxWidth: '100%',
-                      maxHeight: 'calc(100vh - 250px)',
-                      display: 'block'
-                    }}
-                  />
-                </div>
+                <img
+                  src={`/api/training/frames/${selectedFrame.id}/image`}
+                  alt={`Frame ${selectedFrame.frame_number}`}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    display: 'block',
+                    objectFit: 'contain'
+                  }}
+                />
               ) : (
                 <div style={{
                   textAlign: 'center',
                   color: 'var(--muted)'
                 }}>
-                  <p>Selecione um frame na lista</p>
+                  <p>Selecione um frame na timeline</p>
                 </div>
               )}
             </div>
 
-            {/* Status Bar */}
+            {/* Progress Bar */}
             <div style={{
               background: '#161b22',
               borderTop: '1px solid var(--border)',
-              padding: '12px 24px',
+              borderBottom: '1px solid var(--border)',
+              padding: '8px 24px',
               fontFamily: "'DM Mono', monospace",
               fontSize: '12px',
-              color: 'rgba(255, 255, 255, 0.4)',
+              color: 'rgba(255, 255, 255, 0.6)',
               display: 'flex',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
+              alignItems: 'center'
             }}>
               <span>
                 {selectedFrame
@@ -1416,70 +1429,141 @@ const TrainingAnnotateTab = ({ videoId, onBack }) => {
                   : 'Frame -/-'
                 }
               </span>
-              <span>Boxes: 0</span>
+              <div style={{
+                display: 'flex',
+                gap: '16px',
+                alignItems: 'center'
+              }}>
+                <button
+                  onClick={handlePrevFrame}
+                  disabled={!selectedFrame || frames.findIndex(f => f.id === selectedFrame.id) === 0}
+                  style={{
+                    padding: '4px 8px',
+                    background: 'transparent',
+                    color: selectedFrame && frames.findIndex(f => f.id === selectedFrame.id) > 0 ? 'var(--text)' : 'var(--muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    opacity: selectedFrame && frames.findIndex(f => f.id === selectedFrame.id) > 0 ? 1 : 0.5
+                  }}
+                >
+                  ←
+                </button>
+                <span>Boxes: 0</span>
+                <button
+                  onClick={handleNextFrame}
+                  disabled={!selectedFrame || frames.findIndex(f => f.id === selectedFrame.id) === frames.length - 1}
+                  style={{
+                    padding: '4px 8px',
+                    background: 'transparent',
+                    color: selectedFrame && frames.findIndex(f => f.id === selectedFrame.id) < frames.length - 1 ? 'var(--text)' : 'var(--muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    opacity: selectedFrame && frames.findIndex(f => f.id === selectedFrame.id) < frames.length - 1 ? 1 : 0.5
+                  }}
+                >
+                  →
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Right Panel - Frames List (25%) */}
+          {/* Timeline Bar */}
           <div style={{
-            flex: '0 0 25%',
-            background: '#161b22',
-            borderLeft: '1px solid var(--border)',
+            height: '120px',
+            background: '#0d1117',
+            borderTop: '1px solid var(--border)',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden'
           }}>
-            <div style={{
-              padding: '16px',
-              borderBottom: '1px solid var(--border)',
-              fontSize: '14px',
-              fontWeight: '600',
-              color: 'var(--text)'
-            }}>
-              Frames ({frames.length})
-            </div>
-
-            <div style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '8px'
-            }}>
-              {frames.map((frame, index) => (
-                <div
-                  key={frame.id}
-                  onClick={() => handleFrameSelect(frame)}
-                  style={{
-                    padding: '12px',
-                    marginBottom: '8px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    background: selectedFrame?.id === frame.id
-                      ? 'rgba(37, 99, 235, 0.1)'
-                      : 'transparent',
-                    border: selectedFrame?.id === frame.id
-                      ? '1px solid rgba(37, 99, 235, 0.3)'
-                      : '1px solid transparent',
-                    transition: 'all 0.15s'
-                  }}
-                >
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '13px',
-                    color: 'var(--text)',
-                    fontWeight: '500'
-                  }}>
-                    <span style={{
-                      fontSize: '16px',
-                      color: frame.is_annotated ? '#2563eb' : 'var(--muted)'
+            {/* Thumbnails Scroll */}
+            <div
+              ref={timelineRef}
+              style={{
+                flex: 1,
+                display: 'flex',
+                gap: '4px',
+                padding: '12px',
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                alignItems: 'center',
+                // Custom scrollbar
+                scrollbarWidth: 'thin',
+                scrollbarColor: 'rgba(255, 255, 255, 0.1) transparent',
+              }}>
+              {frames.map((frame, index) => {
+                const isSelected = selectedFrame?.id === frame.id
+                return (
+                  <div
+                    key={frame.id}
+                    data-frame-id={frame.id}
+                    onClick={() => handleFrameSelect(frame)}
+                    style={{
+                      position: 'relative',
+                      flex: '0 0 auto',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      transform: isSelected ? 'scale(1.05)' : 'scale(1)',
+                      transformOrigin: 'center bottom'
+                    }}
+                  >
+                    {/* Thumbnail */}
+                    <div style={{
+                      width: '80px',
+                      height: '50px',
+                      borderRadius: '4px',
+                      overflow: 'hidden',
+                      border: isSelected
+                        ? '2px solid #2563eb'
+                        : '1px solid rgba(255, 255, 255, 0.1)',
+                      background: '#161b22',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}>
-                      {frame.is_annotated ? '●' : '○'}
-                    </span>
-                    <span>Frame {frame.frame_number}</span>
+                      <img
+                        src={`/api/training/frames/${frame.id}/image`}
+                        alt={`Frame ${frame.frame_number}`}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          display: 'block'
+                        }}
+                        loading="lazy"
+                      />
+                      {/* Annotated indicator */}
+                      {frame.is_annotated && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '4px',
+                          right: '4px',
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          border: '1px solid rgba(0, 0, 0, 0.3)'
+                        }} />
+                      )}
+                    </div>
+                    {/* Timestamp */}
+                    <div style={{
+                      fontFamily: "'DM Mono', monospace",
+                      fontSize: '10px',
+                      color: 'rgba(255, 255, 255, 0.3)',
+                      textAlign: 'center',
+                      marginTop: '4px',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {Math.floor(frame.frame_number / 2)}s
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>
