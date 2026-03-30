@@ -9,6 +9,8 @@ import uuid
 import logging
 import shutil
 import json
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -321,7 +323,8 @@ class VideoService:
         """
         Extract frames from video in background thread.
 
-        Process in 1-minute chunks, 2 frames per second.
+        Uses FFmpeg for fast extraction (5-10x faster than OpenCV).
+        Processes chunks in parallel (up to 4 simultaneous).
         """
         try:
             from backend.database import SessionLocal
@@ -331,54 +334,27 @@ class VideoService:
             output_dir = os.path.join(self.frames_dir, video_id)
             os.makedirs(output_dir, exist_ok=True)
 
-            # Open video
-            cap = cv2.VideoCapture(video_path)
-            fps = float(cap.get(cv2.CAP_PROP_FPS))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-            # Set start position (ensure float conversion)
+            # Calculate duration and number of chunks
             start_time = float(start_time)
             end_time = float(end_time)
-            start_frame = int(start_time * fps)
-            end_frame = int(end_time * fps)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            duration = end_time - start_time
+            total_chunks = int(duration / 60) + 1
 
-            frame_number = 0
-            chunk_number = 0
-            chunk_start_frame = start_frame
-            saved_count = 0
+            # Check if FFmpeg is available
+            use_ffmpeg = shutil.which('ffmpeg') is not None
 
-            # Extract in 1-minute chunks
-            chunk_duration_frames = int(60 * fps)
-            extraction_interval = int(fps / 2)  # 2 frames per second
-
-            while True:
-                ret, frame = cap.read()
-                if not ret or int(cap.get(cv2.CAP_PROP_POS_FRAMES)) > end_frame:
-                    break
-
-                current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-
-                # Save 2 frames per second
-                if (current_frame - chunk_start_frame) % extraction_interval == 0:
-                    frame_filename = f"chunk_{chunk_number:02d}_frame_{saved_count:05d}.jpg"
-                    frame_path = os.path.join(output_dir, frame_filename)
-                    cv2.imwrite(frame_path, frame)
-
-                    # Save frame to database
-                    self._save_frame_to_db(db, video_id, frame_number, chunk_number, frame_path)
-                    saved_count += 1
-                    frame_number += 1
-
-                # Update chunk progress
-                if (current_frame - chunk_start_frame) >= chunk_duration_frames:
-                    chunk_number += 1
-                    chunk_start_frame = current_frame
-
-                    # Update processed_chunks in database
-                    self._update_progress(db, video_id, chunk_number)
-
-            cap.release()
+            if use_ffmpeg:
+                logger.info(f"Using FFmpeg for extraction (video_id: {video_id})")
+                total_frames = self._extract_with_ffmpeg(
+                    db, video_id, video_path, output_dir,
+                    start_time, duration, total_chunks
+                )
+            else:
+                logger.info(f"FFmpeg not available, using OpenCV (video_id: {video_id})")
+                total_frames = self._extract_with_opencv(
+                    db, video_id, video_path, output_dir,
+                    start_time, end_time, total_chunks
+                )
 
             # Update video record
             finish_query = text("""
@@ -386,10 +362,10 @@ class VideoService:
                 SET frame_count = :count, processed_chunks = :chunks, status = 'completed'
                 WHERE id = :video_id
             """)
-            db.execute(finish_query, {'video_id': video_id, 'count': saved_count, 'chunks': chunk_number + 1})
+            db.execute(finish_query, {'video_id': video_id, 'count': total_frames, 'chunks': total_chunks})
             db.commit()
 
-            logger.info(f"✅ Frame extraction complete: {video_id} ({saved_count} frames)")
+            logger.info(f"✅ Frame extraction complete: {video_id} ({total_frames} frames)")
 
         except Exception as e:
             logger.error(f"❌ Frame extraction error: {e}")
@@ -405,6 +381,135 @@ class VideoService:
                 pass
         finally:
             db.close()
+
+    def _extract_with_ffmpeg(self, db: Session, video_id: str, video_path: str,
+                           output_dir: str, start_time: float, duration: float,
+                           total_chunks: int) -> int:
+        """Extract frames using FFmpeg with parallel chunk processing."""
+
+        def extract_chunk_ffmpeg(chunk_num: int) -> int:
+            """Extract frames for a single chunk using FFmpeg."""
+            chunk_start = start_time + (chunk_num * 60)
+            chunk_duration = min(60, duration - (chunk_num * 60))
+            chunk_dir = os.path.join(output_dir, f"chunk_{chunk_num:02d}")
+            os.makedirs(chunk_dir, exist_ok=True)
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-ss', str(chunk_start),
+                '-i', video_path,
+                '-t', str(chunk_duration),
+                '-vf', 'fps=2',
+                '-q:v', '3',
+                f'{chunk_dir}/frame_%05d.jpg'
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, timeout=120)
+            if result.returncode != 0:
+                raise Exception(f"FFmpeg error chunk {chunk_num}: {result.stderr.decode()}")
+
+            # Count frames and prepare bulk insert
+            frame_files = sorted([f for f in os.listdir(chunk_dir) if f.endswith('.jpg')])
+
+            # Bulk insert all frames from this chunk at once
+            frames_data = []
+            for frame_file in frame_files:
+                frame_path = os.path.join(chunk_dir, frame_file)
+                frame_number = int(frame_file.split('_')[1].split('.')[0])
+                frames_data.append({
+                    'id': str(uuid.uuid4()),
+                    'video_id': video_id,
+                    'frame_number': frame_number,
+                    'chunk_number': chunk_num,
+                    'path': frame_path
+                })
+
+            # Bulk insert
+            if frames_data:
+                bulk_insert_query = text("""
+                    INSERT INTO frames (id, video_id, frame_number, chunk_number, storage_path)
+                    VALUES (:id, :video_id, :frame_number, :chunk_number, :storage_path)
+                """)
+
+                for frame_data in frames_data:
+                    db.execute(bulk_insert_query, frame_data)
+                db.commit()
+
+            # Update progress after chunk is complete
+            self._update_progress(db, video_id, chunk_num + 1)
+
+            return len(frames_data)
+
+        # Process chunks in parallel (max 4 workers)
+        max_workers = min(4, total_chunks)
+        total_frames = 0
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(extract_chunk_ffmpeg, chunk): chunk
+                      for chunk in range(total_chunks)}
+
+            for future in as_completed(futures):
+                chunk_num = futures[future]
+                try:
+                    frames_in_chunk = future.result()
+                    total_frames += frames_in_chunk
+                    logger.info(f"✅ Chunk {chunk_num} complete: {frames_in_chunk} frames")
+                except Exception as e:
+                    logger.error(f"❌ Chunk {chunk_num} failed: {e}")
+                    raise
+
+        return total_frames
+
+    def _extract_with_opencv(self, db: Session, video_id: str, video_path: str,
+                           output_dir: str, start_time: float, end_time: float,
+                           total_chunks: int) -> int:
+        """Extract frames using OpenCV (fallback method)."""
+        # Open video
+        cap = cv2.VideoCapture(video_path)
+        fps = float(cap.get(cv2.CAP_PROP_FPS))
+
+        # Set start position
+        start_frame = int(start_time * fps)
+        end_frame = int(end_time * fps)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+        frame_number = 0
+        chunk_number = 0
+        chunk_start_frame = start_frame
+        saved_count = 0
+
+        # Extract in 1-minute chunks
+        chunk_duration_frames = int(60 * fps)
+        extraction_interval = int(fps / 2)  # 2 frames per second
+
+        while True:
+            ret, frame = cap.read()
+            if not ret or int(cap.get(cv2.CAP_PROP_POS_FRAMES)) > end_frame:
+                break
+
+            current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+
+            # Save 2 frames per second
+            if (current_frame - chunk_start_frame) % extraction_interval == 0:
+                frame_filename = f"chunk_{chunk_number:02d}_frame_{saved_count:05d}.jpg"
+                frame_path = os.path.join(output_dir, frame_filename)
+                cv2.imwrite(frame_path, frame)
+
+                # Save frame to database
+                self._save_frame_to_db(db, video_id, frame_number, chunk_number, frame_path)
+                saved_count += 1
+                frame_number += 1
+
+            # Update chunk progress
+            if (current_frame - chunk_start_frame) >= chunk_duration_frames:
+                chunk_number += 1
+                chunk_start_frame = current_frame
+
+                # Update processed_chunks in database
+                self._update_progress(db, video_id, chunk_number + 1)
+
+        cap.release()
+        return saved_count
 
     def _save_frame_to_db(self, db: Session, video_id: str, frame_number: int, chunk_number: int, path: str):
         """Save frame record to database."""
