@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import VideoUploadZone from './components/VideoUploadZone'
 
 // Icons as inline SVGs for zero dependencies
 const Icons = {
@@ -557,11 +558,91 @@ const TrainingPage = () => {
 }
 
 // Placeholder components (will implement in next tasks)
-const TrainingVideosTab = () => (
-  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
-    <p>Vídeos & Dados - Upload de vídeos e gerenciamento de frames</p>
-  </div>
-)
+const TrainingVideosTab = () => {
+  const [videos, setVideos] = useState([])
+
+  useEffect(() => {
+    loadVideos()
+  }, [])
+
+  const loadVideos = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch('http://localhost:5001/api/training/videos', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      const result = await response.json()
+      if (result.success) {
+        setVideos(result.videos)
+      }
+    } catch (error) {
+      console.error('Error loading videos:', error)
+    }
+  }
+
+  const handleUploadComplete = (result) => {
+    console.log('Upload complete:', result)
+    loadVideos()
+  }
+
+  return (
+    <div>
+      <VideoUploadZone onUploadComplete={handleUploadComplete} />
+
+      {videos.length > 0 && (
+        <div style={{ marginTop: '32px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>
+            Vídeos ({videos.length})
+          </h3>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '16px'
+          }}>
+            {videos.map(video => (
+              <div key={video.id} style={{
+                background: 'var(--card)',
+                border: '1px solid var(--border)',
+                borderRadius: '14px',
+                padding: '16px'
+              }}>
+                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
+                  {video.filename}
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: '600', marginBottom: '8px' }}>
+                  {video.duration}s
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
+                  {video.frame_count || 0} frames • {video.processed_chunks}/{video.total_chunks} chunks
+                </div>
+                <div style={{
+                  display: 'inline-block',
+                  padding: '4px 12px',
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  background: video.status === 'completed' ? 'rgba(34,197,94,0.1)' :
+                                video.status === 'extracting' ? 'rgba(245,158,11,0.1)' :
+                                'rgba(148,163,184,0.1)',
+                  color: video.status === 'completed' ? '#22c55e' :
+                           video.status === 'extracting' ? '#f59e0b' :
+                           '#94a3b8'
+                }}>
+                  {video.status === 'completed' ? 'Concluído' :
+                   video.status === 'extracting' ? 'Extraindo...' :
+                   video.status === 'uploaded' ? 'Pronto' : video.status}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 const TrainingAnnotateTab = () => (
   <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
