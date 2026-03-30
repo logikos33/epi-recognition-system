@@ -495,17 +495,83 @@ const ClassesPage = () => (
 );
 
 // Training Page
-const TrainingPage = () => {
-  const [progress, setProgress] = useState(0);
-  const [isTraining, setIsTraining] = useState(false);
+// Training Page with Tabs
+const [trainingTab, setTrainingTab] = useState('videos');
 
-  useEffect(() => {
-    if (isTraining && progress < 100) {
-      const timer = setTimeout(() => setProgress(p => Math.min(p + Math.random() * 3 + 0.5, 100)), 200);
-      return () => clearTimeout(timer);
+const TrainingPage = () => {
+  const renderTrainingTab = () => {
+    switch(trainingTab) {
+      case 'videos':
+        return <TrainingVideosTab />;
+      case 'annotate':
+        return <TrainingAnnotateTab />;
+      case 'train':
+        return <TrainingTrainTab />;
+      case 'history':
+        return <TrainingHistoryTab />;
+      default:
+        return <TrainingVideosTab />;
     }
-    if (progress >= 100) setIsTraining(false);
-  }, [isTraining, progress]);
+  }
+
+  return (
+    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+      {/* Tab Navigation */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        marginBottom: '24px',
+        borderBottom: '1px solid var(--border)',
+        paddingBottom: '16px'
+      }}>
+        {[
+          { id: 'videos', label: 'Vídeos & Dados' },
+          { id: 'annotate', label: 'Anotar' },
+          { id: 'train', label: 'Treinar' },
+          { id: 'history', label: 'Histórico' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setTrainingTab(tab.id)}
+            style={{
+              padding: '10px 20px',
+              background: trainingTab === tab.id ? 'rgba(37,99,235,0.8)' : 'transparent',
+              color: trainingTab === tab.id ? '#fff' : 'var(--text)',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: trainingTab === tab.id ? '600' : '400',
+              transition: 'all 0.15s'
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      {renderTrainingTab()}
+    </div>
+  )
+}
+
+// Placeholder components (will implement in next tasks)
+const TrainingVideosTab = () => (
+  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
+    <p>Vídeos & Dados - Upload de vídeos e gerenciamento de frames</p>
+  </div>
+)
+
+const TrainingAnnotateTab = () => (
+  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
+    <p>Anotar - Ferramenta de anotação de bounding boxes</p>
+  </div>
+)
+
+const TrainingTrainTab = () => {
+  const [isTraining, setIsTraining] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const metrics = [
     { label: "Precisão", value: "96.8%", trend: "+2.1%" },
@@ -588,6 +654,13 @@ const TrainingPage = () => {
     </div>
   );
 };
+
+const TrainingHistoryTab = () => (
+  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
+    <p>Histórico - Lista de treinamentos anteriores</p>
+  </div>
+)
+
 
 // Monitoring Page
 const MonitoringPage = () => {
