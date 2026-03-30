@@ -501,6 +501,44 @@ def get_all_streams_status():
     })
 
 
+@app.route('/streams/health', methods=['GET'])
+def get_streams_health():
+    """
+    Get detailed health report for all streams (Task 18).
+
+    Returns:
+        JSON with detailed health metrics for all active streams including:
+        - is_healthy status
+        - Process PID
+        - Uptime in seconds
+        - Restart count
+        - Last health check timestamp
+    """
+    # Verify JWT token
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Authorization required'}), 401
+
+    token = auth_header.split(' ')[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Invalid token'}), 401
+
+    # Get health report from stream manager
+    if stream_manager:
+        health_report = stream_manager.get_stream_health_report()
+        return jsonify(health_report)
+    else:
+        return jsonify({
+            'total_streams': 0,
+            'streams': [],
+            'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat()
+        })
+
+
 # ============================================================================
 # Camera Management Endpoints (IP Cameras)
 # ============================================================================
