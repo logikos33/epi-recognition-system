@@ -568,7 +568,7 @@ const TrainingVideosTab = () => {
   const loadVideos = async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('http://localhost:5001/api/training/videos', {
+      const response = await fetch('/api/training/videos', {
         headers: {
           'Authorization': `Bearer ${token}`
         }

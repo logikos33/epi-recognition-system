@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 import base64
 import numpy as np
 import os
+import cv2
 from cv2 import imdecode, IMREAD_COLOR
 from ultralytics import YOLO
 import bcrypt

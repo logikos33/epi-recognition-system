@@ -8,6 +8,7 @@ import cv2
 import uuid
 import logging
 import shutil
+import json
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -41,6 +42,38 @@ class VideoService:
         try:
             video_id = str(uuid.uuid4())
 
+            # Get or create default project for user
+            project_query = text("""
+                SELECT id FROM training_projects
+                WHERE user_id = :user_id
+                ORDER BY created_at DESC
+                LIMIT 1
+            """)
+            project_result = db.execute(project_query, {'user_id': user_id})
+            project_row = project_result.fetchone()
+
+            # Create default project if none exists
+            if not project_row:
+                logger.info(f"Creating default training project for user {user_id}")
+                new_project_id = str(uuid.uuid4())
+                create_project_query = text("""
+                    INSERT INTO training_projects
+                    (id, user_id, name, description, target_classes, status, created_at, updated_at)
+                    VALUES (:id, :user_id, :name, :description, CAST(:target_classes AS jsonb), 'draft', NOW(), NOW())
+                    RETURNING id
+                """)
+                db.execute(create_project_query, {
+                    'id': new_project_id,
+                    'user_id': user_id,
+                    'name': 'Projeto Padrão',
+                    'description': 'Projeto criado automaticamente para upload de vídeos',
+                    'target_classes': json.dumps([])
+                })
+                db.commit()
+                project_id = new_project_id
+            else:
+                project_id = str(project_row[0])
+
             # Save video file
             video_path = os.path.join(self.videos_dir, video_id, filename)
             os.makedirs(os.path.dirname(video_path), exist_ok=True)
@@ -64,7 +97,7 @@ class VideoService:
 
             result = db.execute(query, {
                 'id': video_id,
-                'project_id': user_id,  # Using user_id as project_id
+                'project_id': project_id,  # Use actual project_id
                 'filename': filename,
                 'path': video_path,
                 'duration': int(duration),
@@ -73,7 +106,7 @@ class VideoService:
             db.commit()
 
             row = result.fetchone()
-            logger.info(f"✅ Video uploaded: {filename} ({duration}s)")
+            logger.info(f"✅ Video uploaded: {filename} ({duration}s) to project {project_id}")
 
             return {
                 'success': True,
@@ -128,11 +161,12 @@ class VideoService:
         """List all videos for a user."""
         try:
             query = text("""
-                SELECT id, filename, duration_seconds, frame_count,
-                       processed_chunks, total_chunks, status, uploaded_at
-                FROM training_videos
-                WHERE project_id = :user_id
-                ORDER BY uploaded_at DESC
+                SELECT v.id, v.filename, v.duration_seconds, v.frame_count,
+                       v.processed_chunks, v.total_chunks, v.status, v.uploaded_at
+                FROM training_videos v
+                INNER JOIN training_projects p ON v.project_id = p.id
+                WHERE p.user_id = :user_id
+                ORDER BY v.uploaded_at DESC
             """)
 
             result = db.execute(query, {'user_id': user_id})

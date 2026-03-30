@@ -59,7 +59,7 @@ export default function VideoUploadZone({ onUploadComplete }) {
         })
       }, 200)
 
-      const response = await fetch('http://localhost:5001/api/training/videos/upload', {
+      const response = await fetch('/api/training/videos/upload', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
