@@ -1609,6 +1609,157 @@ def delete_training_video(video_id: str):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+
+@app.route('/api/training/images/upload', methods=['POST'])
+def upload_training_image():
+    """Upload individual training images (not from video)."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image file provided'}), 400
+
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+        # Validate file type
+        allowed_extensions = {'.jpg', '.jpeg', '.png'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({'success': False, 'error': 'Invalid file type. Use .jpg, .jpeg, or .png'}), 400
+
+        # Save image
+        import uuid
+        image_id = str(uuid.uuid4())
+        images_dir = 'storage/training_images'
+        os.makedirs(images_dir, exist_ok=True)
+
+        image_path = os.path.join(images_dir, f"{image_id}{file_ext}")
+        file.save(image_path)
+
+        # Create frame record (without video association)
+        db = next(get_db())
+        query = text("""
+            INSERT INTO frames (id, storage_path, video_id, frame_number, chunk_number)
+            VALUES (:id, :path, NULL, 0, 0)
+            RETURNING id
+        """)
+        result = db.execute(query, {'id': image_id, 'path': image_path})
+        db.commit()
+
+        logger.info(f"✅ Image uploaded: {file.filename}")
+
+        return jsonify({
+            'success': True,
+            'frame_id': str(result.fetchone()[0]),
+            'filename': file.filename,
+            'image_url': f"/api/training/frames/{image_id}/image"
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Upload image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images', methods=['GET'])
+def list_training_images():
+    """List all individually uploaded images (not from videos)."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        query = text("""
+            SELECT f.id, f.storage_path, f.is_annotated, f.annotation_count, f.created_at
+            FROM frames f
+            WHERE f.video_id IS NULL
+            ORDER BY f.created_at DESC
+        """)
+
+        result = db.execute(query)
+        rows = result.fetchall()
+
+        images = [
+            {
+                'id': str(row[0]),
+                'storage_path': row[1],
+                'is_annotated': row[2],
+                'annotation_count': row[3],
+                'created_at': row[4].isoformat() if row[4] else None,
+                'image_url': f"/api/training/frames/{str(row[0])}/image"
+            }
+            for row in rows
+        ]
+
+        return jsonify({'success': True, 'images': images})
+
+    except Exception as e:
+        logger.error(f"❌ List images error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images/<image_id>', methods=['DELETE'])
+def delete_training_image(image_id: str):
+    """Delete an individually uploaded image."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+
+        # Get image path
+        get_query = text("""
+            SELECT storage_path FROM frames WHERE id = :id AND video_id IS NULL
+        """)
+        result = db.execute(get_query, {'id': image_id})
+        row = result.fetchone()
+
+        if not row:
+            return jsonify({'success': False, 'error': 'Image not found'}), 404
+
+        # Delete file
+        image_path = row[0]
+        if os.path.exists(image_path):
+            os.unlink(image_path)
+
+        # Delete database record (cascade will delete annotations)
+        delete_query = text("""
+            DELETE FROM frames WHERE id = :id AND video_id IS NULL
+        """)
+        db.execute(delete_query, {'id': image_id})
+        db.commit()
+
+        logger.info(f"✅ Image deleted: {image_id}")
+        return jsonify({'success': True, 'message': 'Image deleted'})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Delete image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # WebSocket Test Endpoint
 # ============================================================================
 
