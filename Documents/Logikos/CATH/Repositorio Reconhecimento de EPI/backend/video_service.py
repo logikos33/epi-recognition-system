@@ -432,7 +432,13 @@ class VideoService:
                 """)
 
                 for frame_data in frames_data:
-                    db.execute(bulk_insert_query, frame_data)
+                    db.execute(bulk_insert_query, {
+                        'id': frame_data['id'],
+                        'video_id': frame_data['video_id'],
+                        'frame_number': frame_data['frame_number'],
+                        'chunk_number': frame_data['chunk_number'],
+                        'storage_path': frame_data['path']
+                    })
                 db.commit()
 
             # Update progress after chunk is complete
