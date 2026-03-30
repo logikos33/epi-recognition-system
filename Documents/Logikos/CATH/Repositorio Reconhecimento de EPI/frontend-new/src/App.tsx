@@ -500,18 +500,29 @@ const ClassesPage = () => (
 
 const TrainingPage = () => {
   const [trainingTab, setTrainingTab] = useState('videos');
+  const [annotatingVideoId, setAnnotatingVideoId] = useState(null);
+
   const renderTrainingTab = () => {
     switch(trainingTab) {
       case 'videos':
-        return <TrainingVideosTab />;
+        return <TrainingVideosTab onAnnotate={(videoId) => {
+          setAnnotatingVideoId(videoId);
+          setTrainingTab('annotate');
+        }} />;
       case 'annotate':
-        return <TrainingAnnotateTab />;
+        return <TrainingAnnotateTab
+          videoId={annotatingVideoId}
+          onBack={() => {
+            setAnnotatingVideoId(null);
+            setTrainingTab('videos');
+          }}
+        />;
       case 'train':
         return <TrainingTrainTab />;
       case 'history':
         return <TrainingHistoryTab />;
       default:
-        return <TrainingVideosTab />;
+        return <TrainingVideosTab onAnnotate={() => {}} />;
     }
   }
 
@@ -566,7 +577,7 @@ const formatDuration = (seconds) => {
   return `${mins}:${remainingSecs.toString().padStart(2, '0')}`
 }
 
-const TrainingVideosTab = () => {
+const TrainingVideosTab = ({ onAnnotate }) => {
   const [videos, setVideos] = useState([])
   const [timeSelectionModal, setTimeSelectionModal] = useState({
     open: false,
@@ -863,7 +874,7 @@ const TrainingVideosTab = () => {
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              onClick={() => alert('TODO: Abrir aba de anotação')}
+              onClick={() => onAnnotate(video.id)}
               style={{
                 flex: 1,
                 padding: '8px 16px',
@@ -1126,11 +1137,356 @@ const TrainingVideosTab = () => {
 }
 
 
-const TrainingAnnotateTab = () => (
-  <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
-    <p>Anotar - Ferramenta de anotação de bounding boxes</p>
-  </div>
-)
+const TrainingAnnotateTab = ({ videoId, onBack }) => {
+  const [frames, setFrames] = useState([])
+  const [selectedFrame, setSelectedFrame] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (videoId) {
+      loadFrames()
+    }
+  }, [videoId])
+
+  const loadFrames = async () => {
+    if (!videoId) return
+
+    setLoading(true)
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`/api/training/videos/${videoId}/frames`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      const result = await response.json()
+      if (result.success && result.frames) {
+        setFrames(result.frames)
+        if (result.frames.length > 0) {
+          setSelectedFrame(result.frames[0])
+        }
+      } else {
+        console.error('Failed to load frames:', result.error)
+      }
+    } catch (error) {
+      console.error('Error loading frames:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleFrameSelect = (frame) => {
+    setSelectedFrame(frame)
+  }
+
+  const handlePrevFrame = () => {
+    if (!selectedFrame) return
+    const currentIndex = frames.findIndex(f => f.id === selectedFrame.id)
+    if (currentIndex > 0) {
+      setSelectedFrame(frames[currentIndex - 1])
+    }
+  }
+
+  const handleNextFrame = () => {
+    if (!selectedFrame) return
+    const currentIndex = frames.findIndex(f => f.id === selectedFrame.id)
+    if (currentIndex < frames.length - 1) {
+      setSelectedFrame(frames[currentIndex + 1])
+    }
+  }
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'ArrowLeft') {
+        handlePrevFrame()
+      } else if (e.key === 'ArrowRight') {
+        handleNextFrame()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedFrame, frames])
+
+  return (
+    <div style={{
+      background: '#0d1117',
+      minHeight: 'calc(100vh - 100px)',
+      padding: '0'
+    }}>
+      {/* Header */}
+      <div style={{
+        background: '#161b22',
+        borderBottom: '1px solid var(--border)',
+        padding: '16px 24px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <button
+          onClick={onBack}
+          style={{
+            padding: '8px 16px',
+            background: 'transparent',
+            color: 'var(--text)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.15s'
+          }}
+        >
+          ← Voltar
+        </button>
+        <h2 style={{
+          fontSize: '18px',
+          fontWeight: '600',
+          color: 'var(--text)',
+          margin: 0
+        }}>
+          Anotação de Frames
+        </h2>
+        <div style={{ width: '89px' }} /> {/* Spacer for alignment */}
+      </div>
+
+      {!videoId ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '80px 20px',
+          color: 'var(--muted)'
+        }}>
+          <p style={{ fontSize: '16px', marginBottom: '16px' }}>
+            Nenhum vídeo selecionado
+          </p>
+          <button
+            onClick={onBack}
+            style={{
+              padding: '10px 24px',
+              background: 'rgba(37, 99, 235, 0.8)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              cursor: 'pointer'
+            }}
+          >
+            Selecionar um vídeo
+          </button>
+        </div>
+      ) : loading ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '80px 20px',
+          color: 'var(--muted)'
+        }}>
+          <p>Carregando frames...</p>
+        </div>
+      ) : frames.length === 0 ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '80px 20px',
+          color: 'var(--muted)'
+        }}>
+          <p>Nenhum frame encontrado</p>
+          <p style={{ fontSize: '13px', marginTop: '8px' }}>
+            Extraia os frames primeiro
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', height: 'calc(100vh - 140px)' }}>
+          {/* Left Panel - Frame Display (75%) */}
+          <div style={{
+            flex: '0 0 75%',
+            display: 'flex',
+            flexDirection: 'column',
+            borderRight: '1px solid var(--border)',
+            background: '#0d1117'
+          }}>
+            {/* Toolbar */}
+            <div style={{
+              background: '#161b22',
+              borderBottom: '1px solid var(--border)',
+              padding: '12px 24px',
+              display: 'flex',
+              gap: '8px'
+            }}>
+              <button style={{
+                padding: '8px 16px',
+                background: 'rgba(37, 99, 235, 0.8)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}>
+                Desenhar
+              </button>
+              <button style={{
+                padding: '8px 16px',
+                background: 'transparent',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}>
+                Selecionar
+              </button>
+              <button style={{
+                padding: '8px 16px',
+                background: 'transparent',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}>
+                Apagar
+              </button>
+              <button style={{
+                padding: '8px 16px',
+                background: 'transparent',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}>
+                Auto-Detect
+              </button>
+            </div>
+
+            {/* Frame Display */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '24px',
+              overflow: 'auto'
+            }}>
+              {selectedFrame ? (
+                <div style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  position: 'relative'
+                }}>
+                  <img
+                    src={`/api/training/frames/${selectedFrame.id}/image`}
+                    alt={`Frame ${selectedFrame.frame_number}`}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: 'calc(100vh - 250px)',
+                      display: 'block'
+                    }}
+                  />
+                </div>
+              ) : (
+                <div style={{
+                  textAlign: 'center',
+                  color: 'var(--muted)'
+                }}>
+                  <p>Selecione um frame na lista</p>
+                </div>
+              )}
+            </div>
+
+            {/* Status Bar */}
+            <div style={{
+              background: '#161b22',
+              borderTop: '1px solid var(--border)',
+              padding: '12px 24px',
+              fontFamily: "'DM Mono', monospace",
+              fontSize: '12px',
+              color: 'rgba(255, 255, 255, 0.4)',
+              display: 'flex',
+              justifyContent: 'space-between'
+            }}>
+              <span>
+                {selectedFrame
+                  ? `Frame ${frames.findIndex(f => f.id === selectedFrame.id) + 1}/${frames.length}`
+                  : 'Frame -/-'
+                }
+              </span>
+              <span>Boxes: 0</span>
+            </div>
+          </div>
+
+          {/* Right Panel - Frames List (25%) */}
+          <div style={{
+            flex: '0 0 25%',
+            background: '#161b22',
+            borderLeft: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              padding: '16px',
+              borderBottom: '1px solid var(--border)',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text)'
+            }}>
+              Frames ({frames.length})
+            </div>
+
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '8px'
+            }}>
+              {frames.map((frame, index) => (
+                <div
+                  key={frame.id}
+                  onClick={() => handleFrameSelect(frame)}
+                  style={{
+                    padding: '12px',
+                    marginBottom: '8px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    background: selectedFrame?.id === frame.id
+                      ? 'rgba(37, 99, 235, 0.1)'
+                      : 'transparent',
+                    border: selectedFrame?.id === frame.id
+                      ? '1px solid rgba(37, 99, 235, 0.3)'
+                      : '1px solid transparent',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '13px',
+                    color: 'var(--text)',
+                    fontWeight: '500'
+                  }}>
+                    <span style={{
+                      fontSize: '16px',
+                      color: frame.is_annotated ? '#2563eb' : 'var(--muted)'
+                    }}>
+                      {frame.is_annotated ? '●' : '○'}
+                    </span>
+                    <span>Frame {frame.frame_number}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const TrainingTrainTab = () => {
   const [isTraining, setIsTraining] = useState(false);
