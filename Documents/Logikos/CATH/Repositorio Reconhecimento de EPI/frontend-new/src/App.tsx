@@ -568,6 +568,13 @@ const formatDuration = (seconds) => {
 
 const TrainingVideosTab = () => {
   const [videos, setVideos] = useState([])
+  const [timeSelectionModal, setTimeSelectionModal] = useState({
+    open: false,
+    videoId: null,
+    videoDuration: 0,
+    startSeconds: 0,
+    endSeconds: 600
+  })
 
   useEffect(() => {
     loadVideos()
@@ -596,14 +603,25 @@ const TrainingVideosTab = () => {
   }
 
   const handleExtractFrames = async (videoId, duration) => {
+    // For videos > 10 minutes, show time selection modal
+    if (duration > 600) {
+      setTimeSelectionModal({
+        open: true,
+        videoId,
+        videoDuration: duration,
+        startSeconds: 0,
+        endSeconds: Math.min(600, duration)
+      })
+      return
+    }
+
+    // For shorter videos, extract full video
+    await extractFrames(videoId, {})
+  }
+
+  const extractFrames = async (videoId, body) => {
     try {
       const token = localStorage.getItem('token')
-
-      // For videos > 10 minutes, show time selection modal (TODO: next step)
-      // For now, extract full video
-      const body = duration > 600
-        ? { start_seconds: 0, end_seconds: 600 }
-        : {}
 
       const response = await fetch(`/api/training/videos/${videoId}/extract`, {
         method: 'POST',
@@ -618,12 +636,47 @@ const TrainingVideosTab = () => {
       if (result.success) {
         // Start polling for progress
         pollVideoProgress(videoId)
+        // Close modal if open
+        setTimeSelectionModal(prev => ({ ...prev, open: false }))
       } else {
         alert('Erro ao extrair frames: ' + result.error)
       }
     } catch (error) {
       console.error('Error extracting frames:', error)
       alert('Erro ao extrair frames')
+    }
+  }
+
+  const handleTimeSelectionConfirm = () => {
+    const { videoId, startSeconds, endSeconds } = timeSelectionModal
+    extractFrames(videoId, {
+      start_seconds: startSeconds,
+      end_seconds: endSeconds
+    })
+  }
+
+  const handleTimeSelectionChange = (field, value) => {
+    const { videoDuration, startSeconds, endSeconds } = timeSelectionModal
+
+    if (field === 'start') {
+      // Ensure start doesn't exceed end - 600
+      const maxStart = Math.min(videoDuration - 600, endSeconds - 600)
+      const newStart = Math.min(Math.max(0, value), maxStart)
+      setTimeSelectionModal(prev => ({
+        ...prev,
+        startSeconds: newStart,
+        // Adjust end if needed to maintain max 600s gap
+        endSeconds: Math.min(endSeconds, newStart + 600, videoDuration)
+      }))
+    } else if (field === 'end') {
+      // Ensure end doesn't exceed start + 600
+      const minEnd = startSeconds + 600
+      const maxEnd = Math.min(videoDuration, startSeconds + 600)
+      const newEnd = Math.max(minEnd, Math.min(value, maxEnd))
+      setTimeSelectionModal(prev => ({
+        ...prev,
+        endSeconds: newEnd
+      }))
     }
   }
 
@@ -887,6 +940,184 @@ const TrainingVideosTab = () => {
                 {renderVideoActions(video)}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Time Selection Modal */}
+      {timeSelectionModal.open && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: 'var(--card)',
+            border: '1px solid var(--border)',
+            borderRadius: '16px',
+            padding: '32px',
+            maxWidth: '600px',
+            width: '90%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            animation: 'fadeSlideUp 0.3s ease both'
+          }}>
+            <h2 style={{
+              fontSize: '20px',
+              fontWeight: '700',
+              marginBottom: '8px',
+              color: 'var(--text)'
+            }}>
+              Selecionar trecho para extração
+            </h2>
+            <p style={{
+              fontSize: '14px',
+              color: 'var(--muted)',
+              marginBottom: '24px'
+            }}>
+              Duração total: {formatDuration(timeSelectionModal.videoDuration)} — Máximo: 10 minutos
+            </p>
+
+            {/* Time Range Slider */}
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{
+                fontSize: '13px',
+                fontWeight: '500',
+                marginBottom: '12px',
+                display: 'block',
+                color: 'var(--text)'
+              }}>
+                Início do trecho
+              </label>
+              <input
+                type="range"
+                min="0"
+                max={Math.max(0, timeSelectionModal.videoDuration - 600)}
+                value={timeSelectionModal.startSeconds}
+                onChange={(e) => handleTimeSelectionChange('start', Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  marginBottom: '16px'
+                }}
+              />
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '12px',
+                color: 'var(--muted)',
+                marginBottom: '20px'
+              }}>
+                <span>0:00</span>
+                <span style={{ color: 'var(--text)', fontWeight: '600' }}>
+                  {formatDuration(timeSelectionModal.startSeconds)}
+                </span>
+              </div>
+
+              <label style={{
+                fontSize: '13px',
+                fontWeight: '500',
+                marginBottom: '12px',
+                display: 'block',
+                color: 'var(--text)'
+              }}>
+                Fim do trecho
+              </label>
+              <input
+                type="range"
+                min={timeSelectionModal.startSeconds + 600}
+                max={timeSelectionModal.videoDuration}
+                value={timeSelectionModal.endSeconds}
+                onChange={(e) => handleTimeSelectionChange('end', Number(e.target.value))}
+                style={{
+                  width: '100%',
+                  marginBottom: '16px'
+                }}
+              />
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '12px',
+                color: 'var(--muted)',
+                marginBottom: '20px'
+              }}>
+                <span>{formatDuration(timeSelectionModal.startSeconds + 600)}</span>
+                <span style={{ color: 'var(--text)', fontWeight: '600' }}>
+                  {formatDuration(timeSelectionModal.endSeconds)}
+                </span>
+              </div>
+            </div>
+
+            {/* Selection Summary */}
+            <div style={{
+              background: 'var(--bg)',
+              borderRadius: '8px',
+              padding: '16px',
+              marginBottom: '24px'
+            }}>
+              <div style={{
+                fontSize: '14px',
+                color: 'var(--text)',
+                textAlign: 'center',
+                fontWeight: '500'
+              }}>
+                {formatDuration(timeSelectionModal.startSeconds)} → {formatDuration(timeSelectionModal.endSeconds)}
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: 'var(--muted)',
+                textAlign: 'center',
+                marginTop: '4px'
+              }}>
+                ({formatDuration(timeSelectionModal.endSeconds - timeSelectionModal.startSeconds)} selecionados)
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setTimeSelectionModal(prev => ({ ...prev, open: false }))}
+                style={{
+                  flex: 1,
+                  padding: '12px 24px',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleTimeSelectionConfirm}
+                style={{
+                  flex: 1,
+                  padding: '12px 24px',
+                  background: 'rgba(37, 99, 235, 0.8)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(37, 99, 235, 1)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(37, 99, 235, 0.8)'}
+              >
+                Confirmar e Extrair
+              </button>
+            </div>
           </div>
         </div>
       )}
