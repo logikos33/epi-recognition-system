@@ -1357,6 +1357,258 @@ def get_classes_yaml():
 
 
 # ============================================================================
+
+# ============================================================================
+# Video Upload and Frame Extraction Endpoints
+# ============================================================================
+
+from backend.video_service import VideoService
+
+video_service = VideoService()
+
+
+@app.route('/api/training/videos/upload', methods=['POST'])
+def upload_training_video():
+    """Upload a video for YOLO training dataset."""
+    try:
+        # Verify token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing or invalid token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Check for file in request
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'error': 'No video file provided'}), 400
+
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+        # Get video duration (requires opening the file)
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+            file.save(tmp_file.name)
+            cap = cv2.VideoCapture(tmp_file.name)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration = frame_count / fps if fps > 0 else 0
+            cap.release()
+
+            # Read file content
+            with open(tmp_file.name, 'rb') as f:
+                file_content = f.read()
+
+            os.unlink(tmp_file.name)
+
+        # Save video using service
+        result = video_service.save_upload(
+            db=next(get_db()),
+            user_id=user_id,
+            filename=file.filename,
+            file_content=file_content,
+            duration=duration
+        )
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+
+    except Exception as e:
+        logger.error(f"❌ Upload video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos', methods=['GET'])
+def list_training_videos():
+    """List all training videos for current user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        videos = video_service.list_user_videos(db, payload['user_id'])
+
+        return jsonify({'success': True, 'videos': videos})
+
+    except Exception as e:
+        logger.error(f"❌ List videos error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>', methods=['GET'])
+def get_training_video(video_id: str):
+    """Get video metadata by ID."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        video = video_service.get_video(db, video_id, payload['user_id'])
+
+        if not video:
+            return jsonify({'success': False, 'error': 'Video not found'}), 404
+
+        return jsonify({'success': True, 'video': video})
+
+    except Exception as e:
+        logger.error(f"❌ Get video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>/extract', methods=['POST'])
+def extract_video_frames(video_id: str):
+    """Start frame extraction for a video."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        data = request.get_json() or {}
+
+        # If start/end provided, update selection first
+        if 'start_seconds' in data and 'end_seconds' in data:
+            db = next(get_db())
+            video_service.update_selection(
+                db=db,
+                video_id=video_id,
+                user_id=payload['user_id'],
+                start_seconds=data['start_seconds'],
+                end_seconds=data['end_seconds']
+            )
+
+        # Start extraction
+        db = next(get_db())
+        result = video_service.start_frame_extraction(db, video_id, payload['user_id'])
+
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+
+    except Exception as e:
+        logger.error(f"❌ Extract frames error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>/frames', methods=['GET'])
+def list_video_frames(video_id: str):
+    """List all frames extracted from a video."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        query = text("""
+            SELECT id, frame_number, chunk_number, storage_path,
+                   is_annotated, annotation_count, created_at
+            FROM frames
+            WHERE video_id = :video_id
+            ORDER BY frame_number ASC
+        """)
+
+        result = db.execute(query, {'video_id': video_id})
+        rows = result.fetchall()
+
+        frames = [
+            {
+                'id': str(row[0]),
+                'frame_number': row[1],
+                'chunk_number': row[2],
+                'storage_path': row[3],
+                'is_annotated': row[4],
+                'annotation_count': row[5],
+                'created_at': row[6].isoformat() if row[6] else None,
+                'image_url': f"/api/training/frames/{str(row[0])}/image"
+            }
+            for row in rows
+        ]
+
+        return jsonify({'success': True, 'frames': frames})
+
+    except Exception as e:
+        logger.error(f"❌ List frames error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/image', methods=['GET'])
+def serve_frame_image(frame_id: str):
+    """Serve frame image file."""
+    try:
+        db = next(get_db())
+        query = text("""
+            SELECT storage_path FROM frames WHERE id = :frame_id
+        """)
+        result = db.execute(query, {'frame_id': frame_id})
+        row = result.fetchone()
+
+        if not row:
+            return jsonify({'success': False, 'error': 'Frame not found'}), 404
+
+        frame_path = row[0]
+        return send_from_directory(os.path.dirname(frame_path), os.path.basename(frame_path))
+
+    except Exception as e:
+        logger.error(f"❌ Serve frame image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>', methods=['DELETE'])
+def delete_training_video(video_id: str):
+    """Delete a video and all its frames."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = next(get_db())
+        success = video_service.delete_video(db, video_id, payload['user_id'])
+
+        if success:
+            return jsonify({'success': True, 'message': 'Video deleted'})
+        else:
+            return jsonify({'success': False, 'error': 'Video not found'}), 404
+
+    except Exception as e:
+        logger.error(f"❌ Delete video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # WebSocket Test Endpoint
 # ============================================================================
 
