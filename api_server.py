@@ -25,8 +25,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 from backend.database import get_db, init_db, SessionLocal
 from backend.auth_db import (
     create_user, get_user_by_email, get_user_by_id,
-    verify_user_credentials, update_last_login, create_session, verify_session
+    verify_user_credentials, update_last_login, verify_session
 )
+import backend.auth_db as auth_db
 
 from sqlalchemy import text
 from backend.products import ProductService
@@ -52,6 +53,65 @@ try:
 except Exception as e:
     print(f"❌ Failed to load YOLO model: {e}")
     model = None
+
+
+# ============================================
+# MIGRATION CHECKER
+# ============================================
+
+def check_and_run_migrations():
+    """Check if cameras table exists and create it if needed"""
+    try:
+        db = SessionLocal()
+
+        # Check if cameras table exists
+        result = db.execute(text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'cameras'
+            )
+        """))
+        table_exists = result.fetchone()[0]
+
+        if not table_exists:
+            print("🔍 Cameras table not found, creating...")
+
+            # Read migration SQL
+            migration_path = os.path.join(os.path.dirname(__file__), 'migrations', '002_create_cameras_table.sql')
+            if os.path.exists(migration_path):
+                with open(migration_path, 'r') as f:
+                    sql_content = f.read()
+
+                # Execute migration
+                db.execute(text(sql_content))
+                db.commit()
+                print("✅ Cameras table created successfully!")
+
+                # Verify table was created
+                result = db.execute(text("""
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_name = 'cameras'
+                    ORDER BY ordinal_position
+                """))
+                columns = result.fetchall()
+                print("📋 Table structure:")
+                for col in columns:
+                    print(f"   - {col[0]} ({col[1]}) {'nullable' if col[2] == 'YES' else 'not null'}")
+            else:
+                print(f"⚠️  Migration file not found: {migration_path}")
+        else:
+            print("✅ Cameras table already exists")
+
+    except Exception as e:
+        print(f"❌ Migration check failed: {e}")
+    finally:
+        if 'db' in locals():
+            db.close()
+
+
+# Run migration check at startup
+check_and_run_migrations()
 
 
 # ============================================
@@ -151,7 +211,7 @@ def register():
         token = create_token(user['id'], user['email'])
 
         # Save session to database
-        create_session(db, user['id'], token)
+        auth_db.create_session(db, user['id'], token)
 
         return jsonify({
             'success': True,
@@ -215,7 +275,7 @@ def login():
         # Save session to database
         ip_address = request.remote_addr
         user_agent = request.headers.get('User-Agent')
-        create_session(db, user['id'], token, ip_address=ip_address, user_agent=user_agent)
+        auth_db.create_session(db, user['id'], token, ip_address=ip_address, user_agent=user_agent)
 
         return jsonify({
             'success': True,
@@ -2036,7 +2096,7 @@ def list_bays():
 
 @app.route('/api/sessions', methods=['POST'])
 def create_fueling_session():
-    """Create a new fueling session"""
+    """Create a new fueling session with duplicate prevention"""
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
         return jsonify({'success': False, 'error': 'Authorization token required'}), 401
@@ -2059,25 +2119,89 @@ def create_fueling_session():
             }), 400
 
         db = next(get_db())
-        session = FuelingSessionService.create_session(
-            db=db,
-            bay_id=bay_id,
-            camera_id=camera_id,
-            license_plate=license_plate
-        )
 
-        if session:
+        # Check for duplicate session (same camera + license plate within 30 seconds)
+        duplicate_check = text("""
+            SELECT id, truck_entry_time
+            FROM fueling_sessions
+            WHERE camera_id = :camera_id
+              AND license_plate = :license_plate
+              AND truck_entry_time > NOW() - INTERVAL '30 seconds'
+              AND status = 'active'
+            ORDER BY truck_entry_time DESC
+            LIMIT 1
+        """)
+
+        duplicate_result = db.execute(duplicate_check, {
+            'camera_id': camera_id,
+            'license_plate': license_plate
+        }).fetchone()
+
+        if duplicate_result:
+            # Duplicate detected - return existing session instead of creating new one
+            existing_session_id = duplicate_result[0]
+            existing_session_query = text("""
+                SELECT
+                    id, bay_id, camera_id, license_plate,
+                    truck_entry_time, products_counted,
+                    final_weight, status
+                FROM fueling_sessions
+                WHERE id = :session_id
+            """)
+
+            session_result = db.execute(existing_session_query, {'session_id': existing_session_id})
+            session = dict(session_result.fetchone()._mapping)
+
             return jsonify({
                 'success': True,
-                'session': session
-            }), 201
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to create session'
-            }), 500
+                'session': session,
+                'duplicate': True,
+                'message': 'Using existing session from 30 seconds ago'
+            }), 200
+
+        # No duplicate - create new session
+        import uuid
+        session_id = str(uuid.uuid4())
+
+        insert_query = text("""
+            INSERT INTO fueling_sessions
+            (id, bay_id, camera_id, license_plate, truck_entry_time, status)
+            VALUES (:id, :bay_id, :camera_id, :license_plate, NOW(), 'active')
+            RETURNING id, bay_id, camera_id, license_plate, truck_entry_time, status
+        """)
+
+        result = db.execute(insert_query, {
+            'id': session_id,
+            'bay_id': bay_id,
+            'camera_id': camera_id,
+            'license_plate': license_plate
+        })
+
+        db.commit()
+
+        new_session = dict(result.fetchone()._mapping)
+
+        # Clean up old sessions (older than 7 days)
+        cleanup_query = text("""
+            DELETE FROM fueling_sessions
+            WHERE truck_entry_time < NOW() - INTERVAL '7 days'
+              AND status IN ('completed', 'paused')
+        """)
+
+        cleanup_result = db.execute(cleanup_query)
+        db.commit()
+
+        if cleanup_result.rowcount > 0:
+            print(f"[Storage Optimization] Cleaned up {cleanup_result.rowcount} old sessions")
+
+        return jsonify({
+            'success': True,
+            'session': new_session,
+            'duplicate': False
+        }), 201
 
     except Exception as e:
+        db.rollback()
         return jsonify({
             'success': False,
             'error': str(e)
@@ -2101,14 +2225,121 @@ def list_fueling_sessions():
         bay_id = request.args.get('bay_id', type=int)
         status = request.args.get('status')
         limit = request.args.get('limit', 50, type=int)
+        camera_id = request.args.get('camera_id', type=int)
 
         db = next(get_db())
-        sessions = FuelingSessionService.list_sessions(
-            db=db,
-            bay_id=bay_id,
-            status=status,
-            limit=limit
-        )
+
+        # Build the base query
+        query_conditions = []
+        query_params = {}
+
+        if bay_id is not None:
+            query_conditions.append("fs.bay_id = :bay_id")
+            query_params['bay_id'] = bay_id
+
+        if status:
+            query_conditions.append("fs.status = :status")
+            query_params['status'] = status
+
+        if camera_id is not None:
+            query_conditions.append("fs.camera_id = :camera_id")
+            query_params['camera_id'] = camera_id
+
+        where_clause = f"WHERE {' AND '.join(query_conditions)}" if query_conditions else ""
+
+        # Build the complete query
+        query = text(f"""
+            SELECT
+                fs.id,
+                fs.bay_id,
+                fs.camera_id,
+                fs.license_plate,
+                fs.truck_entry_time,
+                fs.products_counted,
+                fs.final_weight,
+                fs.status,
+                b.name as bay_name,
+                c.name as camera_name
+            FROM fueling_sessions fs
+            LEFT JOIN bays b ON fs.bay_id = b.id
+            LEFT JOIN cameras c ON fs.camera_id = c.id
+            {where_clause}
+            ORDER BY fs.truck_entry_time DESC
+            LIMIT :limit
+        """)
+
+        query_params['limit'] = limit
+
+        result = db.execute(query, query_params)
+        sessions = [dict(row._mapping) for row in result.fetchall()]
+
+        return jsonify({
+            'success': True,
+            'sessions': sessions
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/sessions/batch', methods=['GET'])
+def list_fueling_sessions_batch():
+    """Batch query - fetch latest session for each camera in one query"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        # Get camera IDs from query parameter (comma-separated)
+        camera_ids_str = request.args.get('camera_ids', '')
+        if not camera_ids_str:
+            return jsonify({'success': False, 'error': 'camera_ids parameter required'}), 400
+
+        camera_ids = [int(id.strip()) for id in camera_ids_str.split(',') if id.strip()]
+
+        if not camera_ids:
+            return jsonify({'success': False, 'error': 'No valid camera IDs provided'}), 400
+
+        db = next(get_db())
+
+        # Batch query using DISTINCT ON with ANY array
+        query = text("""
+            WITH ranked_sessions AS (
+                SELECT
+                    fs.id,
+                    fs.bay_id,
+                    fs.camera_id,
+                    fs.license_plate,
+                    fs.truck_entry_time,
+                    fs.products_counted,
+                    fs.final_weight,
+                    fs.status,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY fs.camera_id
+                        ORDER BY fs.truck_entry_time DESC
+                    ) as rn
+                FROM fueling_sessions fs
+                WHERE fs.camera_id = ANY(:camera_ids)
+                  AND fs.status = 'active'
+                )
+                SELECT
+                    id, bay_id, camera_id, license_plate,
+                    truck_entry_time, products_counted,
+                    final_weight, status
+                FROM ranked_sessions
+                WHERE rn = 1
+                ORDER BY camera_id
+        """)
+
+        result = db.execute(query, {'camera_ids': camera_ids})
+        sessions = [dict(row._mapping) for row in result.fetchall()]
 
         return jsonify({
             'success': True,
