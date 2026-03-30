@@ -557,7 +557,15 @@ const TrainingPage = () => {
   )
 }
 
-// Placeholder components (will implement in next tasks)
+// Helper function to format duration in seconds to MM:SS
+const formatDuration = (seconds) => {
+  if (!seconds) return '0:00'
+  const secs = Math.floor(Number(seconds))  // Convert to number first
+  const mins = Math.floor(secs / 60)
+  const remainingSecs = secs % 60
+  return `${mins}:${remainingSecs.toString().padStart(2, '0')}`
+}
+
 const TrainingVideosTab = () => {
   const [videos, setVideos] = useState([])
 
@@ -587,6 +595,263 @@ const TrainingVideosTab = () => {
     loadVideos()
   }
 
+  const handleExtractFrames = async (videoId, duration) => {
+    try {
+      const token = localStorage.getItem('token')
+
+      // For videos > 10 minutes, show time selection modal (TODO: next step)
+      // For now, extract full video
+      const body = duration > 600
+        ? { start_seconds: 0, end_seconds: 600 }
+        : {}
+
+      const response = await fetch(`/api/training/videos/${videoId}/extract`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        // Start polling for progress
+        pollVideoProgress(videoId)
+      } else {
+        alert('Erro ao extrair frames: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Error extracting frames:', error)
+      alert('Erro ao extrair frames')
+    }
+  }
+
+  const pollVideoProgress = async (videoId) => {
+    const token = localStorage.getItem('token')
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/training/videos/${videoId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        const result = await response.json()
+        if (result.success) {
+          const updatedVideo = result.video
+          // Update video in list
+          setVideos(prev => prev.map(v =>
+            v.id === videoId ? { ...v, ...updatedVideo } : v
+          ))
+
+          // Stop polling if completed or error
+          if (updatedVideo.status === 'completed' || updatedVideo.status === 'error') {
+            return
+          }
+
+          // Continue polling if still extracting
+          if (updatedVideo.status === 'extracting') {
+            setTimeout(poll, 3000)
+          }
+        }
+      } catch (error) {
+        console.error('Error polling video progress:', error)
+      }
+    }
+
+    poll()
+  }
+
+  const handleDeleteVideo = async (videoId) => {
+    if (!confirm('Tem certeza que deseja excluir este vídeo?')) {
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`/api/training/videos/${videoId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      const result = await response.json()
+      if (result.success) {
+        setVideos(prev => prev.filter(v => v.id !== videoId))
+      } else {
+        alert('Erro ao excluir vídeo: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Error deleting video:', error)
+      alert('Erro ao excluir vídeo')
+    }
+  }
+
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      'uploaded': {
+        label: 'Enviado',
+        background: 'rgba(245, 158, 11, 0.1)',
+        color: '#f59e0b'
+      },
+      'extracting': {
+        label: 'Extraindo...',
+        background: 'rgba(37, 99, 235, 0.1)',
+        color: '#2563eb'
+      },
+      'completed': {
+        label: 'Pronto',
+        background: 'rgba(34, 197, 94, 0.1)',
+        color: '#22c55e'
+      },
+      'error': {
+        label: 'Erro',
+        background: 'rgba(239, 68, 68, 0.1)',
+        color: '#ef4444'
+      }
+    }
+
+    const config = statusConfig[status] || statusConfig['uploaded']
+    return (
+      <div style={{
+        display: 'inline-block',
+        padding: '4px 12px',
+        borderRadius: '12px',
+        fontSize: '11px',
+        fontWeight: '500',
+        background: config.background,
+        color: config.color
+      }}>
+        {config.label}
+      </div>
+    )
+  }
+
+  const renderVideoActions = (video) => {
+    if (video.status === 'uploaded') {
+      return (
+        <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+          <button
+            onClick={() => handleExtractFrames(video.id, video.duration)}
+            style={{
+              flex: 1,
+              padding: '8px 16px',
+              background: 'rgba(37, 99, 235, 0.8)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.15s'
+            }}
+            onMouseEnter={(e) => e.target.style.background = 'rgba(37, 99, 235, 1)'}
+            onMouseLeave={(e) => e.target.style.background = 'rgba(37, 99, 235, 0.8)'}
+          >
+            Extrair Frames
+          </button>
+          <button
+            onClick={() => handleDeleteVideo(video.id)}
+            style={{
+              padding: '8px 16px',
+              background: 'transparent',
+              color: '#ef4444',
+              border: '1px solid #ef4444',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.15s'
+            }}
+          >
+            Excluir
+          </button>
+        </div>
+      )
+    }
+
+    if (video.status === 'extracting') {
+      const progress = video.total_chunks > 0
+        ? Math.round((video.processed_chunks / video.total_chunks) * 100)
+        : 0
+
+      return (
+        <div style={{ marginTop: '12px' }}>
+          <div style={{
+            width: '100%',
+            height: '6px',
+            background: 'var(--border)',
+            borderRadius: '3px',
+            overflow: 'hidden',
+            marginBottom: '8px'
+          }}>
+            <div style={{
+              width: `${progress}%`,
+              height: '100%',
+              background: 'var(--accent)',
+              transition: 'width 0.3s ease',
+              borderRadius: '3px'
+            }} />
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+            Processando chunk {video.processed_chunks} de {video.total_chunks}...
+          </div>
+        </div>
+      )
+    }
+
+    if (video.status === 'completed') {
+      return (
+        <div style={{ marginTop: '12px' }}>
+          <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
+            {video.frame_count || 0} frames extraídos
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => alert('TODO: Abrir aba de anotação')}
+              style={{
+                flex: 1,
+                padding: '8px 16px',
+                background: 'rgba(37, 99, 235, 0.8)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(37, 99, 235, 1)'}
+              onMouseLeave={(e) => e.target.style.background = 'rgba(37, 99, 235, 0.8)'}
+            >
+              Anotar Frames
+            </button>
+            <button
+              onClick={() => handleDeleteVideo(video.id)}
+              style={{
+                padding: '8px 16px',
+                background: 'transparent',
+                color: '#ef4444',
+                border: '1px solid #ef4444',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              Excluir
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    return null
+  }
+
   return (
     <div>
       <VideoUploadZone onUploadComplete={handleUploadComplete} />
@@ -598,7 +863,7 @@ const TrainingVideosTab = () => {
           </h3>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
             gap: '16px'
           }}>
             {videos.map(video => (
@@ -606,34 +871,20 @@ const TrainingVideosTab = () => {
                 background: 'var(--card)',
                 border: '1px solid var(--border)',
                 borderRadius: '14px',
-                padding: '16px'
+                padding: '16px',
+                transition: 'all 0.15s'
               }}>
-                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
-                  {video.filename}
+                <div style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '6px', fontWeight: '500' }}>
+                  {video.filename.length > 35 ? video.filename.substring(0, 35) + '...' : video.filename}
                 </div>
-                <div style={{ fontSize: '24px', fontWeight: '600', marginBottom: '8px' }}>
-                  {video.duration}s
+                <div style={{ fontSize: '28px', fontWeight: '700', marginBottom: '6px', color: 'var(--text)' }}>
+                  {formatDuration(video.duration)}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
-                  {video.frame_count || 0} frames • {video.processed_chunks}/{video.total_chunks} chunks
+                <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '10px' }}>
+                  {video.total_chunks} chunks • {video.frame_count || 0} frames
                 </div>
-                <div style={{
-                  display: 'inline-block',
-                  padding: '4px 12px',
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  fontWeight: '500',
-                  background: video.status === 'completed' ? 'rgba(34,197,94,0.1)' :
-                                video.status === 'extracting' ? 'rgba(245,158,11,0.1)' :
-                                'rgba(148,163,184,0.1)',
-                  color: video.status === 'completed' ? '#22c55e' :
-                           video.status === 'extracting' ? '#f59e0b' :
-                           '#94a3b8'
-                }}>
-                  {video.status === 'completed' ? 'Concluído' :
-                   video.status === 'extracting' ? 'Extraindo...' :
-                   video.status === 'uploaded' ? 'Pronto' : video.status}
-                </div>
+                {getStatusBadge(video.status)}
+                {renderVideoActions(video)}
               </div>
             ))}
           </div>

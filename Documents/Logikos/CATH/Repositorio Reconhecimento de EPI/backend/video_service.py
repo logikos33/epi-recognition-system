@@ -126,11 +126,12 @@ class VideoService:
         """Get video metadata by ID."""
         try:
             query = text("""
-                SELECT id, project_id, filename, duration_seconds, selected_start,
-                       selected_end, total_chunks, processed_chunks, frame_count,
-                       status, uploaded_at
-                FROM training_videos
-                WHERE id = :video_id AND project_id = :user_id
+                SELECT v.id, v.project_id, v.filename, v.duration_seconds, v.selected_start,
+                       v.selected_end, v.total_chunks, v.processed_chunks, v.frame_count,
+                       v.status, v.uploaded_at
+                FROM training_videos v
+                INNER JOIN training_projects p ON v.project_id = p.id
+                WHERE v.id = :video_id AND p.user_id = :user_id
             """)
 
             result = db.execute(query, {'video_id': video_id, 'user_id': user_id})
@@ -197,7 +198,11 @@ class VideoService:
             query = text("""
                 UPDATE training_videos
                 SET selected_start = :start, selected_end = :end
-                WHERE id = :video_id AND project_id = :user_id
+                WHERE id = :video_id
+                  AND EXISTS (
+                    SELECT 1 FROM training_projects p
+                    WHERE p.id = training_videos.project_id AND p.user_id = :user_id
+                  )
             """)
 
             db.execute(query, {
@@ -228,7 +233,11 @@ class VideoService:
             # Delete video record
             delete_video_query = text("""
                 DELETE FROM training_videos
-                WHERE id = :video_id AND project_id = :user_id
+                WHERE id = :video_id
+                  AND EXISTS (
+                    SELECT 1 FROM training_projects p
+                    WHERE p.id = training_videos.project_id AND p.user_id = :user_id
+                  )
                 RETURNING original_path
             """)
             result = db.execute(delete_video_query, {'video_id': video_id, 'user_id': user_id})
@@ -276,8 +285,8 @@ class VideoService:
                 return {'success': False, 'error': 'Video not found'}
 
             # Determine time range
-            start_time = video.get('selected_start', 0)
-            end_time = video.get('selected_end', video['duration'])
+            start_time = video.get('selected_start') or 0
+            end_time = video.get('selected_end') or video['duration']
             duration = end_time - start_time
 
             if duration > 600:
@@ -324,10 +333,12 @@ class VideoService:
 
             # Open video
             cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS)
+            fps = float(cap.get(cv2.CAP_PROP_FPS))
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            # Set start position
+            # Set start position (ensure float conversion)
+            start_time = float(start_time)
+            end_time = float(end_time)
             start_frame = int(start_time * fps)
             end_frame = int(end_time * fps)
             cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
@@ -338,7 +349,7 @@ class VideoService:
             saved_count = 0
 
             # Extract in 1-minute chunks
-            chunk_duration_frames = 60 * fps
+            chunk_duration_frames = int(60 * fps)
             extraction_interval = int(fps / 2)  # 2 frames per second
 
             while True:
