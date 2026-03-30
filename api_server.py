@@ -64,17 +64,17 @@ def check_and_run_migrations():
     try:
         db = SessionLocal()
 
-        # Check if cameras table exists
+        # Check if ip_cameras table exists
         result = db.execute(text("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
-                WHERE table_name = 'cameras'
+                WHERE table_name = 'ip_cameras'
             )
         """))
         table_exists = result.fetchone()[0]
 
         if not table_exists:
-            print("🔍 Cameras table not found, creating...")
+            print("🔍 ip_cameras table not found, creating...")
 
             # Read migration SQL
             migration_path = os.path.join(os.path.dirname(__file__), 'migrations', '002_create_cameras_table.sql')
@@ -85,13 +85,13 @@ def check_and_run_migrations():
                 # Execute migration
                 db.execute(text(sql_content))
                 db.commit()
-                print("✅ Cameras table created successfully!")
+                print("✅ ip_cameras table created successfully!")
 
                 # Verify table was created
                 result = db.execute(text("""
                     SELECT column_name, data_type, is_nullable
                     FROM information_schema.columns
-                    WHERE table_name = 'cameras'
+                    WHERE table_name = 'ip_cameras'
                     ORDER BY ordinal_position
                 """))
                 columns = result.fetchall()
@@ -101,7 +101,7 @@ def check_and_run_migrations():
             else:
                 print(f"⚠️  Migration file not found: {migration_path}")
         else:
-            print("✅ Cameras table already exists")
+            print("✅ ip_cameras table already exists")
 
     except Exception as e:
         print(f"❌ Migration check failed: {e}")

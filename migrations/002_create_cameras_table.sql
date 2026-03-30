@@ -1,5 +1,5 @@
 -- migrations/002_create_cameras_table.sql
-CREATE TABLE cameras (
+CREATE TABLE ip_cameras (
   id                  SERIAL PRIMARY KEY,
   user_id             UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name                VARCHAR(100) NOT NULL,
@@ -18,9 +18,9 @@ CREATE TABLE cameras (
   created_at          TIMESTAMP    DEFAULT NOW()
 );
 
-CREATE INDEX idx_cameras_user_id ON cameras(user_id);
-CREATE INDEX idx_cameras_is_active ON cameras(is_active);
+CREATE INDEX idx_ip_cameras_user_id ON ip_cameras(user_id);
+CREATE INDEX idx_ip_cameras_is_active ON ip_cameras(is_active);
 
-COMMENT ON COLUMN cameras.manufacturer IS 'Camera manufacturer: intelbras, hikvision, generic';
-COMMENT ON COLUMN cameras.type IS 'Camera type: ip, dvr, nvr';
-COMMENT ON COLUMN cameras.subtype IS 'Stream type: 0=main stream, 1=sub-stream (low latency)';
+COMMENT ON COLUMN ip_cameras.manufacturer IS 'Camera manufacturer: intelbras, hikvision, generic';
+COMMENT ON COLUMN ip_cameras.type IS 'Camera type: ip, dvr, nvr';
+COMMENT ON COLUMN ip_cameras.subtype IS 'Stream type: 0=main stream, 1=sub-stream (low latency)';
