@@ -2,7 +2,7 @@
 API Server for EPI Recognition System
 With Authentication, Database, YOLO Detection, HLS Streaming, and WebSocket Support
 """
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
 from flask_cors import CORS
 # from flask_socketio import SocketIO, emit, join_room, leave_room  # TODO: Implement WebSocket support
 from werkzeug.utils import secure_filename
@@ -54,6 +54,32 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
+
+
+# ============================================================================
+# Database Session Management with Flask Teardown
+# ============================================================================
+
+def get_db_session():
+    """Retorna sessão do banco, armazenada no contexto do request.
+    Fecha automaticamente no final do request via teardown."""
+    if 'db' not in g:
+        g.db = SessionLocal()
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception=None):
+    """Fecha a sessão do banco no final de cada request."""
+    db = g.pop('db', None)
+    if db is not None:
+        try:
+            if exception:
+                db.rollback()
+            db.close()
+        except Exception:
+            pass
+
 
 # Initialize Flask-SocketIO
 # socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=False)  # TODO: Implement WebSocket support
@@ -195,7 +221,7 @@ def register():
             return jsonify({'error': 'Invalid email format'}), 400
 
         # Create user
-        db = next(get_db())
+        db = get_db_session()
         user = create_user(
             db,
             email=email,
@@ -256,7 +282,7 @@ def login():
         password = data['password']
 
         # Verify credentials
-        db = next(get_db())
+        db = get_db_session()
         user = verify_user_credentials(db, email, password)
 
         if not user:
@@ -321,7 +347,7 @@ def serve_hls_file(camera_id, filename):
         return jsonify({'error': 'Invalid token'}), 401
 
     # Verify camera ownership
-    db = next(get_db())
+    db = get_db_session()
     try:
         camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not camera:
@@ -371,7 +397,7 @@ def start_stream(camera_id):
         return jsonify({'error': 'Invalid token'}), 401
 
     # Get camera details
-    db = next(get_db())
+    db = get_db_session()
     try:
         camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not camera:
@@ -567,7 +593,7 @@ def list_cameras():
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # List cameras for user
         cameras = IPCameraService.list_cameras_by_user(db, payload['user_id'])
@@ -632,7 +658,7 @@ def create_camera():
                 return jsonify({'success': False, 'error': f'{field} is required'}), 400
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Create camera
         camera = IPCameraService.create_camera(
@@ -691,7 +717,7 @@ def get_camera(camera_id):
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Get camera
         camera = IPCameraService.get_camera_by_id(db, camera_id)
@@ -752,7 +778,7 @@ def update_camera(camera_id):
             return jsonify({'success': False, 'error': 'Request body is required'}), 400
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Verify camera exists and user owns it
         existing_camera = IPCameraService.get_camera_by_id(db, camera_id)
@@ -819,7 +845,7 @@ def delete_camera(camera_id):
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Verify camera exists and user owns it
         existing_camera = IPCameraService.get_camera_by_id(db, camera_id)
@@ -1034,7 +1060,7 @@ def upload_training_video(project_id: str):
         user_id = payload['user_id']
 
         # Verify project ownership
-        db = next(get_db())
+        db = get_db_session()
         project_check = db.execute(text("""
             SELECT id FROM training_projects WHERE id = :project_id AND user_id = :user_id
         """), {'project_id': project_id, 'user_id': user_id}).fetchone()
@@ -1331,7 +1357,7 @@ def list_training_videos(project_id: str):
         from backend.video_db import VideoService
         video_service = VideoService()
 
-        db = next(get_db())
+        db = get_db_session()
         videos = video_service.list_project_videos(db, project_id, payload['user_id'])
 
         # Add status information
@@ -1375,7 +1401,7 @@ def get_training_video(video_id: str):
         from backend.video_db import VideoService
         video_service = VideoService()
 
-        db = next(get_db())
+        db = get_db_session()
         video = video_service.get_video(db, video_id, payload['user_id'])
 
         if not video:
@@ -1418,7 +1444,7 @@ def extract_video_frames(video_id: str):
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
         user_id = payload['user_id']
-        db = next(get_db())
+        db = get_db_session()
 
         # Check video ownership and current status
         video_row = db.execute(text("""
@@ -1502,7 +1528,7 @@ def list_video_frames(video_id: str):
         if not payload:
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
-        db = next(get_db())
+        db = get_db_session()
         query = text("""
             SELECT id, frame_number, storage_path,
                    is_annotated, created_at
@@ -1537,7 +1563,7 @@ def list_video_frames(video_id: str):
 def serve_frame_image(frame_id: str):
     """Serve frame image file."""
     try:
-        db = next(get_db())
+        db = get_db_session()
         query = text("""
             SELECT storage_path FROM training_frames WHERE id = :frame_id
         """)
@@ -1573,7 +1599,7 @@ def get_frame_annotations(frame_id: str):
         if not payload:
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
-        db = next(get_db())
+        db = get_db_session()
         query = text("""
             SELECT id, class_id, bbox_x, bbox_y, bbox_width, bbox_height, created_at
             FROM frame_annotations
@@ -1620,7 +1646,7 @@ def save_frame_annotations(frame_id: str):
         data = request.get_json()
         annotations = data.get('annotations', [])
 
-        db = next(get_db())
+        db = get_db_session()
 
         # Delete existing annotations
         db.execute(text("""
@@ -1647,10 +1673,9 @@ def save_frame_annotations(frame_id: str):
         # Update frame annotation status
         db.execute(text("""
             UPDATE training_frames
-            SET is_annotated = TRUE,
-                annotation_count = :count
+            SET is_annotated = TRUE
             WHERE id = :frame_id
-        """), {'frame_id': frame_id, 'count': len(annotations)})
+        """), {'frame_id': frame_id})
 
         db.commit()
 
@@ -1669,8 +1694,48 @@ def save_frame_annotations(frame_id: str):
 @app.route('/api/classes', methods=['GET'])
 def list_classes():
     """Lista classes YOLO para anotação"""
-    # Criar tabela se não existir
-    db = next(get_db())
+    # Criar tabelas se não existirem
+    db = get_db_session()
+    try:
+        # Criar/Recriar tabela frame_annotations com foreign key correta
+        db.execute(text("""
+            DROP TABLE IF EXISTS frame_annotations CASCADE
+        """))
+        db.execute(text("""
+            CREATE TABLE frame_annotations (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                frame_id UUID NOT NULL,
+                class_id INTEGER NOT NULL,
+                bbox_x FLOAT NOT NULL,
+                bbox_y FLOAT NOT NULL,
+                bbox_width FLOAT NOT NULL,
+                bbox_height FLOAT NOT NULL,
+                created_by UUID NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+
+                CONSTRAINT fk_frame_annotations_frame
+                    FOREIGN KEY (frame_id)
+                    REFERENCES training_frames(id)
+                    ON DELETE CASCADE,
+
+                CONSTRAINT fk_frame_annotations_user
+                    FOREIGN KEY (created_by)
+                    REFERENCES users(id)
+                    ON DELETE CASCADE
+            )
+        """))
+        db.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_frame_annotations_frame_id ON frame_annotations(frame_id)
+        """))
+        db.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_frame_annotations_class_id ON frame_annotations(class_id)
+        """))
+        db.commit()
+        logger.info("✅ Tabela frame_annotations recriada com foreign key correta")
+    except Exception as e:
+        logger.warning(f"Erro ao criar frame_annotations: {e}")
+        db.rollback()
+
     try:
         db.execute(text("""
             CREATE TABLE IF NOT EXISTS yolo_classes (
@@ -1728,7 +1793,7 @@ def create_class():
         if not name:
             return jsonify({"success": False, "error": "Nome obrigatório"}), 400
 
-        db = next(get_db())
+        db = get_db_session()
         db.execute(text(
             "INSERT INTO yolo_classes (name, color) VALUES (:name, :color)"
         ), {"name": name, "color": color})
@@ -1752,7 +1817,7 @@ def create_class():
 def predict_frame(frame_id):
     """Roda YOLO no frame para pré-detectar objetos"""
     try:
-        db = next(get_db())
+        db = get_db_session()
         frame = db.execute(text(
             "SELECT storage_path FROM training_frames WHERE id = :id"
         ), {"id": frame_id}).fetchone()
@@ -1821,7 +1886,7 @@ def list_all_videos():
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
         user_id = payload['user_id']
-        db = next(get_db())
+        db = get_db_session()
 
         # Get user's default project (or first project)
         project = db.execute(text("""
@@ -1883,7 +1948,7 @@ def upload_video_alias():
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
         user_id = payload['user_id']
-        db = next(get_db())
+        db = get_db_session()
 
         # Get or create default project
         project = db.execute(text("""
@@ -1933,7 +1998,7 @@ def delete_video_alias(video_id: str):
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
         user_id = payload['user_id']
-        db = next(get_db())
+        db = get_db_session()
 
         # Verify ownership
         check = db.execute(text("""
