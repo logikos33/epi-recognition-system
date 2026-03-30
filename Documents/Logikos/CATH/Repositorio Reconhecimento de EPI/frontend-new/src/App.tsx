@@ -796,7 +796,7 @@ const TrainingVideosTab = () => {
             }} />
           </div>
           <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-            Processando chunk {video.processed_chunks} de {video.total_chunks}...
+            Processando chunk {video.processed_chunks} de {video.total_chunks} — {progress}%
           </div>
         </div>
       )
@@ -806,7 +806,7 @@ const TrainingVideosTab = () => {
       return (
         <div style={{ marginTop: '12px' }}>
           <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
-            {video.frame_count || 0} frames extraídos
+            Extração concluída — {video.frame_count || 0} frames extraídos
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
