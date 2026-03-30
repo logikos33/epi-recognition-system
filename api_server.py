@@ -3302,7 +3302,7 @@ def get_yolo_training_status():
 
 
 @app.route('/api/treinamento/exportar-dataset', methods=['POST'])
-def export_training_dataset():
+def export_yolo_training_dataset():
     """Export YOLO format dataset for training"""
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):

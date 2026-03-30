@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useTrainingProjects } from '@/hooks/useTrainingProjects'
+import { useTrainingProject } from '@/hooks/useTrainingProjects'
 import { VideoUploader } from '@/components/training/video-uploader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,11 +14,8 @@ import type { TrainingVideo } from '@/types/training'
 export default function TrainingProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const { projects } = useTrainingProjects()
-  const [project, setProject] = useState(projects.find(p => p.id === params.id))
+  const { data: project, isLoading, error } = useTrainingProject(params.id as string)
   const [videos, setVideos] = useState<TrainingVideo[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
 
   // Fetch project videos
   useEffect(() => {
@@ -28,20 +25,14 @@ export default function TrainingProjectDetailPage() {
       try {
         // For now, we'll just show the uploader
         // In a real implementation, you'd fetch existing videos here
-        setLoading(false)
+        // TODO: Implement videos fetch
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch videos')
-        setLoading(false)
+        console.error('Failed to fetch videos:', err)
       }
     }
 
     fetchVideos()
   }, [params.id])
-
-  // Update project when projects list changes
-  useEffect(() => {
-    setProject(projects.find(p => p.id === params.id))
-  }, [projects, params.id])
 
   const handleUploadComplete = (videoId: string, frameCount: number) => {
     // Refresh videos list
@@ -49,10 +40,21 @@ export default function TrainingProjectDetailPage() {
     alert(`Vídeo enviado com sucesso! ${frameCount} quadros extraídos.`)
   }
 
-  if (!project) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error || !project) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <p className="text-muted-foreground">Projeto não encontrado</p>
+        <Link href="/dashboard/training">
+          <Button>Voltar para Treinamentos</Button>
+        </Link>
       </div>
     )
   }
@@ -65,7 +67,7 @@ export default function TrainingProjectDetailPage() {
     failed: { label: 'Falhou', className: 'bg-red-100 text-red-800' }
   }
 
-  const status = statusConfig[project.status] || statusConfig.draft
+  const status = statusConfig[project.status as keyof typeof statusConfig] || statusConfig.draft
 
   return (
     <div className="space-y-6">
@@ -97,7 +99,7 @@ export default function TrainingProjectDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {project.target_classes.map(cls => (
+              {project.target_classes.map((cls: string) => (
                 <Badge key={cls} variant="secondary">
                   {cls}
                 </Badge>

@@ -1,203 +1,180 @@
 'use client'
 
-import { Suspense } from 'react'
-import { useDetections } from '@/hooks/useDetections'
-import { useCameras } from '@/hooks/useCameras'
+import { useEffect, useState } from 'react'
+import { AuthProtected } from '@/components/auth-protected'
+import { api } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Shield, CheckCircle, XCircle, Users } from 'lucide-react'
-
-function DashboardContent() {
-  const { detections } = useDetections()
-  const { cameras } = useCameras()
-
-  // Calculate metrics
-  const totalDetections = detections.length
-  const compliantDetections = detections.filter((d) => d.is_compliant).length
-  const nonCompliantDetections = totalDetections - compliantDetections
-  const complianceRate =
-    totalDetections > 0 ? (compliantDetections / totalDetections) * 100 : 0
-
-  const activeCameras = cameras.filter((c) => c.is_active).length
-  const totalPersons = detections.reduce((sum, d) => sum + d.person_count, 0)
-
-  return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Visão geral do sistema de monitoramento de EPI
-        </p>
-      </div>
-
-      {/* Metrics Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Taxa de Conformidade
-            </CardTitle>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {complianceRate.toFixed(1)}%
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Últimas 24 horas
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Câmeras Ativas
-            </CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeCameras}</div>
-            <p className="text-xs text-muted-foreground">
-              de {cameras.length} totais
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Detect. Conformes
-            </CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{compliantDetections}</div>
-            <p className="text-xs text-muted-foreground">
-              {totalDetections > 0
-                ? `${((compliantDetections / totalDetections) * 100).toFixed(1)}%`
-                : '0%'}
-              {' do total'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Não Conformes
-            </CardTitle>
-            <XCircle className="h-4 w-4 text-destructive" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{nonCompliantDetections}</div>
-            <p className="text-xs text-muted-foreground">
-              {nonCompliantDetections > 0 ? 'Requer atenção' : 'Sem violações'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Detections */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Detecções Recentes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {detections.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Shield className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">
-                Nenhuma detecção ainda
-              </h3>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Adicione câmeras e inicie o monitoramento para começar a ver
-                detecções aqui.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {detections.slice(0, 10).map((detection) => (
-                <div
-                  key={detection.id}
-                  className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0"
-                >
-                  <div className="flex items-center gap-4">
-                    {detection.is_compliant ? (
-                      <CheckCircle className="h-5 w-5 text-green-600" />
-                    ) : (
-                      <XCircle className="h-5 w-5 text-destructive" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium">
-                        Câmera: {detection.camera?.name || 'Unknown'}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(detection.timestamp).toLocaleString('pt-BR')}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">
-                      {detection.person_count} pessoa(s)
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Confiança: {(detection.confidence * 100).toFixed(0)}%
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Quick Stats */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Estatísticas Gerais</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Total de Pessoas Detectadas</span>
-            <span className="text-sm font-medium">{totalPersons}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Confiança Média</span>
-            <span className="text-sm font-medium">
-              {totalDetections > 0
-                ? `${(
-                    detections.reduce((sum, d) => sum + d.confidence, 0) /
-                    totalDetections *
-                    100
-                  ).toFixed(1)}%`
-                : 'N/A'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Última Detecção</span>
-            <span className="text-sm font-medium">
-              {detections.length > 0
-                ? new Date(
-                    detections[0]?.timestamp || ''
-                  ).toLocaleString('pt-BR')
-                : 'N/A'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Total de Câmeras</span>
-            <span className="text-sm font-medium">{cameras.length}</span>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
+import { Activity, Camera, Fuel, Truck, TrendingUp, Loader2 } from 'lucide-react'
 
 export default function DashboardPage() {
+  const [stats, setStats] = useState({
+    totalCameras: 0,
+    activeCameras: 0,
+    activeSessions: 0,
+    completedSessions: 0
+  })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        // Fetch cameras
+        const camerasResult = await api.listCameras()
+        const totalCameras = camerasResult.cameras?.length || 0
+        const activeCameras = camerasResult.cameras?.filter((c: any) => c.is_active).length || 0
+
+        // Fetch sessions
+        const activeSessionsResult = await api.get('/api/sessions?status=active')
+        const activeSessions = activeSessionsResult.sessions?.length || 0
+
+        const completedSessionsResult = await api.get('/api/sessions?status=completed')
+        const completedSessions = completedSessionsResult.sessions?.length || 0
+
+        setStats({
+          totalCameras,
+          activeCameras,
+          activeSessions,
+          completedSessions
+        })
+      } catch (err) {
+        console.error('Error fetching stats:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchStats()
+  }, [])
+
+  if (loading) {
+    return (
+      <AuthProtected>
+        <div className="h-full flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AuthProtected>
+    )
+  }
+
   return (
-    <Suspense fallback={<div>Carregando...</div>}>
-      <DashboardContent />
-    </Suspense>
+    <AuthProtected>
+      <div className="h-full flex flex-col">
+        <div className="border-b px-6 py-4">
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">
+            Visão geral do sistema de monitoramento
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-auto p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {/* Total Cameras */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Total de Câmeras
+                </CardTitle>
+                <Camera className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.totalCameras}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Configuradas no sistema
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Active Cameras */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Câmeras Ativas
+                </CardTitle>
+                <Activity className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.activeCameras}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Em operação
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Active Sessions */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Sessões Ativas
+                </CardTitle>
+                <Fuel className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.activeSessions}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Em andamento
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Completed Sessions */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Concluídas Hoje
+                </CardTitle>
+                <TrendingUp className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold">{stats.completedSessions}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Sessões finalizadas
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quick Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Acesso Rápido</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <button
+                onClick={() => (window.location.href = '/dashboard/monitoring')}
+                className="p-4 border rounded-lg hover:bg-accent transition-colors text-left"
+              >
+                <Camera className="h-6 w-6 mb-2 text-primary" />
+                <h3 className="font-semibold">Monitoramento</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Visualize câmeras em tempo real
+                </p>
+              </button>
+
+              <button
+                onClick={() => (window.location.href = '/dashboard/cameras')}
+                className="p-4 border rounded-lg hover:bg-accent transition-colors text-left"
+              >
+                <Activity className="h-6 w-6 mb-2 text-primary" />
+                <h3 className="font-semibold">Gerenciar Câmeras</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Configure suas câmeras IP
+                </p>
+              </button>
+
+              <button
+                onClick={() => (window.location.href = '/dashboard/training')}
+                className="p-4 border rounded-lg hover:bg-accent transition-colors text-left"
+              >
+                <Truck className="h-6 w-6 mb-2 text-primary" />
+                <h3 className="font-semibold">Treinamento</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Treine modelos de IA
+                </p>
+              </button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </AuthProtected>
   )
 }

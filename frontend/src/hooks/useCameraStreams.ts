@@ -43,13 +43,19 @@ export function useCameraStreams(options: UseCameraStreamsOptions = {}) {
    * Fetch all cameras from API
    */
   const fetchCameras = useCallback(async () => {
+    console.log('[useCameraStreams] Fetching cameras...')
     setState(prev => ({ ...prev, loading: true, error: null }))
 
     try {
+      const token = api.getToken()
+      console.log('[useCameraStreams] Token exists:', !!token)
+
       const result = await api.listCameras()
+      console.log('[useCameraStreams] Result:', result)
 
       if (result.success) {
         const activeCameras = result.cameras.filter((c: Camera) => c.is_active)
+        console.log('[useCameraStreams] Active cameras:', activeCameras.length)
 
         setState(prev => ({
           ...prev,
@@ -57,6 +63,7 @@ export function useCameraStreams(options: UseCameraStreamsOptions = {}) {
           loading: false
         }))
       } else {
+        console.error('[useCameraStreams] Failed to fetch cameras')
         setState(prev => ({
           ...prev,
           loading: false,
@@ -64,6 +71,7 @@ export function useCameraStreams(options: UseCameraStreamsOptions = {}) {
         }))
       }
     } catch (err) {
+      console.error('[useCameraStreams] Error:', err)
       setState(prev => ({
         ...prev,
         loading: false,

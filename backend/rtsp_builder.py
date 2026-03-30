@@ -24,7 +24,7 @@ class RTSPBuilder:
         if username and password:
             auth = f"{username}:{password}@"
         else:
-            auth = '@'  # No auth
+            auth = ''  # No auth
 
         base = f"rtsp://{auth}{ip}:{port}"
 

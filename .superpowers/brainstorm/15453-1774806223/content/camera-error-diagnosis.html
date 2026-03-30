@@ -1,0 +1,42 @@
+<h2>Diagnóstico: Erro do Canvas</h2>
+<p class="subtitle">Quando exatamente o erro "Canvas ou video não encontrado" aparece?</p>
+
+<div class="options">
+  <div class="option" data-choice="immediate" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Imediatamente ao abrir a página</h3>
+      <p>O erro aparece assim que a página carrega, sem eu clicar em nada</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="after-start" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Depois de clicar "Iniciar Câmera"</h3>
+      <p>A página carrega normal, mas o erro aparece quando tento ativar a câmera</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="intermittent" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Intermitente / Aleatório</h3>
+      <p>Às vezes funciona, às vezes dá erro - não consigo identificar um padrão</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 2rem;">
+  <h3>Sintomas que você vê:</h3>
+  <ul style="color: #ef4444;">
+    <li>❌ "Canvas ou video não encontrado" no console</li>
+    <li>❌ As caixas de detecção (bounding boxes) não aparecem</li>
+    <li>❌ O vídeo pode estar funcionando, mas sem sobreposição da IA</li>
+  </ul>
+</div>
+
+<div class="section">
+  <p class="subtitle" style="margin-bottom: 0.5rem;"><strong>Causa provável:</strong></p>
+  <p style="font-size: 0.95rem;">O código tenta desenhar as bounding boxes antes do elemento <code>&lt;video&gt;</code> estar completamente carregado com suas dimensões.</p>
+</div>

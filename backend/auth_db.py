@@ -125,7 +125,7 @@ def get_user_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
     """
     try:
         query = text("""
-            SELECT id, email, password_hash, full_name, company_name, created_at
+            SELECT id, email, password_hash, full_name, company_name, created_at, is_active
             FROM users
             WHERE email = :email
         """)
@@ -140,7 +140,8 @@ def get_user_by_email(db: Session, email: str) -> Optional[Dict[str, Any]]:
                 'password_hash': row[2],
                 'full_name': row[3],
                 'company_name': row[4],
-                'created_at': row[5].isoformat() if row[5] else None
+                'created_at': row[5].isoformat() if row[5] else None,
+                'is_active': row[6]
             }
 
         return None

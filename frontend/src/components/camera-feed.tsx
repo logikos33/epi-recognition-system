@@ -39,6 +39,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
     episCount: 0
   })
   const [apiOnline, setApiOnline] = useState(true)
+  const [videoReady, setVideoReady] = useState(false)
 
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -134,28 +135,24 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
     const canvas = detectionCanvasRef.current
     const video = videoRef.current
 
-    console.log('🎨 Desenhando bounding boxes...')
-    console.log('Canvas:', canvas)
-    console.log('Video:', video)
-    console.log('Video dimensions:', video?.videoWidth, 'x', video?.videoHeight)
-    console.log('Objects to draw:', objects.length)
+    // Guard: Check if elements exist AND video is ready
+    if (!canvas || !video || !videoReady) {
+      return
+    }
 
-    if (!canvas || !video) {
-      console.error('❌ Canvas ou video não encontrado')
+    // Guard: Check if video has valid dimensions
+    if (!video.videoWidth || !video.videoHeight) {
       return
     }
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
-      console.error('❌ Não foi possível obter contexto 2D')
       return
     }
 
     // Set canvas size to match video
-    canvas.width = video.videoWidth || 1280
-    canvas.height = video.videoHeight || 720
-
-    console.log('Canvas size definido:', canvas.width, 'x', canvas.height)
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
 
     // Clear previous drawings
     ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -164,8 +161,6 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
     objects.forEach((obj, index) => {
       const [x, y, width, height] = obj.bbox
       const label = `${obj.class} ${(obj.score * 100).toFixed(0)}%`
-
-      console.log(`Desenhando objeto ${index + 1}:`, obj.class, 'em', x, y, width, height)
 
       // Draw box with shadow
       ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
@@ -185,8 +180,6 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
       ctx.font = 'bold 16px system-ui, -apple-system, sans-serif'
       ctx.fillText(label, x + 8, y - 8)
     })
-
-    console.log('✅ Bounding boxes desenhadas com sucesso!')
   }
 
   const startDetection = () => {
@@ -315,7 +308,12 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
               console.log('Video width:', videoElement.videoWidth)
               console.log('Video height:', videoElement.videoHeight)
               console.log('isStreaming:', isStreaming)
-              startDetection()
+
+              // Mark video as ready only when dimensions are valid
+              if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+                setVideoReady(true)
+                startDetection()
+              }
             }, 1000)
           })
           .catch((err) => {
@@ -340,6 +338,7 @@ export function CameraFeed({ onCapture, cameraId = 1 }: CameraFeedProps) {
   const stopCamera = () => {
     stopRecording()
     stopDetection()
+    setVideoReady(false)
     if (stream) {
       stream.getTracks().forEach(track => track.stop())
       setStream(null)

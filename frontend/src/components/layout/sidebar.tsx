@@ -5,14 +5,20 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
-  Video,
   Settings,
+  Brain,
+  Camera,
+  Package,
+  Wrench,
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Live', href: '/dashboard/live', icon: Video },
-  { name: 'Câmeras', href: '/dashboard/cameras', icon: Settings },
+  { name: 'Monitoramento', href: '/dashboard/monitoring', icon: Camera },
+  { name: 'Gerenciar Câmeras', href: '/dashboard/cameras', icon: Settings },
+  { name: 'Gerenciar Classes', href: '/dashboard/classes', icon: Package },
+  { name: 'Treinamento', href: '/dashboard/training', icon: Brain },
+  { name: 'Painel de Treinamento', href: '/dashboard/training-panel', icon: Wrench },
 ]
 
 export function Sidebar() {
