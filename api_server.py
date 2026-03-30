@@ -34,7 +34,8 @@ import backend.auth_db as auth_db
 from sqlalchemy import text
 from backend.products import ProductService
 from backend.training_db import TrainingProjectDB
-from backend.camera_service import CameraService
+from backend.camera_service import CameraService  # For fueling monitoring cameras (bays)
+from backend.ip_camera_service import IPCameraService  # For IP cameras
 from backend.fueling_session_service import FuelingSessionService
 from backend.ocr_service import OCRService
 from backend.stream_manager import StreamManager
@@ -155,6 +156,138 @@ def verify_token(token: str) -> dict:
 
 
 # ============================================================================
+# Authentication Routes
+# ============================================================================
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """
+    Register a new user.
+
+    Request body:
+        - email: User email (required)
+        - password: User password (required, min 6 characters)
+        - full_name: User's full name (optional)
+        - company_name: User's company name (optional)
+
+    Returns:
+        JSON with success status, user data, and JWT token
+    """
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        if not data or not data.get('email') or not data.get('password'):
+            return jsonify({'error': 'Email and password are required'}), 400
+
+        email = data['email'].strip().lower()
+        password = data['password']
+
+        # Validate password length
+        if len(password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+
+        # Validate email format
+        if not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
+            return jsonify({'error': 'Invalid email format'}), 400
+
+        # Create user
+        db = next(get_db())
+        user = create_user(
+            db,
+            email=email,
+            password=password,
+            full_name=data.get('full_name'),
+            company_name=data.get('company_name')
+        )
+
+        if not user:
+            return jsonify({'error': 'Email already exists'}), 409
+
+        # Generate JWT token
+        token = jwt.encode({
+            'user_id': user['id'],
+            'email': user['email'],
+            'exp': datetime.datetime.now(datetime.timezone.utc) + timedelta(days=7)
+        }, SECRET_KEY, algorithm='HS256')
+
+        logger.info(f"✅ User registered: {email}")
+
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user['id'],
+                'email': user['email'],
+                'full_name': user.get('full_name'),
+                'company_name': user.get('company_name'),
+                'created_at': user.get('created_at')
+            },
+            'token': token
+        }), 201
+
+    except Exception as e:
+        logger.error(f"❌ Registration error: {e}")
+        return jsonify({'error': 'Registration failed'}), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """
+    Authenticate user and return JWT token.
+
+    Request body:
+        - email: User email (required)
+        - password: User password (required)
+
+    Returns:
+        JSON with success status, user data, and JWT token
+    """
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        if not data or not data.get('email') or not data.get('password'):
+            return jsonify({'error': 'Email and password are required'}), 400
+
+        email = data['email'].strip().lower()
+        password = data['password']
+
+        # Verify credentials
+        db = next(get_db())
+        user = verify_user_credentials(db, email, password)
+
+        if not user:
+            return jsonify({'error': 'Invalid email or password'}), 401
+
+        # Update last login
+        update_last_login(db, user['id'])
+
+        # Generate JWT token
+        token = jwt.encode({
+            'user_id': user['id'],
+            'email': user['email'],
+            'exp': datetime.datetime.now(datetime.timezone.utc) + timedelta(days=7)
+        }, SECRET_KEY, algorithm='HS256')
+
+        logger.info(f"✅ User logged in: {email}")
+
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user['id'],
+                'email': user['email'],
+                'full_name': user.get('full_name'),
+                'company_name': user.get('company_name')
+            },
+            'token': token
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Login error: {e}")
+        return jsonify({'error': 'Login failed'}), 500
+
+
+# ============================================================================
 # HLS File Serving
 # ============================================================================
 
@@ -187,7 +320,7 @@ def serve_hls_file(camera_id, filename):
     # Verify camera ownership
     db = next(get_db())
     try:
-        camera = CameraService.get_camera_by_id(db, camera_id)
+        camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not camera:
             return jsonify({'error': 'Camera not found'}), 404
 
@@ -237,7 +370,7 @@ def start_stream(camera_id):
     # Get camera details
     db = next(get_db())
     try:
-        camera = CameraService.get_camera_by_id(db, camera_id)
+        camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not camera:
             return jsonify({'error': 'Camera not found'}), 404
 
@@ -396,7 +529,7 @@ def list_cameras():
         db = next(get_db())
 
         # List cameras for user
-        cameras = CameraService.list_cameras_by_user(db, payload['user_id'])
+        cameras = IPCameraService.list_cameras_by_user(db, payload['user_id'])
 
         return jsonify({
             'success': True,
@@ -461,7 +594,7 @@ def create_camera():
         db = next(get_db())
 
         # Create camera
-        camera = CameraService.create_camera(
+        camera = IPCameraService.create_camera(
             db,
             user_id=payload['user_id'],
             name=data['name'],
@@ -520,7 +653,7 @@ def get_camera(camera_id):
         db = next(get_db())
 
         # Get camera
-        camera = CameraService.get_camera_by_id(db, camera_id)
+        camera = IPCameraService.get_camera_by_id(db, camera_id)
 
         if not camera:
             return jsonify({'success': False, 'error': 'Camera not found'}), 404
@@ -581,7 +714,7 @@ def update_camera(camera_id):
         db = next(get_db())
 
         # Verify camera exists and user owns it
-        existing_camera = CameraService.get_camera_by_id(db, camera_id)
+        existing_camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not existing_camera:
             return jsonify({'success': False, 'error': 'Camera not found'}), 404
 
@@ -589,7 +722,7 @@ def update_camera(camera_id):
             return jsonify({'success': False, 'error': 'Access denied'}), 403
 
         # Update camera
-        camera = CameraService.update_camera(
+        camera = IPCameraService.update_camera(
             db,
             camera_id=camera_id,
             name=data.get('name'),
@@ -648,7 +781,7 @@ def delete_camera(camera_id):
         db = next(get_db())
 
         # Verify camera exists and user owns it
-        existing_camera = CameraService.get_camera_by_id(db, camera_id)
+        existing_camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not existing_camera:
             return jsonify({'success': False, 'error': 'Camera not found'}), 404
 
@@ -656,7 +789,7 @@ def delete_camera(camera_id):
             return jsonify({'success': False, 'error': 'Access denied'}), 403
 
         # Delete camera
-        deleted = CameraService.delete_camera(db, camera_id)
+        deleted = IPCameraService.delete_camera(db, camera_id)
 
         if not deleted:
             return jsonify({'success': False, 'error': 'Failed to delete camera'}), 500

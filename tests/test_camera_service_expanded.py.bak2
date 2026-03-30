@@ -4,7 +4,7 @@ Tests for expanded IPCameraService with IP camera CRUD operations
 import pytest
 import uuid
 from unittest.mock import Mock
-from backend.ip_camera_service import IPCameraService
+from backend.ip_camera_service import IPIPCameraService
 from backend.rtsp_builder import RTSPBuilder
 
 

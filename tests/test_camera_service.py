@@ -62,13 +62,21 @@ def test_get_camera_by_id():
 def test_update_camera():
     """Test updating camera details"""
     db = next(get_db())
-    # Get first camera ID
-    result = db.execute(text("SELECT id FROM cameras LIMIT 1"))
-    camera_id = result.scalar()
 
-    # Get the existing camera first
-    result = db.execute(text("SELECT name FROM cameras WHERE id = :id"), {'id': camera_id})
-    existing_name = result.scalar()
+    # First create a camera to update (avoid foreign key constraint issues)
+    result = db.execute(text("SELECT id FROM bays LIMIT 1"))
+    bay_id = result.scalar()
+
+    timestamp = int(time.time())
+    original_name = f"Update Test Camera {timestamp}"
+    camera = CameraService.create_camera(
+        db=db,
+        bay_id=bay_id,
+        name=original_name,
+        rtsp_url="rtsp://test.local/stream",
+        position_order=99
+    )
+    camera_id = camera['id']
 
     # Use unique name for update
     timestamp = int(time.time())

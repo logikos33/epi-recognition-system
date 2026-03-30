@@ -52,4 +52,5 @@ def test_missing_credentials():
     }
     url = RTSPBuilder.build_url(camera)
     assert 'rtsp://' in url
-    assert '@192.168.1.100:554' in url
+    # When credentials are empty, @ should NOT be present (standard RTSP format)
+    assert url == 'rtsp://192.168.1.100:554/cam/realmonitor?channel=1&subtype=1'
