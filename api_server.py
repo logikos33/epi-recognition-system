@@ -4,7 +4,7 @@ With Authentication, Database, YOLO Detection, HLS Streaming, and WebSocket Supp
 """
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit, join_room, leave_room
+# from flask_socketio import SocketIO, emit, join_room, leave_room  # TODO: Implement WebSocket support
 from werkzeug.utils import secure_filename
 import base64
 import numpy as np
@@ -52,7 +52,8 @@ app = Flask(__name__)
 CORS(app)
 
 # Initialize Flask-SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=False)
+# socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=False)  # TODO: Implement WebSocket support
+socketio = None
 
 # Configuration
 SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-change-in-production-min-32-chars!')
@@ -93,48 +94,64 @@ yolo_processor_manager.set_detection_callback(on_detection_result)
 
 
 # ============================================================================
+# Authentication Helper Functions
+# ============================================================================
+
+def verify_token(token: str) -> dict:
+    """Verify JWT token and return payload"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+# ============================================================================
 # WebSocket Events
 # ============================================================================
 
-@socketio.on('connect')
-def handle_connect():
-    """Handle WebSocket connection"""
-    logger.info(f"✅ WebSocket client connected: {request.sid}")
-    emit('connected', {'status': 'connected', 'sid': request.sid})
-
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Handle WebSocket disconnection"""
-    logger.info(f"❌ WebSocket client disconnected: {request.sid}")
-
-
-@socketio.on('subscribe_camera')
-def handle_subscribe_camera(data):
-    """Subscribe to detection updates for a specific camera"""
-    camera_id = data.get('camera_id')
-    if camera_id is None:
-        emit('error', {'message': 'camera_id required'})
-        return
-
-    room = f"camera_{camera_id}"
-    join_room(room)
-    logger.info(f"📹 Client {request.sid} subscribed to camera {camera_id}")
-    emit('subscribed', {'camera_id': camera_id, 'room': room})
-
-
-@socketio.on('unsubscribe_camera')
-def handle_unsubscribe_camera(data):
-    """Unsubscribe from detection updates for a specific camera"""
-    camera_id = data.get('camera_id')
-    if camera_id is None:
-        emit('error', {'message': 'camera_id required'})
-        return
-
-    room = f"camera_{camera_id}"
-    leave_room(room)
-    logger.info(f"📹 Client {request.sid} unsubscribed from camera {camera_id}")
-    emit('unsubscribed', {'camera_id': camera_id, 'room': room})
+# TODO: Implement WebSocket support
+# @socketio.on('connect')
+# def handle_connect():
+#     """Handle WebSocket connection"""
+#     logger.info(f"✅ WebSocket client connected: {request.sid}")
+#     emit('connected', {'status': 'connected', 'sid': request.sid})
+#
+#
+# @socketio.on('disconnect')
+# def handle_disconnect():
+#     """Handle WebSocket disconnection"""
+#     logger.info(f"❌ WebSocket client disconnected: {request.sid}")
+#
+#
+# @socketio.on('subscribe_camera')
+# def handle_subscribe_camera(data):
+#     """Subscribe to detection updates for a specific camera"""
+#     camera_id = data.get('camera_id')
+#     if camera_id is None:
+#         emit('error', {'message': 'camera_id required'})
+#         return
+#
+#     room = f"camera_{camera_id}"
+#     join_room(room)
+#     logger.info(f"📹 Client {request.sid} subscribed to camera {camera_id}")
+#     emit('subscribed', {'camera_id': camera_id, 'room': room})
+#
+#
+# @socketio.on('unsubscribe_camera')
+# def handle_unsubscribe_camera(data):
+#     """Unsubscribe from detection updates for a specific camera"""
+#     camera_id = data.get('camera_id')
+#     if camera_id is None:
+#         emit('error', {'message': 'camera_id required'})
+#         return
+#
+#     room = f"camera_{camera_id}"
+#     leave_room(room)
+#     logger.info(f"📹 Client {request.sid} unsubscribed from camera {camera_id}")
+#     emit('unsubscribed', {'camera_id': camera_id, 'room': room})
 
 
 # ============================================================================
@@ -235,6 +252,9 @@ def start_stream(camera_id):
         db.close()
 
     # Start HLS stream
+    if stream_manager is None:
+        return jsonify({'error': 'Stream manager not implemented'}), 501
+
     stream_result = stream_manager.start_stream(camera_id, rtsp_url)
     if stream_result['status'] == 'error':
         return jsonify(stream_result), 500
@@ -274,7 +294,8 @@ def stop_stream(camera_id):
         return jsonify({'error': 'Invalid token'}), 401
 
     # Stop HLS stream
-    stream_manager.stop_stream(camera_id)
+    if stream_manager is not None:
+        stream_manager.stop_stream(camera_id)
 
     # Stop YOLO processor
     yolo_processor_manager.stop_processor(camera_id)
@@ -302,7 +323,7 @@ def get_stream_status(camera_id):
         return jsonify({'error': 'Invalid token'}), 401
 
     # Get stream status
-    stream_status = stream_manager.get_stream_status(camera_id)
+    stream_status = stream_manager.get_stream_status(camera_id) if stream_manager else {'status': 'not_implemented'}
 
     # Get YOLO processor status
     yolo_active = yolo_processor_manager.is_processor_running(camera_id)
@@ -333,7 +354,7 @@ def get_all_streams_status():
         return jsonify({'error': 'Invalid token'}), 401
 
     # Get all stream statuses
-    stream_statuses = stream_manager.get_all_streams_status()
+    stream_statuses = stream_manager.get_all_streams_status() if stream_manager else {}
 
     # Get all YOLO processor statuses
     active_cameras = yolo_processor_manager.get_active_cameras()
@@ -345,6 +366,429 @@ def get_all_streams_status():
             'active_cameras': active_cameras
         }
     })
+
+
+# ============================================================================
+# Camera Management Endpoints (IP Cameras)
+# ============================================================================
+
+@app.route('/api/cameras', methods=['GET'])
+def list_cameras():
+    """
+    List all cameras for authenticated user
+
+    Returns:
+        JSON with success status and list of cameras
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get database session
+        db = next(get_db())
+
+        # List cameras for user
+        cameras = CameraService.list_cameras_by_user(db, payload['user_id'])
+
+        return jsonify({
+            'success': True,
+            'cameras': cameras,
+            'count': len(cameras)
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ List cameras error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/cameras', methods=['POST'])
+def create_camera():
+    """
+    Create a new IP camera
+
+    Expects:
+    {
+        "name": "Camera Name",
+        "manufacturer": "intelbras|hikvision|generic",
+        "ip": "192.168.1.100",
+        "port": 554,
+        "username": "admin",
+        "password": "password123",
+        "channel": 1,
+        "subtype": 1,
+        "type": "ip",
+        "rtsp_url": "rtsp://..."  // optional, auto-generated if not provided
+    }
+
+    Returns:
+        JSON with success status and created camera
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Request body is required'}), 400
+
+        # Validate required fields
+        required_fields = ['name', 'manufacturer', 'ip']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
+
+        # Get database session
+        db = next(get_db())
+
+        # Create camera
+        camera = CameraService.create_camera(
+            db,
+            user_id=payload['user_id'],
+            name=data['name'],
+            manufacturer=data['manufacturer'],
+            ip=data['ip'],
+            port=data.get('port', 554),
+            username=data.get('username'),
+            password=data.get('password'),
+            channel=data.get('channel', 1),
+            subtype=data.get('subtype', 1),
+            rtsp_url=data.get('rtsp_url'),
+            type=data.get('type', 'ip'),
+            is_active=data.get('is_active', True)
+        )
+
+        if not camera:
+            return jsonify({'success': False, 'error': 'Failed to create camera'}), 500
+
+        return jsonify({
+            'success': True,
+            'camera': camera
+        }), 201
+
+    except Exception as e:
+        logger.error(f"❌ Create camera error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/cameras/<int:camera_id>', methods=['GET'])
+def get_camera(camera_id):
+    """
+    Get camera by ID
+
+    Args:
+        camera_id: Camera ID
+
+    Returns:
+        JSON with success status and camera data
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get database session
+        db = next(get_db())
+
+        # Get camera
+        camera = CameraService.get_camera_by_id(db, camera_id)
+
+        if not camera:
+            return jsonify({'success': False, 'error': 'Camera not found'}), 404
+
+        # Verify user owns this camera
+        if camera['user_id'] != payload['user_id']:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+        return jsonify({
+            'success': True,
+            'camera': camera
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Get camera error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/cameras/<int:camera_id>', methods=['PUT'])
+def update_camera(camera_id):
+    """
+    Update camera details
+
+    Args:
+        camera_id: Camera ID
+
+    Expects:
+    {
+        "name": "New Name",
+        "ip": "192.168.1.101",
+        ... (any camera field)
+    }
+
+    Returns:
+        JSON with success status and updated camera
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Request body is required'}), 400
+
+        # Get database session
+        db = next(get_db())
+
+        # Verify camera exists and user owns it
+        existing_camera = CameraService.get_camera_by_id(db, camera_id)
+        if not existing_camera:
+            return jsonify({'success': False, 'error': 'Camera not found'}), 404
+
+        if existing_camera['user_id'] != payload['user_id']:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+        # Update camera
+        camera = CameraService.update_camera(
+            db,
+            camera_id=camera_id,
+            name=data.get('name'),
+            manufacturer=data.get('manufacturer'),
+            ip=data.get('ip'),
+            port=data.get('port'),
+            username=data.get('username'),
+            password=data.get('password'),
+            channel=data.get('channel'),
+            subtype=data.get('subtype'),
+            rtsp_url=data.get('rtsp_url'),
+            type=data.get('type'),
+            is_active=data.get('is_active')
+        )
+
+        if not camera:
+            return jsonify({'success': False, 'error': 'Failed to update camera'}), 500
+
+        return jsonify({
+            'success': True,
+            'camera': camera
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Update camera error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/cameras/<int:camera_id>', methods=['DELETE'])
+def delete_camera(camera_id):
+    """
+    Delete camera
+
+    Args:
+        camera_id: Camera ID
+
+    Returns:
+        JSON with success status
+    """
+    db = None
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get database session
+        db = next(get_db())
+
+        # Verify camera exists and user owns it
+        existing_camera = CameraService.get_camera_by_id(db, camera_id)
+        if not existing_camera:
+            return jsonify({'success': False, 'error': 'Camera not found'}), 404
+
+        if existing_camera['user_id'] != payload['user_id']:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+
+        # Delete camera
+        deleted = CameraService.delete_camera(db, camera_id)
+
+        if not deleted:
+            return jsonify({'success': False, 'error': 'Failed to delete camera'}), 500
+
+        return jsonify({
+            'success': True,
+            'message': 'Camera deleted successfully'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Delete camera error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/cameras/test', methods=['POST'])
+def test_camera_connection():
+    """
+    Test RTSP connection before saving camera
+
+    Expects:
+    {
+        "rtsp_url": "rtsp://192.168.1.100:554/stream"
+        OR
+        {
+            "manufacturer": "intelbras",
+            "ip": "192.168.1.100",
+            "port": 554,
+            "username": "admin",
+            "password": "password123",
+            "channel": 1,
+            "subtype": 1
+        }
+    }
+
+    Returns:
+        JSON with connection test result
+    """
+    try:
+        # Get auth token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+        # Get request data
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Request body is required'}), 400
+
+        # Build RTSP URL if not provided directly
+        rtsp_url = data.get('rtsp_url')
+        if not rtsp_url:
+            # Build RTSP URL from components
+            from backend.rtsp_builder import RTSPBuilder
+            rtsp_url = RTSPBuilder.build_url({
+                'manufacturer': data.get('manufacturer', 'generic'),
+                'ip': data.get('ip'),
+                'port': data.get('port', 554),
+                'username': data.get('username', ''),
+                'password': data.get('password', ''),
+                'channel': data.get('channel', 1),
+                'subtype': data.get('subtype', 1)
+            })
+
+        # Test connection using ffprobe
+        import subprocess
+        try:
+            # Run ffprobe to test connection (5 second timeout)
+            result = subprocess.run(
+                [
+                    'ffprobe',
+                    '-v', 'error',
+                    '-show_entries', 'stream=codec_type,width,height',
+                    '-of', 'json',
+                    '-timeout', '5000000',  # 5 seconds in microseconds
+                    '-rtsp_transport', 'tcp',
+                    rtsp_url
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10  # Python timeout
+            )
+
+            if result.returncode == 0:
+                # Connection successful
+                return jsonify({
+                    'success': True,
+                    'connected': True,
+                    'message': 'Successfully connected to camera',
+                    'rtsp_url': rtsp_url
+                }), 200
+            else:
+                # Connection failed
+                error_msg = result.stderr.strip() or 'Connection failed'
+                return jsonify({
+                    'success': True,  # API call succeeded, but connection failed
+                    'connected': False,
+                    'message': f'Connection failed: {error_msg}',
+                    'rtsp_url': rtsp_url
+                }), 200
+
+        except subprocess.TimeoutExpired:
+            return jsonify({
+                'success': True,
+                'connected': False,
+                'message': 'Connection timeout - camera did not respond within 10 seconds',
+                'rtsp_url': rtsp_url
+            }), 200
+        except FileNotFoundError:
+            return jsonify({
+                'success': False,
+                'connected': False,
+                'message': 'ffprobe not found - please install FFmpeg'
+            }), 500
+        except Exception as e:
+            return jsonify({
+                'success': True,
+                'connected': False,
+                'message': f'Error testing connection: {str(e)}',
+                'rtsp_url': rtsp_url
+            }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Test camera connection error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ============================================================================
@@ -394,14 +838,21 @@ if __name__ == '__main__':
     logger.info(f"📹 HLS streaming: ENABLED")
     logger.info(f"🎯 YOLO detection: ENABLED")
     logger.info(f"🌐 Server running on: http://0.0.0.0:{PORT}")
-    logger.info(f"🔌 WebSocket endpoint: ws://localhost:{PORT}/socket.io/")
+    # logger.info(f"🔌 WebSocket endpoint: ws://localhost:{PORT}/socket.io/")  # TODO: Implement WebSocket
     logger.info("=" * 60)
 
-    # Run with SocketIO
-    socketio.run(
-        app,
-        host='0.0.0.0',
-        port=PORT,
-        debug=True,
-        allow_unsafe_werkzeug=True
-    )
+    # Run with SocketIO if available, otherwise use regular Flask
+    if socketio:
+        socketio.run(
+            app,
+            host='0.0.0.0',
+            port=PORT,
+            debug=True,
+            allow_unsafe_werkzeug=True
+        )
+    else:
+        app.run(
+            host='0.0.0.0',
+            port=PORT,
+            debug=True
+        )
