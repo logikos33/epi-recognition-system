@@ -84,6 +84,10 @@ def check_and_run_migrations():
 
                 # Execute migration
                 db.execute(text(sql_content))
+
+                # Record migration
+                query = text("INSERT INTO schema_migrations (version) VALUES (:version) ON CONFLICT (version) DO NOTHING")
+                db.execute(query, {'version': '002_create_ip_cameras_table'})
                 db.commit()
                 print("✅ ip_cameras table created successfully!")
 
@@ -2957,6 +2961,450 @@ def get_session_summary(sessao_id: str):
             'itens': itens,
             'total_geral': total_geral,
             'total_itens': total_itens
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ============================================
+# YOLO CLASSES - IMAGE UPLOAD & ANNOTATION
+# ============================================
+
+@app.route('/api/classes/<int:classe_id>/imagens', methods=['POST'])
+def upload_training_images(classe_id: int):
+    """Upload training images for a YOLO class"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        # Verify class exists
+        db = next(get_db())
+        class_check = text("SELECT * FROM classes_yolo WHERE id = :classe_id")
+        class_result = db.execute(class_check, {'classe_id': classe_id})
+        classe = class_result.fetchone()
+
+        if not classe:
+            return jsonify({'success': False, 'error': 'Classe não encontrada'}), 404
+
+        # Check if files are present
+        if 'imagens' not in request.files:
+            return jsonify({'success': False, 'error': 'Nenhuma imagem enviada'}), 400
+
+        files = request.files.getlist('imagens')
+        if not files or files[0].filename == '':
+            return jsonify({'success': False, 'error': 'Nenhuma imagem selecionada'}), 400
+
+        uploaded_images = []
+
+        # Create target directory if not exists
+        target_dir = 'datasets/treinamento/images/train'
+        os.makedirs(target_dir, exist_ok=True)
+
+        for file in files:
+            if file and file.filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                # Generate unique filename
+                import uuid
+                filename = secure_filename(file.filename)
+                unique_filename = f"{uuid.uuid4().hex}_{filename}"
+                filepath = os.path.join(target_dir, unique_filename)
+
+                # Save file
+                file.save(filepath)
+
+                # Insert into database
+                insert_query = text("""
+                    INSERT INTO imagens_treinamento
+                    (classe_id, caminho, validada, conjunto, criado_em)
+                    VALUES (:classe_id, :caminho, false, 'train', NOW())
+                    RETURNING id, caminho, criado_em
+                """)
+
+                result = db.execute(insert_query, {
+                    'classe_id': classe_id,
+                    'caminho': filepath
+                })
+
+                db.commit()
+                row = result.fetchone()
+
+                uploaded_images.append({
+                    'id': str(row[0]),
+                    'caminho': row[1],
+                    'validada': False,
+                    'criado_em': row[2].isoformat() if row[2] else None
+                })
+
+        return jsonify({
+            'success': True,
+            'imagens': uploaded_images,
+            'mensagem': f'{len(uploaded_images)} imagens enviadas com sucesso'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/imagens/<int:imagem_id>/anotacao', methods=['POST'])
+def save_annotation(imagem_id: int):
+    """Save YOLO format annotation for a training image"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        data = request.get_json()
+        anotacao_yolo = data.get('anotacao_yolo')
+
+        if not anotacao_yolo:
+            return jsonify({'success': False, 'error': 'Anotação é obrigatória'}), 400
+
+        db = next(get_db())
+
+        # Get image info
+        img_query = text("""
+            SELECT i.id, i.caminho, i.classe_id, c.nome as classe_nome
+            FROM imagens_treinamento i
+            JOIN classes_yolo c ON c.id = i.classe_id
+            WHERE i.id = :imagem_id
+        """)
+        img_result = db.execute(img_query, {'imagem_id': imagem_id})
+        imagem = img_result.fetchone()
+
+        if not imagem:
+            return jsonify({'success': False, 'error': 'Imagem não encontrada'}), 404
+
+        # Save annotation to .txt file in YOLO format
+        caminho_imagem = imagem[1]
+        caminho_label = caminho_imagem.replace('/images/', '/labels/').replace('.jpg', '.txt').replace('.jpeg', '.txt').replace('.png', '.txt')
+
+        # Create labels directory if not exists
+        labels_dir = os.path.dirname(caminho_label)
+        os.makedirs(labels_dir, exist_ok=True)
+
+        # Write annotation file
+        with open(caminho_label, 'w') as f:
+            f.write(anotacao_yolo)
+
+        # Update database
+        update_query = text("""
+            UPDATE imagens_treinamento
+            SET anotacao_yolo = :anotacao_yolo,
+                validada = true,
+                conjunto = 'train'
+            WHERE id = :imagem_id
+            RETURNING id, validada
+        """)
+
+        result = db.execute(update_query, {
+            'imagem_id': imagem_id,
+            'anotacao_yolo': anotacao_yolo
+        })
+
+        db.commit()
+        row = result.fetchone()
+
+        return jsonify({
+            'success': True,
+            'imagem_id': str(row[0]),
+            'validada': row[1],
+            'caminho_label': caminho_label,
+            'mensagem': 'Anotação salva com sucesso'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/classes/<int:classe_id>/imagens', methods=['GET'])
+def list_class_images(classe_id: int):
+    """List all training images for a class"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+
+        query = text("""
+            SELECT
+                id,
+                caminho,
+                validada,
+                conjunto,
+                criado_em
+            FROM imagens_treinamento
+            WHERE classe_id = :classe_id
+            ORDER BY criado_em DESC
+        """)
+
+        result = db.execute(query, {'classe_id': classe_id})
+        imagens = []
+
+        for row in result.fetchall():
+            # Convert local file path to URL
+            caminho = row[1]
+            filename = os.path.basename(caminho)
+            image_url = f"/api/training-images/{filename}"
+
+            imagens.append({
+                'id': str(row[0]),
+                'caminho': image_url,
+                'caminho_local': caminho,
+                'validada': row[2],
+                'conjunto': row[3],
+                'criado_em': row[4].isoformat() if row[4] else None
+            })
+
+        return jsonify({
+            'success': True,
+            'imagens': imagens,
+            'total': len(imagens),
+            'validadas': sum(1 for img in imagens if img['validada'])
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/training-images/<filename>')
+def serve_training_image(filename: str):
+    """Serve training images from the dataset directory"""
+    try:
+        # Security check: ensure filename doesn't contain path traversal
+        if '..' in filename or '/' in filename:
+            return jsonify({'success': False, 'error': 'Invalid filename'}), 400
+
+        # Look for the image in train directory
+        image_path = os.path.join('datasets/treinamento/images/train', filename)
+
+        if not os.path.exists(image_path):
+            # Try val directory
+            image_path = os.path.join('datasets/treinamento/images/val', filename)
+
+        if not os.path.exists(image_path):
+            return jsonify({'success': False, 'error': 'Image not found'}), 404
+
+        # Send the file
+        from flask import send_file
+        return send_file(image_path)
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================
+# TRAINING PIPELINE
+# ============================================
+
+@app.route('/api/treinamento/status', methods=['GET'])
+def get_yolo_training_status():
+    """Get training readiness status for all classes"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+
+        query = text("""
+            SELECT
+                c.id,
+                c.nome,
+                c.descricao,
+                c.valor_unitario,
+                c.unidade,
+                c.cor_hex,
+                c.class_index,
+                c.ativo,
+                COUNT(DISTINCT i.id) as total_imagens,
+                COUNT(DISTINCT i.id) FILTER (WHERE i.validada = true) as imagens_validadas
+            FROM classes_yolo c
+            LEFT JOIN imagens_treinamento i ON i.classe_id = c.id
+            WHERE c.ativo = true
+            GROUP BY c.id
+            ORDER BY c.class_index ASC
+        """)
+
+        result = db.execute(query)
+        classes = []
+
+        for row in result.fetchall():
+            total_imagens = row[8] or 0
+            validadas = row[9] or 0
+            pronta = validadas >= 20
+
+            classes.append({
+                'id': row[0],
+                'nome': row[1],
+                'descricao': row[2],
+                'valor_unitario': float(row[3]),
+                'unidade': row[4],
+                'cor_hex': row[5],
+                'class_index': row[6],
+                'ativo': row[7],
+                'total_imagens': total_imagens,
+                'imagens_validadas': validadas,
+                'pronta_para_treinar': pronta,
+                'progresso': (validadas / 20 * 100) if validadas < 20 else 100
+            })
+
+        todas_prontas = all(c['pronta_para_treinar'] for c in classes)
+        total_validadas = sum(c['imagens_validadas'] for c in classes)
+
+        return jsonify({
+            'success': True,
+            'classes': classes,
+            'pode_iniciar_treinamento': todas_prontas and len(classes) >= 1,
+            'total_imagens_validadas': total_validadas,
+            'classes_prontas': sum(1 for c in classes if c['pronta_para_treinar']),
+            'classes_total': len(classes)
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/treinamento/exportar-dataset', methods=['POST'])
+def export_training_dataset():
+    """Export YOLO format dataset for training"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+
+        # Get all active classes
+        classes_query = text("""
+            SELECT id, nome, class_index
+            FROM classes_yolo
+            WHERE ativo = true
+            ORDER BY class_index ASC
+        """)
+        classes_result = db.execute(classes_query)
+        classes = {row[0]: {'nome': row[1], 'index': row[2]} for row in classes_result.fetchall()}
+
+        # Generate data.yaml for YOLO
+        data_yaml_content = f"""# YOLO Dataset Configuration
+# Generated by EPI Recognition System
+
+path: ../datasets/treinamento
+train: images/train
+val: images/val
+
+nc: {len(classes)}
+
+names:
+"""
+        for classe_id, info in classes.items():
+            data_yaml_content += f"  {info['index']}: {info['nome']}\n"
+
+        # Save data.yaml
+        yaml_path = 'datasets/treinamento/data.yaml'
+        os.makedirs('datasets/treinamento', exist_ok=True)
+        with open(yaml_path, 'w') as f:
+            f.write(data_yaml_content)
+
+        # Count validated images
+        count_query = text("""
+            SELECT COUNT(DISTINCT i.id)
+            FROM imagens_treinamento i
+            WHERE i.validada = true
+        """)
+        count_result = db.execute(count_query)
+        total_validadas = count_result.fetchone()[0]
+
+        return jsonify({
+            'success': True,
+            'dataset_config': yaml_path,
+            'total_imagens': total_validadas,
+            'num_classes': len(classes),
+            'classes': classes,
+            'mensagem': 'Dataset exportado com sucesso. Pronto para treinamento.'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/treinamento/classes-yaml', methods=['GET'])
+def get_classes_yaml():
+    """Generate and return classes.yaml content"""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Authorization token required'}), 401
+
+    token = auth_header.split(' ')[1]
+    payload = verify_token(token)
+    if not payload:
+        return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
+
+    try:
+        db = next(get_db())
+
+        query = text("""
+            SELECT nome, class_index, cor_hex
+            FROM classes_yolo
+            WHERE ativo = true
+            ORDER BY class_index ASC
+        """)
+        result = db.execute(query)
+
+        classes_yaml = "classes:\n"
+        for row in result.fetchall():
+            classes_yaml += f"  {row[1]}:\n"
+            classes_yaml += f"    nome: {row[0]}\n"
+            classes_yaml += f"    cor: {row[2]}\n"
+
+        return jsonify({
+            'success': True,
+            'classes_yaml': classes_yaml,
+            'mensagem': 'Classes.yaml gerado com sucesso'
         })
 
     except Exception as e:
