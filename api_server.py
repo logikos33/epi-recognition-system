@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 import base64
 import numpy as np
 import os
+import json
 from cv2 import imdecode, IMREAD_COLOR
 from ultralytics import YOLO
 import bcrypt
@@ -2336,15 +2337,80 @@ def start_training():
                 output_dir = f"storage/models/{job_id}"
                 os.makedirs(output_dir, exist_ok=True)
 
+                # Define progress callback
+                def on_train_epoch_end(trainer):
+                    """Called at the end of each epoch to update progress."""
+                    try:
+                        current_epoch = trainer.epoch + 1
+                        total_epochs = trainer.epochs
+                        progress = int((current_epoch / total_epochs) * 100)
+
+                        # Get metrics from validator
+                        metrics = {}
+                        if hasattr(trainer, 'validator') and trainer.validator:
+                            val_metrics = trainer.validator.metrics
+                            # Access metrics as attributes, not with .get()
+                            metrics = {
+                                'mAP50': float(getattr(val_metrics, 'metrics/mAP50(B)', 0)),
+                                'mAP95': float(getattr(val_metrics, 'metrics/mAP95(B)', 0)),
+                                'precision': float(getattr(val_metrics, 'metrics/precision(B)', 0)),
+                                'recall': float(getattr(val_metrics, 'metrics/recall(B)', 0))
+                            }
+
+                        # Update progress in database
+                        with get_db_context() as db:
+                            db.execute(text("""
+                                UPDATE training_jobs
+                                SET progress = :progress,
+                                    current_epoch = :current_epoch,
+                                    metrics = :metrics
+                                WHERE id = :job_id
+                            """), {
+                                'job_id': job_id,
+                                'progress': progress,
+                                'current_epoch': current_epoch,
+                                'metrics': json.dumps(metrics)
+                            })
+
+                        logger.info(f"📊 Training {job_id}: Epoch {current_epoch}/{total_epochs} ({progress}%)")
+
+                    except Exception as e:
+                        logger.error(f"❌ Error updating progress for {job_id}: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+                # Add callback to trainer
+                model.add_callback("on_train_epoch_end", on_train_epoch_end)
+
                 # Train model
+                logger.info(f"🚀 Starting training {job_id}: {config['epochs']} epochs, {config['model_size']} model")
                 results = model.train(
                     data=dataset_path,
                     epochs=config['epochs'],
                     project=output_dir,
                     name='train',
                     exist_ok=True,
-                    verbose=True
+                    verbose=False  # Reduce log output
                 )
+
+                # Extract final metrics
+                final_metrics = {}
+                if hasattr(results, 'results_dict'):
+                    res_dict = results.results_dict
+                    final_metrics = {
+                        'mAP50': float(res_dict.get('metrics/mAP50(B)', 0)),
+                        'mAP95': float(res_dict.get('metrics/mAP95(B)', 0)),
+                        'precision': float(res_dict.get('metrics/precision(B)', 0)),
+                        'recall': float(res_dict.get('metrics/recall(B)', 0))
+                    }
+                else:
+                    # Fallback: get from trainer
+                    final_metrics = {
+                        'mAP50': 0.0,
+                        'mAP95': 0.0,
+                        'precision': 0.0,
+                        'recall': 0.0
+                    }
 
                 # Save trained model
                 best_model_path = os.path.join(output_dir, 'train', 'weights', 'best.pt')
@@ -2356,27 +2422,37 @@ def start_training():
                         SET status = 'completed',
                             progress = 100,
                             completed_at = NOW(),
-                            model_output_path = :model_path
+                            model_output_path = :model_path,
+                            metrics = :metrics::jsonb
                         WHERE id = :job_id
-                    """), {'job_id': job_id, 'model_path': best_model_path})
+                    """), {
+                        'job_id': job_id,
+                        'model_path': best_model_path,
+                        'metrics': json.dumps(final_metrics)
+                    })
 
                 # Create trained model record
                 db.execute(text("""
                     INSERT INTO trained_models
-                    (user_id, job_id, name, model_path, model_size)
-                    VALUES (:user_id, :job_id, :name, :model_path, :model_size)
+                    (user_id, job_id, name, model_path, model_size, metrics)
+                    VALUES (:user_id, :job_id, :name, :model_path, :model_size, :metrics::jsonb)
                 """), {
                     'user_id': user_id,
                     'job_id': job_id,
                     'name': name,
                     'model_path': best_model_path,
-                    'model_size': config['model_size']
+                    'model_size': config['model_size'],
+                    'metrics': json.dumps(final_metrics)
                 })
 
                 logger.info(f"✅ Training complete: {job_id}")
+                logger.info(f"📊 Final metrics: mAP50={final_metrics['mAP50']:.3f}, mAP95={final_metrics['mAP95']:.3f}")
 
             except Exception as e:
                 logger.error(f"❌ Training error for {job_id}: {e}")
+                import traceback
+                traceback.print_exc()
+
                 with get_db_context() as db:
                     db.execute(text("""
                         UPDATE training_jobs
