@@ -1,0 +1,14 @@
+path: storage/datasets/20260331_184421
+train: images/train
+val: images/val
+
+names:
+  1: Produto
+  2: Caminhão
+  3: Placa
+  4: Capacete
+  5: Colete
+  6: Sem EPI
+  7: Empilhadeira
+  8: Colaborador
+  9: COlaborador com EPI

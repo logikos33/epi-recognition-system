@@ -1925,6 +1925,776 @@ def serve_training_image(image_id: int):
 
 
 # ============================================================================
+# Training Control API
+# ============================================================================
+
+# Global tracking for active training threads
+active_training_threads = {}  # job_id -> thread
+
+
+def init_training_tables():
+    """Initialize training_jobs and trained_models tables if they don't exist."""
+    try:
+        with get_db_context() as db:
+            # Create training_jobs table
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS training_jobs (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name VARCHAR(255) NOT NULL,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    preset VARCHAR(20) NOT NULL,
+                    model_size VARCHAR(10) NOT NULL,
+                    epochs INTEGER NOT NULL,
+                    dataset_yaml_path VARCHAR(500),
+                    model_output_path VARCHAR(500),
+                    progress INTEGER DEFAULT 0,
+                    current_epoch INTEGER DEFAULT 0,
+                    metrics JSONB,
+                    error_message TEXT,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+
+            # Create trained_models table
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS trained_models (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    job_id UUID REFERENCES training_jobs(id) ON DELETE SET NULL,
+                    name VARCHAR(255) NOT NULL,
+                    model_path VARCHAR(500) NOT NULL,
+                    model_size VARCHAR(10) NOT NULL,
+                    is_active BOOLEAN DEFAULT FALSE,
+                    metrics JSONB,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+
+            # Create indexes
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_training_jobs_user_id ON training_jobs(user_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_training_jobs_status ON training_jobs(status)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_training_jobs_created_at ON training_jobs(created_at DESC)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_trained_models_user_id ON trained_models(user_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_trained_models_is_active ON trained_models(is_active)
+                WHERE is_active = TRUE
+            """))
+            db.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_trained_models_user_active
+                ON trained_models(user_id) WHERE is_active = TRUE
+            """))
+
+        logger.info("✅ Training tables initialized")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize training tables: {e}")
+        return False
+
+
+@app.route('/api/training/dataset/stats', methods=['GET'])
+def get_dataset_stats():
+    """
+    Get dataset statistics for training.
+
+    Returns:
+    - Total annotated frames
+    - Total bounding boxes
+    - Class distribution
+    - Train/val split info
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            # Get total annotated frames
+            result = db.execute(text("""
+                SELECT COUNT(DISTINCT fa.frame_id)
+                FROM frame_annotations fa
+                JOIN training_frames tf ON tf.id = fa.frame_id
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                WHERE tp.user_id = :user_id
+            """), {'user_id': user_id})
+            total_frames = result.scalar() or 0
+
+            # Get total bounding boxes
+            result = db.execute(text("""
+                SELECT COUNT(*)
+                FROM frame_annotations fa
+                JOIN training_frames tf ON tf.id = fa.frame_id
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                WHERE tp.user_id = :user_id
+            """), {'user_id': user_id})
+            total_boxes = result.scalar() or 0
+
+            # Get class distribution
+            result = db.execute(text("""
+                SELECT yc.name, COUNT(*) as count
+                FROM frame_annotations fa
+                JOIN training_frames tf ON tf.id = fa.frame_id
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                JOIN yolo_classes yc ON yc.id = fa.class_id
+                WHERE tp.user_id = :user_id
+                GROUP BY yc.name
+                ORDER BY count DESC
+            """), {'user_id': user_id})
+            class_distribution = {row[0]: row[1] for row in result}
+
+            return jsonify({
+                'success': True,
+                'stats': {
+                    'total_frames': total_frames,
+                    'total_boxes': total_boxes,
+                    'class_distribution': class_distribution,
+                    'train_split': int(total_frames * 0.8),
+                    'val_split': int(total_frames * 0.2)
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get dataset stats error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/dataset/export', methods=['POST'])
+def export_dataset():
+    """
+    Export dataset in YOLO format.
+
+    Creates:
+    - images/train/, images/val/
+    - labels/train/, labels/val/
+    - data.yaml
+
+    Returns path to exported dataset.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Initialize tables if needed
+        init_training_tables()
+
+        from datetime import datetime
+
+        # Create dataset directory with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dataset_base = 'storage/datasets'
+        dataset_path = os.path.join(dataset_base, timestamp)
+
+        images_train = os.path.join(dataset_path, 'images', 'train')
+        images_val = os.path.join(dataset_path, 'images', 'val')
+        labels_train = os.path.join(dataset_path, 'labels', 'train')
+        labels_val = os.path.join(dataset_path, 'labels', 'val')
+
+        for dir_path in [images_train, images_val, labels_train, labels_val]:
+            os.makedirs(dir_path, exist_ok=True)
+
+        with get_db_context() as db:
+            # Get all annotated frames with splits
+            result = db.execute(text("""
+                SELECT
+                    tf.id as frame_id,
+                    tf.storage_path as image_path,
+                    ROW_NUMBER() OVER (ORDER BY tf.id) as row_num
+                FROM training_frames tf
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                WHERE tp.user_id = :user_id
+                AND EXISTS (
+                    SELECT 1 FROM frame_annotations fa
+                    WHERE fa.frame_id = tf.id
+                )
+                ORDER BY tf.id
+            """), {'user_id': user_id})
+
+            frames = result.fetchall()
+
+            if not frames:
+                return jsonify({'success': False, 'error': 'No annotated frames found'}), 400
+
+            total_frames = len(frames)
+            train_count = int(total_frames * 0.8)
+
+            # Copy frames and export annotations
+            for frame in frames:
+                frame_id = str(frame[0])
+                image_path = frame[1]
+                row_num = frame[2]
+
+                # Determine split
+                is_train = row_num <= train_count
+                split_name = 'train' if is_train else 'val'
+
+                # Copy image
+                if os.path.exists(image_path):
+                    image_filename = f"{frame_id}.jpg"
+                    dest_image = os.path.join(
+                        images_train if is_train else images_val,
+                        image_filename
+                    )
+                    shutil.copy(image_path, dest_image)
+
+                # Export annotations
+                annotations_result = db.execute(text("""
+                    SELECT
+                        yc.id as class_id,
+                        fa.bbox_x,
+                        fa.bbox_y,
+                        fa.bbox_width,
+                        fa.bbox_height
+                    FROM frame_annotations fa
+                    JOIN yolo_classes yc ON yc.id = fa.class_id
+                    WHERE fa.frame_id = :frame_id
+                """), {'frame_id': frame_id})
+
+                annotations = annotations_result.fetchall()
+
+                label_filename = f"{frame_id}.txt"
+                label_path = os.path.join(
+                    labels_train if is_train else labels_val,
+                    label_filename
+                )
+
+                with open(label_path, 'w') as f:
+                    for ann in annotations:
+                        class_id = ann[0]
+                        x_center = ann[1]
+                        y_center = ann[2]
+                        width = ann[3]
+                        height = ann[4]
+                        f.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
+
+            # Get YOLO classes
+            classes_result = db.execute(text("""
+                SELECT id, name FROM yolo_classes ORDER BY id
+            """))
+            classes = classes_result.fetchall()
+
+            # Create data.yaml
+            data_yaml_path = os.path.join(dataset_path, 'data.yaml')
+            with open(data_yaml_path, 'w') as f:
+                f.write(f"path: {dataset_path}\n")
+                f.write(f"train: images/train\n")
+                f.write(f"val: images/val\n\n")
+                f.write(f"names:\n")
+                for cls in classes:
+                    f.write(f"  {cls[0]}: {cls[1]}\n")
+
+        return jsonify({
+            'success': True,
+            'dataset_path': dataset_path,
+            'yaml_path': data_yaml_path,
+            'stats': {
+                'total_frames': total_frames,
+                'train_frames': train_count,
+                'val_frames': total_frames - train_count
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Export dataset error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/start', methods=['POST'])
+def start_training():
+    """
+    Start a new YOLO training job.
+
+    Expects:
+    - name: Training job name
+    - preset: fast, balanced, or quality
+    - dataset_yaml_path: Path to data.yaml
+
+    Returns job_id immediately, training runs in background.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Initialize tables if needed
+        init_training_tables()
+
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        preset = data.get('preset', 'balanced')
+        dataset_yaml_path = data.get('dataset_yaml_path', '').strip()
+
+        # Validate
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+        if preset not in ['fast', 'balanced', 'quality']:
+            return jsonify({'success': False, 'error': 'Invalid preset'}), 400
+
+        if not dataset_yaml_path or not os.path.exists(dataset_yaml_path):
+            return jsonify({'success': False, 'error': 'Dataset not found'}), 400
+
+        # Map preset to model size and epochs
+        preset_config = {
+            'fast': {'model_size': 'n', 'epochs': 50},
+            'balanced': {'model_size': 's', 'epochs': 100},
+            'quality': {'model_size': 'm', 'epochs': 150}
+        }
+        config = preset_config[preset]
+
+        # Create job record
+        with get_db_context() as db:
+            result = db.execute(text("""
+                INSERT INTO training_jobs
+                (user_id, name, status, preset, model_size, epochs, dataset_yaml_path)
+                VALUES (:user_id, :name, 'pending', :preset, :model_size, :epochs, :dataset_path)
+                RETURNING id
+            """), {
+                'user_id': user_id,
+                'name': name,
+                'preset': preset,
+                'model_size': config['model_size'],
+                'epochs': config['epochs'],
+                'dataset_path': dataset_yaml_path
+            })
+
+            job_id = str(result.scalar())
+
+        # Start training in background thread
+        def train_in_background(job_id, user_id, config, dataset_path):
+            try:
+                import threading
+                from ultralytics import YOLO
+
+                # Update status to running
+                with get_db_context() as db:
+                    db.execute(text("""
+                        UPDATE training_jobs
+                        SET status = 'running', started_at = NOW()
+                        WHERE id = :job_id
+                    """), {'job_id': job_id})
+
+                # Initialize model
+                model_name = f"yolov8{config['model_size']}.pt"
+                model = YOLO(model_name)
+
+                # Create output directory
+                output_dir = f"storage/models/{job_id}"
+                os.makedirs(output_dir, exist_ok=True)
+
+                # Train model
+                results = model.train(
+                    data=dataset_path,
+                    epochs=config['epochs'],
+                    project=output_dir,
+                    name='train',
+                    exist_ok=True,
+                    verbose=True
+                )
+
+                # Save trained model
+                best_model_path = os.path.join(output_dir, 'train', 'weights', 'best.pt')
+
+                # Update job as completed
+                with get_db_context() as db:
+                    db.execute(text("""
+                        UPDATE training_jobs
+                        SET status = 'completed',
+                            progress = 100,
+                            completed_at = NOW(),
+                            model_output_path = :model_path
+                        WHERE id = :job_id
+                    """), {'job_id': job_id, 'model_path': best_model_path})
+
+                # Create trained model record
+                db.execute(text("""
+                    INSERT INTO trained_models
+                    (user_id, job_id, name, model_path, model_size)
+                    VALUES (:user_id, :job_id, :name, :model_path, :model_size)
+                """), {
+                    'user_id': user_id,
+                    'job_id': job_id,
+                    'name': name,
+                    'model_path': best_model_path,
+                    'model_size': config['model_size']
+                })
+
+                logger.info(f"✅ Training complete: {job_id}")
+
+            except Exception as e:
+                logger.error(f"❌ Training error for {job_id}: {e}")
+                with get_db_context() as db:
+                    db.execute(text("""
+                        UPDATE training_jobs
+                        SET status = 'failed',
+                            error_message = :error,
+                            completed_at = NOW()
+                        WHERE id = :job_id
+                    """), {'job_id': job_id, 'error': str(e)})
+
+            finally:
+                # Clean up thread tracking
+                if job_id in active_training_threads:
+                    del active_training_threads[job_id]
+
+        # Start background thread
+        thread = threading.Thread(
+            target=train_in_background,
+            args=(job_id, user_id, config, dataset_yaml_path),
+            daemon=True
+        )
+        thread.start()
+        active_training_threads[job_id] = thread
+
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'status': 'pending'
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Start training error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/status/<job_id>', methods=['GET'])
+def get_training_status(job_id: str):
+    """Get current status of a training job."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT
+                    id, name, status, preset, model_size, epochs,
+                    progress, current_epoch, metrics, error_message,
+                    started_at, completed_at, created_at
+                FROM training_jobs
+                WHERE id = :job_id AND user_id = :user_id
+            """), {'job_id': job_id, 'user_id': user_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+            return jsonify({
+                'success': True,
+                'job': {
+                    'id': str(row[0]),
+                    'name': row[1],
+                    'status': row[2],
+                    'preset': row[3],
+                    'model_size': row[4],
+                    'epochs': row[5],
+                    'progress': row[6] or 0,
+                    'current_epoch': row[7] or 0,
+                    'metrics': row[8],
+                    'error_message': row[9],
+                    'started_at': row[10].isoformat() if row[10] else None,
+                    'completed_at': row[11].isoformat() if row[11] else None,
+                    'created_at': row[12].isoformat() if row[12] else None
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get training status error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/stop/<job_id>', methods=['POST'])
+def stop_training(job_id: str):
+    """Stop a running training job."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            # Check job status
+            result = db.execute(text("""
+                SELECT status FROM training_jobs
+                WHERE id = :job_id AND user_id = :user_id
+            """), {'job_id': job_id, 'user_id': user_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+            status = row[0]
+
+            if status not in ['pending', 'running']:
+                return jsonify({'success': False, 'error': f'Cannot stop job with status: {status}'}), 400
+
+            # Update status
+            db.execute(text("""
+                UPDATE training_jobs
+                SET status = 'stopped', completed_at = NOW()
+                WHERE id = :job_id
+            """), {'job_id': job_id})
+
+            # Note: Background thread will check status and stop naturally
+            # For immediate termination, we would need threading.Event flags
+
+        return jsonify({'success': True, 'message': 'Job stopped'})
+
+    except Exception as e:
+        logger.error(f"❌ Stop training error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/history', methods=['GET'])
+def get_training_history():
+    """Get training history for current user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT
+                    j.id, j.name, j.status, j.preset, j.model_size,
+                    j.epochs, j.progress, j.metrics, j.error_message,
+                    j.started_at, j.completed_at, j.created_at,
+                    m.id as model_id, m.is_active
+                FROM training_jobs j
+                LEFT JOIN trained_models m ON m.job_id = j.id
+                WHERE j.user_id = :user_id
+                ORDER BY j.created_at DESC
+                LIMIT 50
+            """), {'user_id': user_id})
+
+            jobs = []
+            for row in result:
+                jobs.append({
+                    'id': str(row[0]),
+                    'name': row[1],
+                    'status': row[2],
+                    'preset': row[3],
+                    'model_size': row[4],
+                    'epochs': row[5],
+                    'progress': row[6] or 0,
+                    'metrics': row[7],
+                    'error_message': row[8],
+                    'started_at': row[9].isoformat() if row[9] else None,
+                    'completed_at': row[10].isoformat() if row[10] else None,
+                    'created_at': row[11].isoformat() if row[11] else None,
+                    'model_id': str(row[12]) if row[12] else None,
+                    'is_active': row[13] if row[13] else False
+                })
+
+            return jsonify({
+                'success': True,
+                'jobs': jobs
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get training history error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/models/<model_id>/activate', methods=['POST'])
+def activate_model(model_id: str):
+    """
+    Activate a trained model.
+
+    Deactivates all other models for the user and activates this one.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            # Verify model ownership
+            result = db.execute(text("""
+                SELECT id FROM trained_models
+                WHERE id = :model_id AND user_id = :user_id
+            """), {'model_id': model_id, 'user_id': user_id})
+
+            if not result.fetchone():
+                return jsonify({'success': False, 'error': 'Model not found'}), 404
+
+            # Deactivate all user's models
+            db.execute(text("""
+                UPDATE trained_models
+                SET is_active = FALSE
+                WHERE user_id = :user_id
+            """), {'user_id': user_id})
+
+            # Activate this model
+            db.execute(text("""
+                UPDATE trained_models
+                SET is_active = TRUE
+                WHERE id = :model_id
+            """), {'model_id': model_id})
+
+        return jsonify({'success': True, 'message': 'Model activated'})
+
+    except Exception as e:
+        logger.error(f"❌ Activate model error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/models/active', methods=['GET'])
+def get_active_model():
+    """Get the currently active model for the user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT
+                    m.id, m.name, m.model_path, m.model_size, m.metrics, m.created_at,
+                    j.name as job_name, j.preset
+                FROM trained_models m
+                LEFT JOIN training_jobs j ON j.id = m.job_id
+                WHERE m.user_id = :user_id AND m.is_active = TRUE
+                LIMIT 1
+            """), {'user_id': user_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': True, 'model': None})
+
+            return jsonify({
+                'success': True,
+                'model': {
+                    'id': str(row[0]),
+                    'name': row[1],
+                    'model_path': row[2],
+                    'model_size': row[3],
+                    'metrics': row[4],
+                    'created_at': row[5].isoformat() if row[5] else None,
+                    'job_name': row[6],
+                    'preset': row[7]
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get active model error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# Admin API (Temporary - for table creation)
+# ============================================================================
+
+@app.route('/api/admin/init-training-tables', methods=['POST'])
+def admin_init_training_tables():
+    """
+    TEMPORARY endpoint to manually create training_jobs and trained_models tables.
+    Should be removed after first deployment.
+    """
+    try:
+        # Check admin (simple token check for now)
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        with get_db_context() as db:
+            # Drop existing tables if they exist (with wrong schema)
+            db.execute(text("DROP TABLE IF EXISTS trained_models CASCADE"))
+            db.execute(text("DROP TABLE IF EXISTS training_jobs CASCADE"))
+            logger.info("✅ Dropped old training tables (if existed)")
+
+        # Create fresh tables
+        result = init_training_tables()
+
+        if result:
+            return jsonify({
+                'success': True,
+                'message': 'Training tables created successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to create training tables'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"❌ Init training tables error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # YOLO Classes API
 # ============================================================================
 
@@ -2346,6 +3116,9 @@ if __name__ == '__main__':
 
     # Initialize database tables
     init_database_tables()
+
+    # Initialize training tables
+    init_training_tables()
 
     logger.info("=" * 60)
     logger.info("=" * 60)
