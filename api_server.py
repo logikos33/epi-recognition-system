@@ -1696,6 +1696,235 @@ def save_frame_annotations(frame_id: str):
 
 
 # ============================================================================
+# Training Images API (Direct Image Upload)
+# ============================================================================
+
+@app.route('/api/training/images/upload', methods=['POST'])
+def upload_training_images():
+    """
+    Upload one or more training images directly (without video).
+
+    Images can be annotated like frames extracted from videos.
+    Supports JPG, PNG formats (max 10MB per image).
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Check if files are present
+        if 'images' not in request.files:
+            return jsonify({'success': False, 'error': 'No files provided'}), 400
+
+        files = request.files.getlist('images')
+        if not files or files[0].filename == '':
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+
+        # Validate file count
+        if len(files) > 100:
+            return jsonify({'success': False, 'error': 'Maximum 100 images per upload'}), 400
+
+        # Create storage directory
+        storage_dir = 'storage/training_images'
+        os.makedirs(storage_dir, exist_ok=True)
+
+        uploaded_images = []
+
+        with get_db_context() as db:
+            for file in files:
+                # Validate file extension
+                filename = secure_filename(file.filename)
+                if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    logger.warning(f"Skipping invalid file: {filename}")
+                    continue
+
+                # Validate file size (10MB max)
+                file.seek(0, os.SEEK_END)
+                file_size = file.tell()
+                file.seek(0)
+
+                if file_size > 10 * 1024 * 1024:  # 10MB
+                    logger.warning(f"Skipping oversized file: {filename} ({file_size} bytes)")
+                    continue
+
+                # Generate unique filename
+                image_id = str(uuid.uuid4())
+                ext = os.path.splitext(filename)[1]
+                saved_filename = f"{image_id}{ext}"
+                save_path = os.path.join(storage_dir, saved_filename)
+
+                # Save file
+                file.save(save_path)
+
+                # Insert into database
+                db.execute(text("""
+                    INSERT INTO imagens_treinamento
+                    (caminho, conjunto, validada)
+                    VALUES (:caminho, 'train', false)
+                    RETURNING id
+                """), {
+                    'caminho': save_path
+                })
+
+                row = db.execute(text("SELECT lastval()")).fetchone()
+                db_id = row[0]
+
+                uploaded_images.append({
+                    'id': str(db_id),
+                    'filename': saved_filename,
+                    'original_name': filename,
+                    'size': file_size,
+                    'path': save_path
+                })
+
+        return jsonify({
+            'success': True,
+            'uploaded_count': len(uploaded_images),
+            'images': uploaded_images
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Upload training images error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images', methods=['GET'])
+def list_training_images():
+    """List all uploaded training images for the current user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT id, caminho, validada, conjunto, criado_em
+                FROM imagens_treinamento
+                ORDER BY criado_em DESC
+                LIMIT 500
+            """))
+
+            rows = result.fetchall()
+
+            images = []
+            for row in rows:
+                # Check if file exists
+                file_path = row[1]
+                exists = os.path.exists(file_path)
+
+                images.append({
+                    'id': str(row[0]),
+                    'path': file_path,
+                    'is_validated': row[2],
+                    'split': row[3],
+                    'created_at': row[4].isoformat() if row[4] else None,
+                    'exists': exists,
+                    'image_url': f"/api/training/images/{str(row[0])}/image" if exists else None
+                })
+
+            return jsonify({
+                'success': True,
+                'count': len(images),
+                'images': images
+            })
+
+    except Exception as e:
+        logger.error(f"❌ List training images error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images/<int:image_id>', methods=['DELETE'])
+def delete_training_image(image_id: int):
+    """Delete a training image and its file."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        with get_db_context() as db:
+            # Get image path
+            result = db.execute(text("""
+                SELECT caminho FROM imagens_treinamento
+                WHERE id = :image_id
+            """), {'image_id': image_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Image not found'}), 404
+
+            file_path = row[0]
+
+            # Delete from database
+            db.execute(text("""
+                DELETE FROM imagens_treinamento
+                WHERE id = :image_id
+            """), {'image_id': image_id})
+
+            # Delete file from disk
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"✅ Deleted image file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"⚠️  Could not delete file: {e}")
+
+            return jsonify({'success': True, 'message': 'Image deleted'})
+
+    except Exception as e:
+        logger.error(f"❌ Delete training image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images/<int:image_id>/image', methods=['GET'])
+def serve_training_image(image_id: int):
+    """Serve a training image file."""
+    try:
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT caminho FROM imagens_treinamento
+                WHERE id = :image_id
+            """), {'image_id': image_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Image not found'}), 404
+
+            image_path = row[0]
+
+            if not os.path.exists(image_path):
+                logger.error(f"❌ Training image file not found: {image_path}")
+                return jsonify({'success': False, 'error': 'Image file not found on disk'}), 404
+
+            return send_from_directory(
+                os.path.dirname(image_path),
+                os.path.basename(image_path)
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Serve training image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # YOLO Classes API
 # ============================================================================
 
