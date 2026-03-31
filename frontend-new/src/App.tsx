@@ -721,6 +721,121 @@ const TrainingPage = () => {
 
       {trainingTab === 'videos' && (
       <>
+      {/* Tab 1 - Educational Banner */}
+      <div style={{
+        background: "linear-gradient(135deg, rgba(37,99,235,0.08) 0%, rgba(124,58,237,0.05) 100%)",
+        borderRadius: 16, border: "1px solid rgba(37,99,235,0.2)",
+        padding: 24, marginBottom: 28
+      }}>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+            background: "rgba(37,99,235,0.15)", color: "var(--accent)",
+            fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase"
+          }}>
+            Passo 1 de 3
+          </span>
+        </div>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", margin: "0 0 12px" }}>
+          Envie seus vídeos ou imagens
+        </h2>
+        <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+          Esta é a primeira etapa do treinamento. Aqui você envia os vídeos gravados pelas câmeras das baias de carregamento ou fotos individuais dos produtos. O sistema vai extrair automaticamente os frames (imagens) do vídeo para que você possa anotá-los na etapa seguinte.
+        </p>
+      </div>
+
+      {/* Requirements Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 28 }}>
+        {/* Card 1 - Vídeos */}
+        <div style={{
+          background: "var(--card)", borderRadius: 12, border: "1px solid var(--border)",
+          padding: 20
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 28 }}>🎥</div>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", margin: 0 }}>Vídeos aceitos</h3>
+          </div>
+          <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li><strong>Formatos:</strong> MP4, AVI, MOV, MKV</li>
+            <li><strong>Tamanho máximo:</strong> 2GB por arquivo</li>
+            <li><strong>Duração recomendada:</strong> 2 a 10 minutos</li>
+            <li><strong>Conteúdo:</strong> câmera da baia com operação real</li>
+          </ul>
+        </div>
+
+        {/* Card 2 - Imagens */}
+        <div style={{
+          background: "var(--card)", borderRadius: 12, border: "1px solid var(--border)",
+          padding: 20
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 28 }}>🖼️</div>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", margin: 0 }}>Imagens aceitas</h3>
+          </div>
+          <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li><strong>Formatos:</strong> JPG, PNG</li>
+            <li><strong>Tamanho máximo:</strong> 10MB por imagem</li>
+            <li><strong>Limite:</strong> 100 imagens por envio</li>
+            <li><strong>Conteúdo:</strong> fotos dos produtos ou operação</li>
+          </ul>
+        </div>
+
+        {/* Card 3 - Quantidade mínima */}
+        <div style={{
+          background: "rgba(245,158,11,0.08)", borderRadius: 12,
+          border: "1px solid rgba(245,158,11,0.3)", padding: 20
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 28 }}>⚠️</div>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "#f59e0b", margin: 0 }}>Mínimo para treinar</h3>
+          </div>
+          <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li><strong>Pelo menos</strong> 50 frames anotados</li>
+            <li><strong>Pelo menos</strong> 2 classes diferentes</li>
+            <li><strong>Pelo menos</strong> 10 exemplos por classe</li>
+            <li><strong>Quanto mais dados,</strong> melhor o modelo</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* Visual Flow */}
+      <div style={{
+        background: "var(--card)", borderRadius: 12, border: "1px solid var(--border)",
+        padding: 20, marginBottom: 32
+      }}>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16, fontWeight: 500 }}>
+          FLUXO DO TREINAMENTO
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+          {[
+            { icon: '📤', label: 'Enviar vídeo', active: true },
+            { icon: '🎞️', label: 'Extrair frames', active: false },
+            { icon: '✏️', label: 'Anotar frames', active: false },
+            { icon: '🚀', label: 'Treinar', active: false }
+          ].map((step, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 16px', borderRadius: 8,
+                background: step.active ? 'rgba(37,99,235,0.1)' : 'transparent',
+                border: step.active ? '1px solid rgba(37,99,235,0.3)' : '1px solid transparent'
+              }}>
+                <span style={{ fontSize: 20 }}>{step.icon}</span>
+                <span style={{
+                  fontSize: 13, fontWeight: 500,
+                  color: step.active ? 'var(--accent)' : 'var(--text-muted)'
+                }}>
+                  {step.label}
+                </span>
+              </div>
+              {i < 3 && (
+                <span style={{ fontSize: 18, color: 'var(--border)', margin: '0 4px' }}>→</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Upload Zone */}
       <div
         onClick={() => !uploading && document.getElementById('video-upload').click()}
@@ -1163,8 +1278,141 @@ const TrainingTrainTab = () => {
   const progress = activeJob?.progress || 0;
   const jobMetrics = activeJob?.metrics || {};
 
+  // Calculate if requirements are met
+  const requirementsMet = datasetStats.total_frames >= 50 && Object.keys(datasetStats.class_distribution || {}).length >= 2;
+
   return (
     <div>
+      {/* Tab 2 - Educational Banner */}
+      <div style={{
+        background: "linear-gradient(135deg, rgba(37,99,235,0.08) 0%, rgba(124,58,237,0.05) 100%)",
+        borderRadius: 16, border: "1px solid rgba(37,99,235,0.2)",
+        padding: 24, marginBottom: 28
+      }}>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+            background: "rgba(37,99,235,0.15)", color: "var(--accent)",
+            fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase"
+          }}>
+            Passo 2 de 3
+          </span>
+        </div>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", margin: "0 0 12px" }}>
+          Configure e inicie o treinamento
+        </h2>
+        <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+          Com os frames anotados, o sistema está pronto para aprender a reconhecer os objetos que você marcou. O treinamento usa o modelo YOLOv8, especializado em detecção de objetos em tempo real. Escolha o preset de acordo com seu tempo disponível e a qualidade necessária.
+        </p>
+      </div>
+
+      {/* Presets Comparison Table */}
+      <div style={{
+        background: "var(--card)", borderRadius: 12, border: "1px solid var(--border)",
+        padding: 20, marginBottom: 24
+      }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", margin: "0 0 16px" }}>
+          Comparação de Presets
+        </h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 600, color: 'var(--text)' }}>Preset</th>
+                <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 600, color: 'var(--text)' }}>Modelo</th>
+                <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 600, color: 'var(--text)' }}>Épocas</th>
+                <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 600, color: 'var(--text)' }}>Tempo estimado</th>
+                <th style={{ padding: '12px 8px', textAlign: 'left', fontWeight: 600, color: 'var(--text)' }}>Quando usar</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '12px 8px' }}>⚡ <strong>Rápido</strong></td>
+                <td style={{ padding: '12px 8px', fontFamily: "'DM Mono', monospace" }}>YOLOv8n</td>
+                <td style={{ padding: '12px 8px' }}>50</td>
+                <td style={{ padding: '12px 8px' }}>~15 minutos</td>
+                <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Testes iniciais, poucos dados</td>
+              </tr>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '12px 8px' }}>⚖️ <strong>Balanceado</strong></td>
+                <td style={{ padding: '12px 8px', fontFamily: "'DM Mono', monospace" }}>YOLOv8s</td>
+                <td style={{ padding: '12px 8px' }}>100</td>
+                <td style={{ padding: '12px 8px' }}>~45 minutos</td>
+                <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Uso geral, recomendado</td>
+              </tr>
+              <tr>
+                <td style={{ padding: '12px 8px' }}>🏆 <strong>Qualidade</strong></td>
+                <td style={{ padding: '12px 8px', fontFamily: "'DM Mono', monospace" }}>YOLOv8m</td>
+                <td style={{ padding: '12px 8px' }}>150</td>
+                <td style={{ padding: '12px 8px' }}>~2 horas</td>
+                <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Produção, dataset grande</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Requirements Disclaimer */}
+      <div style={{
+        background: requirementsMet ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+        borderRadius: 12, border: requirementsMet ? "1px solid rgba(34,197,94,0.3)" : "1px solid rgba(239,68,68,0.3)",
+        padding: 20, marginBottom: 24
+      }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ fontSize: 24 }}>{requirementsMet ? '✅' : '⚠️'}</div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: requirementsMet ? '#22c55e' : '#ef4444', margin: "0 0 8px" }}>
+              {requirementsMet ? 'Dataset pronto para treinamento' : 'Requisitos mínimos não atendidos'}
+            </h3>
+            <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+              <li>
+                <strong>Frames anotados:</strong> {datasetStats.total_frames}/50 {' '}
+                {datasetStats.total_frames >= 50 ? '✓' : `✗ (falta: ${50 - datasetStats.total_frames})`}
+              </li>
+              <li>
+                <strong>Classes com anotações:</strong> {Object.keys(datasetStats.class_distribution || {}).length}/2 {' '}
+                {Object.keys(datasetStats.class_distribution || {}).length >= 2 ? '✓' : `✗ (falta: ${2 - Object.keys(datasetStats.class_distribution || {}).length})`}
+              </li>
+              <li>
+                <strong>Exemplos por classe:</strong> {datasetStats.total_frames > 0 && Object.keys(datasetStats.class_distribution || {}).length > 0
+                  ? Math.round(datasetStats.total_frames / Object.keys(datasetStats.class_distribution || {}).length)
+                  : 0}/10 {' '}
+                {datasetStats.total_frames > 0 && Object.keys(datasetStats.class_distribution || {}).length > 0 && Math.round(datasetStats.total_frames / Object.keys(datasetStats.class_distribution || {}).length) >= 10 ? '✓' : '✗'}
+              </li>
+            </ul>
+            {!requirementsMet && (
+              <div style={{ marginTop: 12, padding: 12, background: 'rgba(239,68,68,0.1)', borderRadius: 8, fontSize: 12 }}>
+                ❌ Para treinar, volte à aba <strong>Vídeos & Dados</strong> e anote mais frames antes de continuar.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Technical Disclaimer (Collapsible) */}
+      <details style={{ marginBottom: 24 }}>
+        <summary style={{
+          cursor: 'pointer', fontSize: 13, fontWeight: 500, color: 'var(--accent)',
+          padding: '8px 0', userSelect: 'none'
+        }}>
+          ℹ️ O que acontece durante o treinamento?
+        </summary>
+        <div style={{ marginTop: 12, padding: 16, background: 'var(--bg)', borderRadius: 8, fontSize: 13, lineHeight: 1.7 }}>
+          <p style={{ margin: '0 0 12px' }}>
+            O sistema divide seus dados em <strong>80% para treino</strong> e <strong>20% para validação</strong>.
+            A cada época, o modelo ajusta seus parâmetros para melhorar a detecção. As métricas mostradas durante o treino significam:
+          </p>
+          <ul style={{ margin: '0 0 12px', paddingLeft: 20 }}>
+            <li><strong>mAP@50:</strong> precisão geral do modelo (quanto maior, melhor — ideal acima de 0.7)</li>
+            <li><strong>Precisão:</strong> dos objetos detectados, quantos são corretos</li>
+            <li><strong>Recall:</strong> dos objetos reais, quantos foram detectados</li>
+          </ul>
+          <p style={{ margin: 0 }}>
+            O treinamento pode ser interrompido e retomado. O modelo é salvo automaticamente ao final.
+          </p>
+        </div>
+      </details>
+
       <div style={{
         background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)",
         padding: 24, marginBottom: 20, animation: "fadeSlideUp 0.5s ease both",
@@ -1441,22 +1689,145 @@ const TrainingHistoryTab = () => {
 
   if (jobs.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: 60 }}>
-        <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-          Nenhum treinamento encontrado
-        </p>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          Inicie seu primeiro treinamento na aba "Treinar"
-        </p>
+      <div>
+        {/* Enhanced Empty State */}
+        <div style={{ textAlign: 'center', padding: 80, maxWidth: 500, margin: '0 auto' }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>🤖</div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", margin: "0 0 12px" }}>
+            Nenhum modelo treinado ainda
+          </h2>
+          <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 24 }}>
+            Para treinar seu primeiro modelo, siga estes passos:
+          </p>
+          <div style={{ textAlign: 'left', maxWidth: 350, margin: '0 auto 24px' }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-start' }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, fontWeight: 600, flexShrink: 0
+              }}>
+                1
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', paddingTop: 4 }}>
+                Vá para a aba <strong>"Vídeos & Dados"</strong> e envie vídeos da operação
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-start' }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, fontWeight: 600, flexShrink: 0
+              }}>
+                2
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', paddingTop: 4 }}>
+                Extraia e anote os frames com os objetos de interesse
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, fontWeight: 600, flexShrink: 0
+              }}>
+                3
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', paddingTop: 4 }}>
+                Volte para a aba <strong>"Treinar"</strong> e inicie o treinamento
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => document.querySelector('[onClick*="setTrainingTab"]')?.click()}
+            style={{
+              padding: '12px 24px', borderRadius: 8, background: 'var(--accent)',
+              color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer'
+            }}
+          >
+            Ir para Vídeos & Dados
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0, fontFamily: "'DM Sans', sans-serif" }}>Histórico de Treinamentos</h1>
-        <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: 14 }}>Histórico completo de treinamentos YOLO</p>
+      {/* Tab 3 - Educational Banner */}
+      <div style={{
+        background: "linear-gradient(135deg, rgba(37,99,235,0.08) 0%, rgba(124,58,237,0.05) 100%)",
+        borderRadius: 16, border: "1px solid rgba(37,99,235,0.2)",
+        padding: 24, marginBottom: 28
+      }}>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+            background: "rgba(37,99,235,0.15)", color: "var(--accent)",
+            fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase"
+          }}>
+            Passo 3 de 3
+          </span>
+        </div>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", margin: "0 0 12px" }}>
+          Gerencie e ative seus modelos
+        </h2>
+        <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+          Aqui ficam todos os modelos que você treinou. Apenas um modelo pode estar ativo por vez — é ele que será usado pelas câmeras para detectar objetos em tempo real. Você pode comparar modelos, ativar o melhor e fazer download para backup.
+        </p>
+      </div>
+
+      {/* Educational Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 28 }}>
+        {/* Card 1 - Métricas */}
+        <div style={{
+          background: "var(--card)", borderRadius: 12, border: "1px solid var(--border)",
+          padding: 20
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 28 }}>📊</div>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", margin: 0 }}>Entendendo as métricas</h3>
+          </div>
+          <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li><strong>mAP@50 > 0.7:</strong> modelo bom para produção</li>
+            <li><strong>mAP@50 > 0.5:</strong> funcional, mais dados recomendados</li>
+            <li><strong>mAP@50 < 0.5:</strong> fraco, retreinar com mais dados</li>
+            <li><strong>Mais epochs e dados</strong> = melhor resultado</li>
+          </ul>
+        </div>
+
+        {/* Card 2 - Modelo Ativo */}
+        <div style={{
+          background: "var(--card)", borderRadius: 12, border: "1px solid var(--border)",
+          padding: 20
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 28 }}>🟢</div>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", margin: 0 }}>Modelo ativo</h3>
+          </div>
+          <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li>É o modelo usado pelas câmeras agora</li>
+            <li>Só um modelo pode estar ativo por vez</li>
+            <li>Ativar novo modelo substitui o anterior</li>
+            <li>O anterior fica salvo no histórico</li>
+          </ul>
+        </div>
+
+        {/* Card 3 - Boas Práticas */}
+        <div style={{
+          background: "var(--card)", borderRadius: 12, border: "1px solid var(--border)",
+          padding: 20
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 28 }}>💡</div>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", margin: 0 }}>Dicas</h3>
+          </div>
+          <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li>Treine novamente ao adicionar novas classes</li>
+            <li>Compare mAP@50 antes de ativar novo modelo</li>
+            <li>Faça download do melhor modelo como backup</li>
+            <li>Datasets maiores geram modelos mais precisos</li>
+          </ul>
+        </div>
       </div>
 
       {activeModel && (
