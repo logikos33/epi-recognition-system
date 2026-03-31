@@ -70,6 +70,11 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
+  // Box dragging for Select mode
+  const [selectedBoxIndex, setSelectedBoxIndex] = useState<number | null>(null)
+  const [isDraggingBox, setIsDraggingBox] = useState(false)
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+
   // Helper to update annotations and mark as unsaved
   const updateAnnotations = (newAnnotations: BoundingBox[] | ((prev: BoundingBox[]) => BoundingBox[])) => {
     setAnnotations(newAnnotations)
@@ -306,30 +311,90 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     setSuggestions([])
   }
 
-  // Mouse handlers for drawing
+  // Mouse handlers for drawing and selecting
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (toolMode !== 'draw' || !imageContainerRef.current) return
+    if (!imageContainerRef.current) return
 
     const rect = imageContainerRef.current.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
     const y = (e.clientY - rect.top) / rect.height
 
-    setIsDrawing(true)
-    setDrawStart({ x, y })
-    setDrawEnd({ x, y })
+    // MODO SELECT: Detectar clique em uma box e iniciar drag
+    if (toolMode === 'select') {
+      // Verificar se clicou em alguma box (de trás pra frente)
+      const clickedIndex = [...annotations].reverse().findIndex(box => {
+        const left = box.x_center - box.width / 2
+        const top = box.y_center - box.height / 2
+        const right = left + box.width
+        const bottom = top + box.height
+        return x >= left && x <= right && y >= top && y <= bottom
+      })
+
+      if (clickedIndex >= 0) {
+        // Clicou em uma box - selecionar e iniciar drag
+        const realIndex = annotations.length - 1 - clickedIndex
+        setSelectedBoxIndex(realIndex)
+        setIsDraggingBox(true)
+        setDragOffset({
+          x: x - annotations[realIndex].x_center,
+          y: y - annotations[realIndex].y_center,
+        })
+      } else {
+        // Clicou fora - deselecionar
+        setSelectedBoxIndex(null)
+      }
+      return
+    }
+
+    // MODO DRAW: Iniciar desenho de nova box
+    if (toolMode === 'draw') {
+      setIsDrawing(true)
+      setDrawStart({ x, y })
+      setDrawEnd({ x, y })
+    }
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawing || !imageContainerRef.current) return
+    if (!imageContainerRef.current) return
 
     const rect = imageContainerRef.current.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
     const y = (e.clientY - rect.top) / rect.height
 
-    setDrawEnd({ x, y })
+    // MODO SELECT: Arrastar box selecionada
+    if (isDraggingBox && selectedBoxIndex !== null && toolMode === 'select') {
+      const newX = x - dragOffset.x
+      const newY = y - dragOffset.y
+
+      updateAnnotations(prev => prev.map((box, i) => {
+        if (i !== selectedBoxIndex) return box
+
+        // Limitar dentro da imagem [0, 1]
+        const halfW = box.width / 2
+        const halfH = box.height / 2
+        return {
+          ...box,
+          x_center: Math.max(halfW, Math.min(1 - halfW, newX)),
+          y_center: Math.max(halfH, Math.min(1 - halfH, newY)),
+        }
+      }))
+      return
+    }
+
+    // MODO DRAW: Atualizar preview do desenho
+    if (isDrawing) {
+      setDrawEnd({ x, y })
+    }
   }
 
   const handleMouseUp = () => {
+    // MODO SELECT: Soltar box arrastada
+    if (isDraggingBox) {
+      setIsDraggingBox(false)
+      return
+    }
+
+    // MODO DRAW: Finalizar desenho de nova box
     if (!isDrawing || !drawStart || !drawEnd) return
 
     const x_center = (drawStart.x + drawEnd.x) / 2
@@ -410,13 +475,15 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     const rect = container.getBoundingClientRect()
     const allBoxes = [...annotations, ...suggestions]
 
-    return allBoxes.map(box => {
+    return allBoxes.map((box, index) => {
       const left = (box.x_center - box.width / 2) * 100
       const top = (box.y_center - box.height / 2) * 100
       const width = box.width * 100
       const height = box.height * 100
       const classColor = classes.find(c => c.id === box.class_id)?.color || '#ffffff'
       const isSelected = selectedAnnotation === box.id
+      // Verificar se essa box está selecionada (índice real para annotations)
+      const isBoxSelected = !box.is_suggestion && selectedBoxIndex === index
 
       return (
         <div
@@ -430,15 +497,18 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
             height: `${height}%`,
             border: box.is_suggestion
               ? `2px dashed ${classColor}`
-              : `2px solid ${isSelected ? '#ffffff' : classColor}`,
+              : isBoxSelected
+                ? `3px solid ${classColor}`
+                : `2px solid ${isSelected ? '#ffffff' : classColor}`,
             backgroundColor: box.is_suggestion
               ? `${classColor}20`
-              : isSelected
+              : isSelected || isBoxSelected
                 ? `${classColor}30`
                 : 'transparent',
-            cursor: toolMode === 'delete' ? 'not-allowed' : 'pointer',
+            boxShadow: isBoxSelected ? '0 0 0 2px rgba(255,255,255,0.6)' : 'none',
+            cursor: toolMode === 'select' ? 'move' : (toolMode === 'delete' ? 'not-allowed' : 'pointer'),
             transition: 'all 0.15s',
-            zIndex: isSelected ? 10 : 1
+            zIndex: isBoxSelected ? 100 : (isSelected ? 10 : 1)
           }}
         >
           {/* Label */}
