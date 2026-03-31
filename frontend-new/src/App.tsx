@@ -7,6 +7,108 @@ import Modal from "./components/Modal";
 import ToastContainer from "./components/Toast";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
+
+// ══════════════════════════════════════════════════
+// DEMO DATA — Câmeras e Detecções (Mock para demonstração)
+// Em produção: vem do backend via API
+// ══════════════════════════════════════════════════
+
+const DEMO_CAMERAS = [
+  { id: 1, name: 'Doca 01 — Carga', ip: '192.168.1.101', status: 'online', location: 'Galpão A', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: 'd7211594-f19e-4885-ab59-f713751f65e3' },
+  { id: 2, name: 'Doca 02 — Descarga', ip: '192.168.1.102', status: 'online', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '4K', frameId: 'eae73fe4-5a71-49e5-a88a-d5753edef84c' },
+  { id: 3, name: 'Pátio Externo', ip: '192.168.1.103', status: 'offline', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: null },
+  { id: 4, name: 'Doca 03 — Lateral', ip: '192.168.1.104', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '13a146cd-2e48-4eb5-b8a5-486f920dc641' },
+  { id: 5, name: 'Portaria — Entrada', ip: '192.168.1.105', status: 'online', location: 'Portaria', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: 'c5550068-5fc2-439c-bc27-fe7028b1e137' },
+  { id: 6, name: 'Doca 04 — Fundo', ip: '192.168.1.106', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '95cc3626-2407-4def-8f13-c86d3b90c062' },
+  { id: 7, name: 'Estacionamento', ip: '192.168.1.107', status: 'online', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: 'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1' },
+  { id: 8, name: 'Sala de Controle', ip: '192.168.1.108', status: 'online', location: 'Adm', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: null },
+  { id: 9, name: 'Corredor Central', ip: '192.168.1.109', status: 'offline', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: null },
+]
+
+const CAMERA_DETECTIONS = {
+  1: {
+    truck_plate: 'ABC-1234',
+    start_time: '14:32:15',
+    elapsed: '00:12:45',
+    products_counted: 47,
+    status: 'counting',
+    confidence: 94,
+  },
+  2: {
+    truck_plate: 'XYZ-5678',
+    start_time: '14:15:00',
+    elapsed: '00:30:10',
+    products_counted: 132,
+    status: 'completed',
+    confidence: 97,
+  },
+  4: {
+    truck_plate: 'ABC-1234',
+    start_time: '14:32:15',
+    elapsed: '00:12:45',
+    products_counted: 47,
+    status: 'counting',
+    confidence: 94,
+    linked_camera: 1,
+  },
+  5: null,
+  6: {
+    truck_plate: 'DEF-9012',
+    start_time: '14:50:00',
+    elapsed: '00:05:20',
+    products_counted: 18,
+    status: 'validating',
+    confidence: 88,
+  },
+  7: {
+    truck_plate: null,
+    start_time: '14:45:00',
+    elapsed: '00:01:30',
+    products_counted: 0,
+    status: 'idle',
+    confidence: 0,
+  },
+  8: null,
+}
+
+// ══════════════════════════════════════════════════
+// SLIDESHOW FRAMES — Frames para câmeras sem frameId
+// Troca a cada 5 segundos (câmera usa offset diferente)
+// ══════════════════════════════════════════════════
+const SLIDESHOW_FRAMES = [
+  'd7211594-f19e-4885-ab59-f713751f65e3',
+  'eae73fe4-5a71-49e5-a88a-d5753edef84c',
+  '13a146cd-2e48-4eb5-b8a5-486f920dc641',
+  'c5550068-5fc2-439c-bc27-fe7028b1e137',
+  '95cc3626-2407-4def-8f13-c86d3b90c062',
+  'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1',
+  'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
+  'f6e5d4c3-b2a1-4f3e-9d8c-7b6a5f4e3d2c',
+  '2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b',
+  '7d8e9f0a-1b2c-4d5e-9f0a-2b3c4d5e6f7a',
+  '3a4b5c6d-7e8f-4a5b-9c0d-1e2f3a4b5c6d',
+  '8b9c0d1e-2f3a-4b5c-0d1e-3f4a5b6c7d8e',
+  '4c5d6e7f-8a9b-4c5d-0e1f-4a5b6c7d8e9f',
+  '9d0e1f2a-3b4c-4d5e-1f2a-5b6c7d8e9f0a',
+  '5e6f7a8b-9c0d-4e5f-2a3b-6c7d8e9f0a1b',
+  '0f1a2b3c-4d5e-4f6a-3b4c-7d8e9f0a1b2c',
+  'a1b2c3d4-5e6f-4a7b-4c5d-8e9f0a1b2c3d',
+  'b2c3d4e5-6f7a-4b8c-5d6e-9f0a1b2c3d4e',
+  'c3d4e5f6-7a8b-4c9d-6e7f-0a1b2c3d4e5f',
+  'd4e5f6a7-8b9c-4d0e-7f8a-1b2c3d4e5f6a',
+  'e5f6a7b8-9c0d-4e1f-8a9b-2c3d4e5f6a7b',
+  'f6a7b8c9-0d1e-4f2a-9b0c-3d4e5f6a7b8c',
+  'a7b8c9d0-1e2f-4a3b-0c1d-4e5f6a7b8c9d',
+  'b8c9d0e1-2f3a-4b4c-1d2e-5f6a7b8c9d0e',
+  'c9d0e1f2-3a4b-4c5d-2e3f-6a7b8c9d0e1f',
+  'd0e1f2a3-4b5c-4d6e-3f4a-7b8c9d0e1f2a',
+  'e1f2a3b4-5c6d-4e7f-4a5b-8c9d0e1f2a3b',
+  'f2a3b4c5-6d7e-4f8a-5b6c-9d0e1f2a3b4c',
+  'a3b4c5d6-7e8f-4a9b-6c7d-0e1f2a3b4c5d',
+  'b4c5d6e7-8f9a-4b0c-7d8e-1f2a3b4c5d6e',
+  'c5d6e7f8-9a0b-4c1d-8e9f-2a3b4c5d6e7f',
+];
+
 // ── Icons ──
 const Icons = {
   menu: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>,
@@ -119,94 +221,301 @@ const DashboardPage = ({ cameras }) => (
 );
 
 // ── Cameras ──
-const CamerasPage = ({ cameras, loading, onCreateCamera, onEditCamera, onDeleteCamera }) => {
-  const [s, setS] = useState("");
+const CamerasPage = () => {
+  const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const f = cameras.filter(c => c.name.toLowerCase().includes(s.toLowerCase()) || (c.location && c.location.toLowerCase().includes(s.toLowerCase())));
+
+  const filteredCameras = DEMO_CAMERAS.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.location && c.location.toLowerCase().includes(search.toLowerCase())) ||
+    c.ip.includes(search)
+  );
 
   const handleDeleteClick = (camera) => {
     setDeleteConfirm(camera);
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (deleteConfirm) {
-      await onDeleteCamera(deleteConfirm.id);
+      // Em produção: chamar API de deletar
+      console.log("Deletar câmera:", deleteConfirm.id);
       setDeleteConfirm(null);
     }
   };
 
-  if (loading) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "400px", flexDirection: "column", gap: 16 }}>
-        <div style={{ width: 40, height: 40, border: "3px solid var(--border)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-        <div style={{ fontSize: 14, color: "var(--muted)" }}>Carregando câmeras...</div>
-      </div>
-    );
-  }
-
   return (
     <div>
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28, flexWrap: "wrap", gap: 16 }}>
-        <div><h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Câmeras</h1><p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Gerencie suas câmeras IP</p></div>
-        <button onClick={() => onCreateCamera()} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, background: "var(--accent)", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{Icons.plus} Nova Câmera</button>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Câmeras</h1>
+          <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Gerencie suas câmeras IP</p>
+        </div>
+        <button style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, background: "var(--accent)", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+          {Icons.plus} Nova Câmera
+        </button>
       </div>
+
+      {/* Stats Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>
-        {[{ l: "Total", v: cameras.length, c: "var(--accent)" }, { l: "Online", v: cameras.filter(c=>c.status==="online").length, c: "#22c55e" }, { l: "Offline", v: cameras.filter(c=>c.status==="offline").length, c: "#ef4444" }].map((s,i) => (
-          <div key={i} style={{ background: "var(--card)", borderRadius: 12, padding: "16px 20px", border: "1px solid var(--border)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 500, marginBottom: 4 }}>{s.l}</div><div style={{ fontSize: 24, fontWeight: 700, color: s.c }}>{s.v}</div></div>
+        {[
+          { label: "Total", value: DEMO_CAMERAS.length, color: "var(--accent)" },
+          { label: "Online", value: DEMO_CAMERAS.filter(c => c.status === "online").length, color: "#22c55e" },
+          { label: "Offline", value: DEMO_CAMERAS.filter(c => c.status === "offline").length, color: "#ef4444" }
+        ].map((stat, i) => (
+          <div key={i} style={{ background: "var(--card)", borderRadius: 12, padding: "16px 20px", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 500, marginBottom: 4 }}>{stat.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+          </div>
         ))}
       </div>
+
+      {/* Search Bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 16px", marginBottom: 20 }}>
         <span style={{ color: "var(--muted)" }}>{Icons.search}</span>
-        <input type="text" placeholder="Buscar câmera..." value={s} onChange={e=>setS(e.target.value)} style={{ background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 14, width: "100%", fontFamily: "inherit" }} />
+        <input
+          type="text"
+          placeholder="Buscar câmera por nome, localização ou IP..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 14, width: "100%", fontFamily: "inherit" }}
+        />
       </div>
-      {f.length === 0 ? (
+
+      {/* Cameras Grid */}
+      {filteredCameras.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 20px", background: "var(--card)", borderRadius: 14, border: "1px dashed var(--border)" }}>
           <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.3 }}>{Icons.camera}</div>
           <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>Nenhuma câmera encontrada</div>
-          <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 20 }}>Adicione sua primeira câmera para começar</div>
-          <button onClick={() => onCreateCamera()} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, background: "var(--accent)", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{Icons.plus} Adicionar Câmera</button>
+          <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 20 }}>Tente buscar com outro termo</div>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
-          {f.map((cam,i) => (
-            <div key={cam.id} style={{ background: "var(--card)", borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden", animation: `fadeUp 0.4s ease ${0.05+i*0.04}s both`, transition: "transform 0.2s" }}
-              onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform=""}>
-              <div style={{ height: 130, background: cam.status==="online"?"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)":"linear-gradient(135deg,#1a1a1a,#2d2d2d)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
-                <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,0.012) 2px,rgba(255,255,255,0.012) 4px)" }} />
-                <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 11, fontFamily: "var(--mono)" }}>{cam.status==="online"?"STREAM ATIVO":"SEM SINAL"}</div>
-                {cam.status==="online" && <div style={{ position: "absolute", top: 8, left: 8, display: "flex", alignItems: "center", gap: 4, background: "rgba(239,68,68,0.85)", padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 700, color: "#fff", fontFamily: "var(--mono)" }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff", animation: "pulse 1.5s infinite" }} />REC</div>}
-              </div>
-              <div style={{ padding: "14px 18px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>{cam.name}</div>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600, background: cam.status==="online"?"#22c55e18":"#ef444418", color: cam.status==="online"?"#22c55e":"#ef4444" }}>
-                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: cam.status==="online"?"#22c55e":"#ef4444" }} />{cam.status==="online"?"Online":"Offline"}
-                  </span>
+          {filteredCameras.map((cam, i) => {
+            const isOnline = cam.status === "online";
+            const hasFrame = cam.frameId && isOnline;
+            const detections = CAMERA_DETECTIONS[cam.id];
+
+            return (
+              <div
+                key={cam.id}
+                style={{
+                  background: "var(--card)",
+                  borderRadius: 14,
+                  border: "1px solid var(--border)",
+                  overflow: "hidden",
+                  animation: `fadeUp 0.4s ease ${0.05 + i * 0.04}s both`,
+                  transition: "transform 0.2s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+                onMouseLeave={e => e.currentTarget.style.transform = ""}
+              >
+                {/* Camera Preview Image */}
+                <div style={{ height: 180, position: "relative", background: "#0a0e1a" }}>
+                  {hasFrame ? (
+                    <>
+                      {/* Real Frame Image */}
+                      <img
+                        src={`/api/training/frames/${cam.frameId}/image`}
+                        alt={cam.name}
+                        style={{
+                          position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+                          filter: "brightness(0.9) contrast(1.05)",
+                        }}
+                        draggable={false}
+                      />
+                      {/* Scanlines */}
+                      <div style={{
+                        position: "absolute", inset: 0,
+                        background: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px)",
+                        pointerEvents: "none",
+                      }} />
+                      {/* Vignette */}
+                      <div style={{
+                        position: "absolute", inset: 0,
+                        background: "radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.25) 100%)",
+                        pointerEvents: "none",
+                      }} />
+                    </>
+                  ) : (
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      background: isOnline
+                        ? "linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)"
+                        : "linear-gradient(135deg, #1a1a1a, #2d2d2d)",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8
+                    }}>
+                      <div style={{ color: "rgba(255,255,255,0.15)" }}>{Icons.wifiOff}</div>
+                      <div style={{ color: "rgba(255,255,255,0.25)", fontSize: 11, fontFamily: "var(--mono)", letterSpacing: 2 }}>
+                        {isOnline ? "SEM SINAL" : "OFFLINE"}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Status Badge */}
+                  {isOnline && (
+                    <div style={{
+                      position: "absolute", top: 10, left: 10,
+                      display: "flex", alignItems: "center", gap: 4,
+                      background: "rgba(34, 197, 94, 0.9)",
+                      padding: "4px 8px", borderRadius: 5,
+                      fontSize: 10, fontWeight: 700, color: "#fff", fontFamily: "var(--mono)",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff", animation: "pulse 1.5s infinite" }} />
+                      ONLINE
+                    </div>
+                  )}
+
+                  {/* REC Badge */}
+                  {isOnline && (
+                    <div style={{
+                      position: "absolute", top: 10, right: 10,
+                      display: "flex", alignItems: "center", gap: 4,
+                      background: "rgba(220, 38, 38, 0.9)",
+                      padding: "3px 8px", borderRadius: 5,
+                      fontSize: 10, fontWeight: 700, color: "#fff", fontFamily: "var(--mono)",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff", animation: "pulse 1.5s infinite" }} />
+                      REC
+                    </div>
+                  )}
+
+                  {/* YOLO Detection Info (Bottom Left) */}
+                  {isOnline && detections && (
+                    <div style={{
+                      position: "absolute", bottom: 10, left: 10,
+                      background: "rgba(0, 0, 0, 0.75)", backdropFilter: "blur(8px)",
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: 6, padding: "6px 10px",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                    }}>
+                      {detections.truck_plate && (
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", fontFamily: "var(--mono)", marginBottom: 2 }}>PLACA</div>
+                      )}
+                      {detections.truck_plate && (
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", fontFamily: "var(--mono)", letterSpacing: 1, marginBottom: detections.products_counted > 0 ? 6 : 0 }}>
+                          {detections.truck_plate}
+                        </div>
+                      )}
+                      {detections.products_counted > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", fontFamily: "var(--mono)" }}>PRODUTOS</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#22c55e", fontFamily: "var(--mono)" }}>
+                            {detections.products_counted}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--muted)" }}>{cam.location || "Sem localização"} · {cam.manufacturer || "Genérico"}</div>
-                <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)", marginTop: 4 }}>IP: {cam.ip}</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  <button onClick={() => onEditCamera(cam)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 12px", borderRadius: 8, background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)", fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s" }} onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"} onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}>{Icons.edit} Editar</button>
-                  <button onClick={() => handleDeleteClick(cam)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 12px", borderRadius: 8, background: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)", fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#ef4444"; e.currentTarget.style.color = "#ef4444"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>{Icons.trash} Excluir</button>
+
+                {/* Camera Info */}
+                <div style={{ padding: "16px 18px" }}>
+                  {/* Name and Status */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>{cam.name}</div>
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 20,
+                      fontSize: 10, fontWeight: 600,
+                      background: isOnline ? "#22c55e18" : "#ef444418",
+                      color: isOnline ? "#22c55e" : "#ef4444"
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: isOnline ? "#22c55e" : "#ef4444" }} />
+                      {isOnline ? "Online" : "Offline"}
+                    </span>
+                  </div>
+
+                  {/* Location and Model */}
+                  <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 2 }}>{cam.location || "Sem localização"}</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)" }}>{cam.model || "Modelo não informado"}</div>
+
+                  {/* IP and Resolution */}
+                  <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)", marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span>{cam.ip}</span>
+                    <span style={{ color: "rgba(107,114,128,0.5)" }}>•</span>
+                    <span>{cam.resolution || "1080p"}</span>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                    <button
+                      style={{
+                        flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        padding: "9px 12px", borderRadius: 8,
+                        background: "var(--bg)", border: "1px solid var(--border)",
+                        color: "var(--text)", fontSize: 12, fontWeight: 500, cursor: "pointer",
+                        transition: "all 0.15s"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
+                    >
+                      {Icons.edit} Editar
+                    </button>
+                    <button
+                      onClick={() => handleDeleteClick(cam)}
+                      style={{
+                        flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        padding: "9px 12px", borderRadius: 8,
+                        background: "var(--bg)", border: "1px solid var(--border)",
+                        color: "var(--muted)", fontSize: 12, fontWeight: 500, cursor: "pointer",
+                        transition: "all 0.15s"
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#ef4444"; e.currentTarget.style.color = "#ef4444"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}
+                    >
+                      {Icons.trash} Excluir
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Delete Confirmation Modal */}
-      <Modal isOpen={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="Confirmar Exclusão" size="sm">
-        <div>
-          <p style={{ fontSize: 14, color: "var(--text)", marginBottom: 20 }}>
-            Tem certeza que deseja excluir a câmera <strong>{deleteConfirm?.name}</strong>? Esta ação não pode ser desfeita.
-          </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-            <button onClick={() => setDeleteConfirm(null)} style={{ padding: "10px 20px", borderRadius: 8, background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Cancelar</button>
-            <button onClick={confirmDelete} style={{ padding: "10px 20px", borderRadius: 8, background: "#ef4444", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Excluir Câmera</button>
+      {deleteConfirm && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+          animation: "fadeUp 0.2s ease both"
+        }}>
+          <div style={{
+            background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)",
+            padding: 24, maxWidth: 420, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
+          }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", margin: "0 0 12px" }}>Confirmar Exclusão</h3>
+            <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.5, margin: "0 0 20px" }}>
+              Tem certeza que deseja excluir a câmera <strong>{deleteConfirm.name}</strong>? Esta ação não pode ser desfeita.
+            </p>
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                style={{
+                  padding: "10px 20px", borderRadius: 8,
+                  background: "var(--bg)", color: "var(--text)",
+                  border: "1px solid var(--border)", fontSize: 14, fontWeight: 500, cursor: "pointer"
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDelete}
+                style={{
+                  padding: "10px 20px", borderRadius: 8,
+                  background: "#ef4444", color: "#fff",
+                  border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer"
+                }}
+              >
+                Excluir Câmera
+              </button>
+            </div>
           </div>
         </div>
-      </Modal>
+      )}
     </div>
   );
 };
@@ -586,7 +895,7 @@ const TrainingPage = () => {
 // ══════════════════════════════════════════════════
 // ── MONITORING PAGE — Drag & Drop + Seleção ──
 // ══════════════════════════════════════════════════
-const MonitoringPage = ({ cameras, streams, startStream, stopStream }) => {
+const MonitoringPage = () => {
   const [selectedIds, setSelectedIds] = useState([1, 2, 4, 5, 6, 7]);
   const [orderedIds, setOrderedIds] = useState([1, 2, 4, 5, 6, 7]);
   const [grid, setGrid] = useState("3x3");
@@ -597,16 +906,26 @@ const MonitoringPage = ({ cameras, streams, startStream, stopStream }) => {
   const [isMobileView, setIsMobileView] = useState(false);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [slideshowIndex, setSlideshowIndex] = useState(0);
 
-  // Initialize selected cameras with all online cameras
+  // Initialize with online cameras from DEMO_CAMERAS
   useEffect(() => {
-    const onlineCameras = cameras.filter(c => c.status === "online").map(c => c.id);
-    setSelectedIds(onlineCameras.slice(0, 6)); // Start with first 6 online cameras
+    const onlineCameras = DEMO_CAMERAS.filter(c => c.status === "online").map(c => c.id);
+    setSelectedIds(onlineCameras.slice(0, 6));
     setOrderedIds(onlineCameras.slice(0, 6));
-  }, [cameras]);
+  }, []);
 
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => { const c = () => setIsMobileView(window.innerWidth < 640); c(); window.addEventListener("resize", c); return () => window.removeEventListener("resize", c); }, []);
+
+  // Slideshow: troca frame a cada 5 segundos
+  useEffect(() => {
+    if (SLIDESHOW_FRAMES.length === 0) return;
+    const interval = setInterval(() => {
+      setSlideshowIndex(prev => (prev + 1) % SLIDESHOW_FRAMES.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleCamera = (id) => {
     setSelectedIds(prev => {
@@ -630,63 +949,192 @@ const MonitoringPage = ({ cameras, streams, startStream, stopStream }) => {
   const handleDragEnd = () => { setDragIdx(null); setDragOverIdx(null); };
 
   const cols = grid === "1x1" ? 1 : grid === "2x2" ? 2 : grid === "3x3" ? 3 : 4;
-  const displayCameras = orderedIds.map(id => cameras.find(c => c.id === id)).filter(Boolean);
-  const filteredPanel = cameras.filter(c => c.name.toLowerCase().includes(searchPanel.toLowerCase()) || (c.location && c.location.toLowerCase().includes(searchPanel.toLowerCase())));
+  const displayCameras = orderedIds.map(id => DEMO_CAMERAS.find(c => c.id === id)).filter(Boolean);
+  const filteredPanel = DEMO_CAMERAS.filter(c => c.name.toLowerCase().includes(searchPanel.toLowerCase()) || (c.location && c.location.toLowerCase().includes(searchPanel.toLowerCase())));
 
-  const CamCell = ({ cam, index }) => {
+  const CamCell = ({ cam }) => {
     const isOn = cam.status === "online";
-    const isOver = dragOverIdx === index;
+    const detection = CAMERA_DETECTIONS[cam.id];
+
+    // Frame para exibir (próprio ou slideshow com offset)
+    const frameToShow = cam.frameId
+      ? cam.frameId
+      : SLIDESHOW_FRAMES.length > 0
+        ? SLIDESHOW_FRAMES[(slideshowIndex + cam.id) % SLIDESHOW_FRAMES.length]
+        : null;
+
     return (
-      <div draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={handleDragEnd}
+      <div
+        draggable
+        onDragStart={() => handleDragStart(displayCameras.indexOf(cam))}
+        onDragOver={(e) => handleDragOver(e, displayCameras.indexOf(cam))}
+        onDrop={() => handleDrop(displayCameras.indexOf(cam))}
+        onDragEnd={handleDragEnd}
         style={{
           borderRadius: 6, overflow: "hidden", background: "#0a0e1a",
           aspectRatio: cols <= 2 ? "16/9" : "16/10", position: "relative",
-          border: isOver ? "2px solid #2563eb" : "1px solid rgba(255,255,255,0.05)",
-          cursor: "grab", transition: "border-color 0.15s, opacity 0.15s, transform 0.15s",
-          opacity: dragIdx === index ? 0.35 : 1,
-          transform: isOver ? "scale(1.015)" : "scale(1)",
-        }}>
-        {/* BG */}
-        {isOn ? (
-          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, #080c15 0%, #0f1729 40%, #0c1220 100%)" }}>
+          border: "1px solid rgba(255,255,255,0.05)",
+          cursor: "grab",
+        }}
+      >
+        {/* ── BACKGROUND IMAGE ── */}
+        {isOn && frameToShow ? (
+          <div style={{ position: "absolute", inset: 0 }}>
+            <img
+              src={`/api/training/frames/${frameToShow}/image`}
+              alt={cam.name}
+              style={{
+                width: "100%", height: "100%", objectFit: "cover",
+                filter: "brightness(0.65) contrast(1.1) saturate(0.9)",
+                pointerEvents: "none",
+              }}
+              onError={(e) => { e.target.style.display = "none"; }}
+              draggable={false}
+            />
+            {/* Scanlines */}
+            <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px)", pointerEvents: "none" }} />
+            {/* Vignette */}
+            <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.5) 100%)", pointerEvents: "none" }} />
+          </div>
+        ) : isOn ? (
+          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, #080c15, #0f1729)" }}>
             <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.006) 3px, rgba(255,255,255,0.006) 4px)" }} />
-            <div style={{ position: "absolute", inset: 0, opacity: 0.03, backgroundImage: "radial-gradient(circle, #fff 0.5px, transparent 0.5px)", backgroundSize: "16px 16px" }} />
           </div>
         ) : (
-          <div style={{ position: "absolute", inset: 0, background: "#0e0e0e", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 4 }}>
-            <div style={{ color: "rgba(255,255,255,0.12)" }}>{Icons.wifiOff}</div>
-            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.15)", fontFamily: "var(--mono)", letterSpacing: 2 }}>OFFLINE</span>
+          <div style={{ position: "absolute", inset: 0, background: "#0e0e0e", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.15)", fontFamily: "var(--mono)", letterSpacing: 2 }}>SEM SINAL</span>
           </div>
         )}
-        {/* Grip */}
-        <div style={{ position: "absolute", top: 6, left: 6, zIndex: 5, color: "rgba(255,255,255,0.2)", cursor: "grab", padding: "3px 2px", borderRadius: 3, background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }}>{Icons.grip}</div>
-        {/* REC */}
-        {isOn && <div style={{ position: "absolute", top: 6, right: 6, zIndex: 5, display: "flex", alignItems: "center", gap: 4, background: "rgba(220,38,38,0.8)", padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, color: "#fff", fontFamily: "var(--mono)" }}><span style={{ width: 4, height: 4, borderRadius: "50%", background: "#fff", animation: "pulse 1.5s infinite" }} />REC</div>}
-        {/* Top name */}
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 3, padding: "24px 12px 6px 28px", background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, transparent 100%)" }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.8)" }}>{cam.name}</span>
+
+        {/* ── TOP BAR: Nome + REC ── */}
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
+          padding: "8px 10px 16px",
+          background: "linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%)",
+          display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.95)", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
+            {cam.name}
+          </span>
+          {isOn && (
+            <div style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(220,38,38,0.85)", padding: "1px 5px", borderRadius: 3, fontSize: 8, fontWeight: 700, color: "#fff", fontFamily: "var(--mono)" }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "#fff", animation: "pulse 1.5s infinite" }} />
+              REC
+            </div>
+          )}
         </div>
-        {/* Bottom */}
-        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 3, padding: "12px 10px 6px", background: "linear-gradient(0deg, rgba(0,0,0,0.55) 0%, transparent 100%)", display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", fontFamily: "var(--mono)", lineHeight: 1.4 }}>{cam.location || "Sem localização"}<br/>{cam.ip}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "var(--mono)" }}>{cam.resolution || "1080p"}</span>
-            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", fontFamily: "var(--mono)" }}>{time.toLocaleTimeString("pt-BR")}</span>
+
+        {/* ── BOTTOM BAR: Dados YOLO + Info ── */}
+        <div style={{
+          position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 5,
+          background: "linear-gradient(0deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 70%, transparent 100%)",
+          padding: "20px 10px 6px",
+        }}>
+          {/* Linha 1: Status + Placa (se tem detecção) */}
+          {isOn && detection && detection.status !== "idle" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+              {/* Badge de status */}
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 3,
+                padding: "1px 6px", borderRadius: 3, fontSize: 8, fontWeight: 700,
+                textTransform: "uppercase", letterSpacing: 0.5,
+                fontFamily: "var(--mono)",
+                background: detection.status === "counting" ? "rgba(34,197,94,0.25)"
+                  : detection.status === "completed" ? "rgba(37,99,235,0.25)"
+                  : detection.status === "validating" ? "rgba(245,158,11,0.25)"
+                  : "rgba(107,114,128,0.25)",
+                color: detection.status === "counting" ? "#4ade80"
+                  : detection.status === "completed" ? "#60a5fa"
+                  : detection.status === "validating" ? "#fbbf24"
+                  : "#9ca3af",
+                border: `1px solid ${
+                  detection.status === "counting" ? "rgba(34,197,94,0.3)"
+                  : detection.status === "completed" ? "rgba(37,99,235,0.3)"
+                  : detection.status === "validating" ? "rgba(245,158,11,0.3)"
+                  : "rgba(107,114,128,0.3)"
+                }`,
+              }}>
+                <span style={{
+                  width: 4, height: 4, borderRadius: "50%",
+                  background: detection.status === "counting" ? "#4ade80" : detection.status === "completed" ? "#60a5fa" : detection.status === "validating" ? "#fbbf24" : "#9ca3af",
+                  animation: detection.status === "counting" ? "pulse 1.5s infinite" : "none",
+                }} />
+                {detection.status === "counting" ? "Contando" : detection.status === "completed" ? "Concluído" : detection.status === "validating" ? "Validando" : "Idle"}
+              </span>
+
+              {/* Placa */}
+              {detection.truck_plate && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, color: "#fff",
+                  fontFamily: "var(--mono)", background: "rgba(255,255,255,0.15)",
+                  padding: "1px 5px", borderRadius: 3, letterSpacing: 0.5,
+                }}>
+                  🚛 {detection.truck_plate}
+                </span>
+              )}
+
+              {/* Link com outra câmera */}
+              {detection.linked_camera && (
+                <span style={{ fontSize: 7, color: "rgba(245,158,11,0.9)", fontFamily: "var(--mono)" }}>
+                  = CAM{detection.linked_camera}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Linha 2: Horários em destaque */}
+          {detection && detection.start_time && (
+            <div style={{ display: "flex", gap: 12, marginBottom: 3, fontSize: 9, fontFamily: "var(--mono)" }}>
+              <span style={{ color: "rgba(255,255,255,0.5)" }}>
+                ⏱ Início <span style={{ color: "#fff", fontWeight: 600 }}>{detection.start_time}</span>
+              </span>
+              <span style={{ color: "rgba(255,255,255,0.5)" }}>
+                Tempo <span style={{
+                  color: detection.status === "completed" ? "#60a5fa" : "#fbbf24",
+                  fontWeight: 700, fontSize: 10,
+                }}>{detection.elapsed}</span>
+              </span>
+            </div>
+          )}
+
+          {/* Linha 3: Produtos + Confiança */}
+          {detection && detection.products_counted > 0 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 3, fontSize: 9, fontFamily: "var(--mono)" }}>
+              <span style={{ color: "rgba(255,255,255,0.6)" }}>
+                📦 <span style={{ color: "#4ade80", fontWeight: 700, fontSize: 10 }}>{detection.products_counted}</span> produtos
+              </span>
+              <span style={{ color: "rgba(255,255,255,0.3)" }}>·</span>
+              <span style={{ color: detection.confidence > 90 ? "#4ade80" : detection.confidence > 70 ? "#fbbf24" : "#f87171" }}>
+                {detection.confidence}%
+              </span>
+            </div>
+          )}
+
+          {/* Linha alternativa: AGUARDANDO (sem detecção) */}
+          {isOn && (!detection || detection.status === "idle") && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "#6b7280" }} />
+              <span style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", fontFamily: "var(--mono)" }}>AGUARDANDO</span>
+            </div>
+          )}
+
+          {/* Linha 3: Info da câmera (sempre visível) */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", fontFamily: "var(--mono)" }}>
+              {cam.location} · {cam.ip}
+            </span>
+            <span style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", fontFamily: "var(--mono)" }}>
+              {cam.resolution} {time.toLocaleTimeString("pt-BR")}
+            </span>
           </div>
         </div>
-        {/* Fullscreen btn */}
-        <button onClick={(e) => { e.stopPropagation(); setFullscreenCam(fullscreenCam === cam.id ? null : cam.id); }}
-          style={{ position: "absolute", bottom: 6, right: 6, zIndex: 5, width: 24, height: 24, borderRadius: 4, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", border: "none", color: "rgba(255,255,255,0.35)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s" }}
-          onMouseEnter={e => { e.currentTarget.style.color = "#fff"; e.currentTarget.style.background = "rgba(37,99,235,0.7)"; }}
-          onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.35)"; e.currentTarget.style.background = "rgba(0,0,0,0.4)"; }}>
-          {fullscreenCam === cam.id ? Icons.minimize : Icons.maximize}
-        </button>
       </div>
     );
   };
 
+  // ── LAYOUT SEM MARGIN NEGATIVO ──
   return (
-    <div style={{ display: "flex", height: "calc(100vh - 60px)", margin: isMobileView ? "-16px" : "-28px", position: "relative" }}>
+    <div style={{ display: "flex", height: "calc(100vh - 60px)", background: "#0d1117" }}>
       {/* Grid Area */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#0d1117" }}>
         {/* Toolbar */}
@@ -720,7 +1168,7 @@ const MonitoringPage = ({ cameras, streams, startStream, stopStream }) => {
         {/* Grid */}
         <div style={{ flex: 1, padding: 4, overflow: "auto", display: fullscreenCam ? "flex" : "grid", gridTemplateColumns: `repeat(${isMobileView ? Math.min(cols, 2) : cols}, 1fr)`, gap: 3, alignContent: "start" }}>
           {fullscreenCam ? (
-            (() => { const c = cameras.find(x => x.id === fullscreenCam); return c ? <CamCell cam={c} index={0} /> : null; })()
+            (() => { const c = DEMO_CAMERAS.find(x => x.id === fullscreenCam); return c ? <CamCell cam={c} index={0} /> : null; })()
           ) : displayCameras.length === 0 ? (
             <div style={{ gridColumn: "1/-1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 60, color: "rgba(255,255,255,0.25)" }}>
               <div style={{ opacity: 0.3, transform: "scale(2)", marginBottom: 8 }}>{Icons.camera}</div>
@@ -755,7 +1203,7 @@ const MonitoringPage = ({ cameras, streams, startStream, stopStream }) => {
                 <input type="text" placeholder="Buscar..." value={searchPanel} onChange={e => setSearchPanel(e.target.value)} style={{ background: "none", border: "none", outline: "none", color: "#fff", fontSize: 12, width: "100%", fontFamily: "inherit" }} />
               </div>
               <div style={{ display: "flex", gap: 5 }}>
-                <button onClick={() => { const a = cameras.map(c=>c.id); setSelectedIds(a); setOrderedIds(a); }} style={{ flex: 1, padding: 5, borderRadius: 5, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", color: "#22c55e", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Todas</button>
+                <button onClick={() => { const a = DEMO_CAMERAS.map(c=>c.id); setSelectedIds(a); setOrderedIds(a); }} style={{ flex: 1, padding: 5, borderRadius: 5, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", color: "#22c55e", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Todas</button>
                 <button onClick={() => { setSelectedIds([]); setOrderedIds([]); }} style={{ flex: 1, padding: 5, borderRadius: 5, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)", color: "#ef4444", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Limpar</button>
               </div>
             </div>
@@ -795,8 +1243,8 @@ const MonitoringPage = ({ cameras, streams, startStream, stopStream }) => {
 
             {/* Footer */}
             <div style={{ padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,0.05)", display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{selectedIds.length}/{cameras.length}</span>
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", fontFamily: "var(--mono)" }}>{cameras.filter(c=>c.status==="online").length} online</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>{selectedIds.length}/{DEMO_CAMERAS.length}</span>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", fontFamily: "var(--mono)" }}>{DEMO_CAMERAS.filter(c=>c.status==="online").length} online</span>
             </div>
           </div>
         </>
@@ -952,8 +1400,8 @@ export default function App() {
           </header>
           <main style={{ flex: 1, padding: page === "monitoring" ? 0 : (isMobile ? 16 : 28), overflowY: page === "monitoring" ? "hidden" : "auto" }}>
             {page === "dashboard" && <DashboardPage cameras={cameras} />}
-            {page === "cameras" && <CamerasPage cameras={cameras} loading={loading} onCreateCamera={handleCreateCamera} onEditCamera={handleEditCamera} onDeleteCamera={handleDeleteCamera} />}
-            {page === "monitoring" && <MonitoringPage cameras={cameras} streams={streams} startStream={startStream} stopStream={stopStream} />}
+            {page === "cameras" && <CamerasPage />}
+            {page === "monitoring" && <MonitoringPage />}
             {page === "classes" && <ClassesPage />}
             {page === "training" && <TrainingPage />}
           </main>
