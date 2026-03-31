@@ -68,6 +68,13 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
   // Annotations
   const [annotations, setAnnotations] = useState<BoundingBox[]>([])
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+
+  // Helper to update annotations and mark as unsaved
+  const updateAnnotations = (newAnnotations: BoundingBox[] | ((prev: BoundingBox[]) => BoundingBox[])) => {
+    setAnnotations(newAnnotations)
+    setHasUnsavedChanges(true)
+  }
 
   // Tools
   const [toolMode, setToolMode] = useState<ToolMode>('draw')
@@ -166,12 +173,15 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
       const result = await response.json()
       if (result.success && result.annotations) {
         setAnnotations(result.annotations)
+        setHasUnsavedChanges(false)  // Reset when loading existing annotations
       } else {
         setAnnotations([])
+        setHasUnsavedChanges(false)
       }
     } catch (error) {
       console.error('Error loading annotations:', error)
       setAnnotations([])
+      setHasUnsavedChanges(false)
     }
   }
 
@@ -192,8 +202,9 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
       if (result.success) {
         // Update frame annotation status
         setFrames(prev => prev.map(f =>
-          f.id === frameId ? { ...f, is_annotated: true, annotation_count: annotationsToSave.length } : f
+          f.id === frameId ? { ...f, is_annotated: true } : f
         ))
+        setHasUnsavedChanges(false)  // Reset unsaved flag
         console.log('✓ Saved')
       }
     } catch (error) {
@@ -204,9 +215,8 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
   }
 
   const handleFrameChange = (newFrame: Frame) => {
-    if (selectedFrame && annotations.length > 0) {
-      saveAnnotations(selectedFrame.id, annotations.filter(a => !a.is_suggestion))
-    }
+    // REMOVIDO: Auto-save ao trocar de frame (causava excesso de requests)
+    // Agora o usuário deve clicar no botão "Salvar" manualmente
     setSelectedFrame(newFrame)
   }
 
@@ -264,7 +274,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
 
   const confirmSuggestion = (suggestion: BoundingBox) => {
     const confirmed = { ...suggestion, id: `annotation-${Date.now()}`, is_suggestion: false }
-    setAnnotations(prev => [...prev, confirmed])
+    updateAnnotations(prev => [...prev, confirmed])
     setSuggestions(prev => prev.filter(s => s.id !== suggestion.id))
   }
 
@@ -274,7 +284,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
       id: `annotation-${Date.now()}-${Math.random()}`,
       is_suggestion: false
     }))
-    setAnnotations(prev => [...prev, ...confirmed])
+    updateAnnotations(prev => [...prev, ...confirmed])
     setSuggestions([])
   }
 
@@ -324,7 +334,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
         width,
         height
       }
-      setAnnotations(prev => [...prev, newAnnotation])
+      updateAnnotations(prev => [...prev, newAnnotation])
     }
 
     setIsDrawing(false)
@@ -336,7 +346,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     e.stopPropagation()
 
     if (toolMode === 'delete') {
-      setAnnotations(prev => prev.filter(a => a.id !== annotationId))
+      updateAnnotations(prev => prev.filter(a => a.id !== annotationId))
       setSelectedAnnotation(null)
     } else if (toolMode === 'select') {
       setSelectedAnnotation(annotationId)
@@ -363,7 +373,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
           setToolMode('draw')
         }
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotation) {
-        setAnnotations(prev => prev.filter(a => a.id !== selectedAnnotation))
+        updateAnnotations(prev => prev.filter(a => a.id !== selectedAnnotation))
         setSelectedAnnotation(null)
       } else if (e.key === ' ') {
         e.preventDefault()
@@ -518,9 +528,9 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
           disabled={saving}
           style={{
             padding: '8px 16px',
-            background: 'rgba(37, 99, 235, 0.8)',
+            background: hasUnsavedChanges ? 'rgba(245, 158, 11, 0.9)' : 'rgba(37, 99, 235, 0.8)',
             color: '#fff',
-            border: 'none',
+            border: hasUnsavedChanges ? '1px solid rgba(245, 158, 11, 1)' : 'none',
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: '500',
@@ -528,10 +538,10 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
             opacity: saving ? 0.6 : 1,
             transition: 'all 0.15s'
           }}
-          onMouseEnter={(e) => !saving && (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 1)'}
-          onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37, 99, 235, 0.8)'}
+          onMouseEnter={(e) => !saving && ((e.currentTarget as HTMLButtonElement).style.background = hasUnsavedChanges ? 'rgba(245, 158, 11, 1)' : 'rgba(37, 99, 235, 1)')}
+          onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.background = hasUnsavedChanges ? 'rgba(245, 158, 11, 0.9)' : 'rgba(37, 99, 235, 0.8)'}
         >
-          {saving ? 'Salvando...' : 'Salvar'}
+          {saving ? 'Salvando...' : hasUnsavedChanges ? '💾 Salvar*' : '💾 Salvar'}
         </button>
       </div>
 
