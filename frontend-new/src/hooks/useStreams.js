@@ -9,12 +9,19 @@ export function useStreams(pollingInterval = 5000) {
   const fetchStreamStatus = useCallback(async () => {
     try {
       const response = await api.streams.getAllStatus();
-      setStreams(response.streams || {});
+      const streamsData = response.streams || {};
+
+      setStreams(streamsData);
 
       // Map camera IDs to online status
       const statusMap = {};
-      if (response.streams) {
-        response.streams.forEach(stream => {
+      if (streamsData.streams) {
+        // streamsData.streams pode ser objeto ou array
+        const streamsArray = Array.isArray(streamsData.streams)
+          ? streamsData.streams
+          : Object.values(streamsData.streams);
+
+        streamsArray.forEach(stream => {
           statusMap[stream.camera_id] = stream.is_healthy ? 'online' : 'offline';
         });
       }

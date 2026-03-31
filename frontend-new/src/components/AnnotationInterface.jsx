@@ -1,36 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
-// Types
-interface BoundingBox {
-  id: string
-  class_id: number
-  class_name: string
-  x_center: number  // 0-1 normalized
-  y_center: number  // 0-1 normalized
-  width: number     // 0-1 normalized
-  height: number    // 0-1 normalized
-  confidence?: number
-  is_suggestion?: boolean
-}
-
-interface Frame {
-  id: string
-  frame_number: number
-  storage_path: string
-  is_annotated: boolean
-  annotation_count: number
-  created_at: string
-}
-
-interface TrainingClass {
-  id: number
-  name: string
-  color: string
-}
-
-const DEFAULT_CLASSES: TrainingClass[] = [
+const DEFAULT_CLASSES = [
   { id: 1, name: 'Produto', color: '#22c55e' },
   { id: 2, name: 'Caminhão', color: '#f59e0b' },
   { id: 3, name: 'Placa', color: '#3b82f6' },
@@ -39,10 +11,13 @@ const DEFAULT_CLASSES: TrainingClass[] = [
   { id: 6, name: 'Sem EPI', color: '#ef4444' },
 ]
 
-type ToolMode = 'draw' | 'select' | 'delete'
+const CLASS_COLORS = [
+  '#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#eab308',
+  '#a855f7', '#6366f1'
+]
 
-export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBack: () => void }) {
-  // Early return if no videoId
+export default function AnnotationInterface({ videoId, onBack }) {
   if (!videoId) {
     return (
       <div style={{
@@ -59,98 +34,75 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     )
   }
 
-  // Frame management
-  const [frames, setFrames] = useState<Frame[]>([])
-  const [selectedFrame, setSelectedFrame] = useState<Frame | null>(null)
+  const [frames, setFrames] = useState([])
+  const [selectedFrame, setSelectedFrame] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // Annotations
-  const [annotations, setAnnotations] = useState<BoundingBox[]>([])
-  const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null)
+  const [annotations, setAnnotations] = useState([])
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
-  // Box dragging for Select mode
-  const [selectedBoxIndex, setSelectedBoxIndex] = useState<number | null>(null)
-  const [isDraggingBox, setIsDraggingBox] = useState(false)
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [toolMode, setToolMode] = useState('draw')
+  const [activeClass, setActiveClass] = useState(DEFAULT_CLASSES[0])
+  const [classes, setClasses] = useState(DEFAULT_CLASSES)
 
-  // Helper to update annotations and mark as unsaved
-  const updateAnnotations = (newAnnotations: BoundingBox[] | ((prev: BoundingBox[]) => BoundingBox[])) => {
-    setAnnotations(newAnnotations)
-    setHasUnsavedChanges(true)
-  }
-
-  // Tools
-  const [toolMode, setToolMode] = useState<ToolMode>('draw')
-  const [activeClass, setActiveClass] = useState<TrainingClass>(DEFAULT_CLASSES[0])
-  const [classes, setClasses] = useState<TrainingClass[]>(DEFAULT_CLASSES)
-
-  // Drawing state
   const [isDrawing, setIsDrawing] = useState(false)
-  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
-  const [drawEnd, setDrawEnd] = useState<{ x: number; y: number } | null>(null)
+  const [drawStart, setDrawStart] = useState(null)
+  const [drawEnd, setDrawEnd] = useState(null)
 
-  // Auto-detect
-  const [detecting, setDetecting] = useState(false)
-  const [suggestions, setSuggestions] = useState<BoundingBox[]>([])
+  const [selectedBox, setSelectedBox] = useState(null)
+  const [isDraggingBox, setIsDraggingBox] = useState(false)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [resizeHandle, setResizeHandle] = useState(null)
 
-  // Image container
-  const imageContainerRef = useRef<HTMLDivElement>(null)
-  const timelineRef = useRef<HTMLDivElement>(null)
+  const [showNewClassModal, setShowNewClassModal] = useState(false)
+  const [newClassName, setNewClassName] = useState('')
+  const [newClassColor, setNewClassColor] = useState(CLASS_COLORS[0])
 
-  // Load frames on mount
+  const imageContainerRef = useRef(null)
+  const timelineRef = useRef(null)
+
   useEffect(() => {
     loadFrames()
     loadClasses()
   }, [videoId])
 
-  // Load annotations when frame changes - COM DEBOUNCE
   useEffect(() => {
     if (!selectedFrame) return
-
-    // Debounce: esperar 300ms após última mudança antes de carregar
     const timer = setTimeout(() => {
       loadAnnotations(selectedFrame.id)
-      setSuggestions([]) // Clear suggestions on frame change
     }, 300)
-
-    return () => clearTimeout(timer)  // Limpar timer se mudar novamente
+    return () => clearTimeout(timer)
   }, [selectedFrame])
 
-  // Scroll selected frame into view
   useEffect(() => {
     if (selectedFrame && timelineRef.current) {
-      const timeline = timelineRef.current
-      const selectedElement = timeline.querySelector(`[data-frame-id="${selectedFrame.id}"]`) as HTMLElement
-      if (selectedElement) {
-        selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+      const element = timelineRef.current.querySelector(`[data-frame-id="${selectedFrame.id}"]`)
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
       }
     }
   }, [selectedFrame])
 
   const loadFrames = async () => {
     if (!videoId) return
-
     setLoading(true)
     try {
       const token = localStorage.getItem('token')
       const response = await fetch(`/api/training/videos/${videoId}/frames`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-
       const result = await response.json()
       if (result.success && result.frames) {
-        setFrames(result.frames || [])  // Fallback para array vazio
+        setFrames(result.frames || [])
         if (result.frames && result.frames.length > 0) {
           setSelectedFrame(result.frames[0])
         }
       } else {
-        setFrames([])  // Garantir array vazio em caso de erro
+        setFrames([])
       }
     } catch (error) {
-      console.error('Error loading frames:', error)
-      setFrames([])  // Garantir array vazio em caso de erro
+      setFrames([])
     } finally {
       setLoading(false)
     }
@@ -162,49 +114,43 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
       const response = await fetch('/api/classes', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-
       const result = await response.json()
       if (result.success && result.classes && result.classes.length > 0) {
         setClasses(result.classes)
         setActiveClass(result.classes[0])
       }
     } catch (error) {
-      console.error('Using default classes')
+      // Use defaults
     }
   }
 
-  const loadAnnotations = async (frameId: string) => {
+  const loadAnnotations = async (frameId) => {
     if (!frameId) return
-
     try {
       const token = localStorage.getItem('token')
       const response = await fetch(`/api/training/frames/${frameId}/annotations`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-
-      // Tratar erros HTTP sem loggar (evitar flood do console)
       if (!response.ok) {
         setAnnotations([])
         setHasUnsavedChanges(false)
         return
       }
-
       const result = await response.json()
       if (result.success && result.annotations) {
         setAnnotations(result.annotations)
-        setHasUnsavedChanges(false)  // Reset when loading existing annotations
+        setHasUnsavedChanges(false)
       } else {
         setAnnotations([])
         setHasUnsavedChanges(false)
       }
     } catch (error) {
-      // Silencioso - não logar erros de network/backend
       setAnnotations([])
       setHasUnsavedChanges(false)
     }
   }
 
-  const saveAnnotations = async (frameId: string, annotationsToSave: BoundingBox[]) => {
+  const saveAnnotations = async (frameId, annotationsToSave) => {
     setSaving(true)
     try {
       const token = localStorage.getItem('token')
@@ -216,137 +162,83 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
         },
         body: JSON.stringify({ annotations: annotationsToSave })
       })
-
       const result = await response.json()
       if (result.success) {
-        // Update frame annotation status
         setFrames(prev => prev.map(f =>
           f.id === frameId ? { ...f, is_annotated: true } : f
         ))
-        setHasUnsavedChanges(false)  // Reset unsaved flag
-        console.log('✓ Saved')
+        setHasUnsavedChanges(false)
       }
     } catch (error) {
-      console.error('Error saving annotations:', error)
+      // Silencioso
     } finally {
       setSaving(false)
     }
   }
 
-  const handleFrameChange = (newFrame: Frame) => {
-    // REMOVIDO: Auto-save ao trocar de frame (causava excesso de requests)
-    // Agora o usuário deve clicar no botão "Salvar" manualmente
+  const handleFrameChange = async (newFrame) => {
+    if (!selectedFrame || newFrame.id === selectedFrame.id) return
+
+    if (hasUnsavedChanges) {
+      await saveAnnotations(selectedFrame.id, annotations)
+    }
+
     setSelectedFrame(newFrame)
   }
 
-  const handlePrevFrame = () => {
+  const handlePrevFrame = async () => {
     if (!selectedFrame || !frames || frames.length === 0) return
     const currentIndex = frames.findIndex(f => f.id === selectedFrame.id)
     if (currentIndex > 0) {
-      handleFrameChange(frames[currentIndex - 1])
+      await handleFrameChange(frames[currentIndex - 1])
     }
   }
 
-  const handleNextFrame = () => {
+  const handleNextFrame = async () => {
     if (!selectedFrame || !frames || frames.length === 0) return
     const currentIndex = frames.findIndex(f => f.id === selectedFrame.id)
     if (currentIndex < frames.length - 1) {
-      handleFrameChange(frames[currentIndex + 1])
+      await handleFrameChange(frames[currentIndex + 1])
     }
   }
 
-  const handleAutoDetect = async () => {
-    if (!selectedFrame) return
-
-    setDetecting(true)
-    try {
-      const token = localStorage.getItem('token')
-      const response = await fetch(`/api/training/frames/${selectedFrame.id}/predict`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-
-      const result = await response.json()
-      if (result.success && result.predictions) {
-        const suggestionsWithIds = result.predictions.map((p: any, i: number) => ({
-          id: `suggestion-${i}`,
-          class_id: p.class_id,
-          class_name: p.class_name || classes.find(c => c.id === p.class_id)?.name || 'Unknown',
-          x_center: p.x_center,
-          y_center: p.y_center,
-          width: p.width,
-          height: p.height,
-          confidence: p.confidence,
-          is_suggestion: true
-        }))
-        setSuggestions(suggestionsWithIds)
-      }
-    } catch (error) {
-      console.error('Error running auto-detect:', error)
-    } finally {
-      setDetecting(false)
-    }
+  const updateAnnotations = (newAnnotations) => {
+    setAnnotations(newAnnotations)
+    setHasUnsavedChanges(true)
   }
 
-  const confirmSuggestion = (suggestion: BoundingBox) => {
-    const confirmed = { ...suggestion, id: `annotation-${Date.now()}`, is_suggestion: false }
-    updateAnnotations(prev => [...prev, confirmed])
-    setSuggestions(prev => prev.filter(s => s.id !== suggestion.id))
-  }
-
-  const confirmAllSuggestions = () => {
-    const confirmed = suggestions.map(s => ({
-      ...s,
-      id: `annotation-${Date.now()}-${Math.random()}`,
-      is_suggestion: false
-    }))
-    updateAnnotations(prev => [...prev, ...confirmed])
-    setSuggestions([])
-  }
-
-  const discardAllSuggestions = () => {
-    setSuggestions([])
-  }
-
-  // Mouse handlers for drawing and selecting
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseDown = (e) => {
     if (!imageContainerRef.current) return
 
     const rect = imageContainerRef.current.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
     const y = (e.clientY - rect.top) / rect.height
 
-    // MODO SELECT: Detectar clique em uma box e iniciar drag
-    if (toolMode === 'select') {
-      // Verificar se clicou em alguma box (de trás pra frente)
-      const clickedIndex = [...annotations].reverse().findIndex(box => {
+    if (toolMode === 'select' && selectedBox) {
+      const handle = e.target.dataset.handle
+      if (handle) {
+        setResizeHandle(handle)
+        return
+      }
+
+      const box = annotations.find(a => a.id === selectedBox)
+      if (box) {
         const left = box.x_center - box.width / 2
         const top = box.y_center - box.height / 2
         const right = left + box.width
         const bottom = top + box.height
-        return x >= left && x <= right && y >= top && y <= bottom
-      })
 
-      if (clickedIndex >= 0) {
-        // Clicou em uma box - selecionar e iniciar drag
-        const realIndex = annotations.length - 1 - clickedIndex
-        setSelectedBoxIndex(realIndex)
-        setIsDraggingBox(true)
-        setDragOffset({
-          x: x - annotations[realIndex].x_center,
-          y: y - annotations[realIndex].y_center,
-        })
-      } else {
-        // Clicou fora - deselecionar
-        setSelectedBoxIndex(null)
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+          setIsDraggingBox(true)
+          setDragOffset({ x: x - box.x_center, y: y - box.y_center })
+          return
+        }
       }
+
+      setSelectedBox(null)
       return
     }
 
-    // MODO DRAW: Iniciar desenho de nova box
     if (toolMode === 'draw') {
       setIsDrawing(true)
       setDrawStart({ x, y })
@@ -354,24 +246,90 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     }
   }
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e) => {
     if (!imageContainerRef.current) return
 
     const rect = imageContainerRef.current.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
     const y = (e.clientY - rect.top) / rect.height
 
-    // MODO SELECT: Arrastar box selecionada
-    if (isDraggingBox && selectedBoxIndex !== null && toolMode === 'select') {
-      const newX = x - dragOffset.x
-      const newY = y - dragOffset.y
+    if (toolMode === 'select' && resizeHandle && selectedBox) {
+      updateAnnotations(prev => prev.map(box => {
+        if (box.id !== selectedBox) return box
 
-      updateAnnotations(prev => prev.map((box, i) => {
-        if (i !== selectedBoxIndex) return box
+        let newBox = { ...box }
 
-        // Limitar dentro da imagem [0, 1]
         const halfW = box.width / 2
         const halfH = box.height / 2
+        let newX = box.x_center
+        let newY = box.y_center
+        let newW = box.width
+        let newH = box.height
+
+        switch (resizeHandle) {
+          case 'nw':
+            newW = (box.x_center + halfW) - x
+            newH = (box.y_center + halfH) - y
+            newX = x + newW / 2
+            newY = y + newH / 2
+            break
+          case 'n':
+            newH = (box.y_center + halfH) - y
+            newY = y + newH / 2
+            break
+          case 'ne':
+            newW = x - (box.x_center - halfW)
+            newH = (box.y_center + halfH) - y
+            newX = x - newW / 2
+            newY = y + newH / 2
+            break
+          case 'e':
+            newW = x - (box.x_center - halfW)
+            newX = x - newW / 2
+            break
+          case 'se':
+            newW = x - (box.x_center - halfW)
+            newH = y - (box.y_center - halfH)
+            newX = x - newW / 2
+            newY = y - newH / 2
+            break
+          case 's':
+            newH = y - (box.y_center - halfH)
+            newY = y - newH / 2
+            break
+          case 'sw':
+            newW = (box.x_center + halfW) - x
+            newH = y - (box.y_center - halfH)
+            newX = x + newW / 2
+            newY = y - newH / 2
+            break
+          case 'w':
+            newW = (box.x_center + halfW) - x
+            newX = x + newW / 2
+            break
+        }
+
+        if (newW >= 0.02 && newH >= 0.02) {
+          newBox.x_center = Math.max(newW / 2, Math.min(1 - newW / 2, newX))
+          newBox.y_center = Math.max(newH / 2, Math.min(1 - newH / 2, newY))
+          newBox.width = newW
+          newBox.height = newH
+        }
+
+        return newBox
+      }))
+      return
+    }
+
+    if (toolMode === 'select' && isDraggingBox && selectedBox) {
+      updateAnnotations(prev => prev.map(box => {
+        if (box.id !== selectedBox) return box
+
+        const newX = x - dragOffset.x
+        const newY = y - dragOffset.y
+        const halfW = box.width / 2
+        const halfH = box.height / 2
+
         return {
           ...box,
           x_center: Math.max(halfW, Math.min(1 - halfW, newX)),
@@ -381,20 +339,22 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
       return
     }
 
-    // MODO DRAW: Atualizar preview do desenho
     if (isDrawing) {
       setDrawEnd({ x, y })
     }
   }
 
   const handleMouseUp = () => {
-    // MODO SELECT: Soltar box arrastada
+    if (resizeHandle) {
+      setResizeHandle(null)
+      return
+    }
+
     if (isDraggingBox) {
       setIsDraggingBox(false)
       return
     }
 
-    // MODO DRAW: Finalizar desenho de nova box
     if (!isDrawing || !drawStart || !drawEnd) return
 
     const x_center = (drawStart.x + drawEnd.x) / 2
@@ -402,9 +362,8 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     const width = Math.abs(drawEnd.x - drawStart.x)
     const height = Math.abs(drawEnd.y - drawStart.y)
 
-    // Only add if box is large enough (5% minimum)
     if (width > 0.05 && height > 0.05) {
-      const newAnnotation: BoundingBox = {
+      const newAnnotation = {
         id: `annotation-${Date.now()}`,
         class_id: activeClass.id,
         class_name: activeClass.name,
@@ -421,117 +380,135 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     setDrawEnd(null)
   }
 
-  const handleAnnotationClick = (annotationId: string, e: React.MouseEvent) => {
+  const handleBoxClick = (boxId, e) => {
     e.stopPropagation()
-
     if (toolMode === 'delete') {
-      updateAnnotations(prev => prev.filter(a => a.id !== annotationId))
-      setSelectedAnnotation(null)
+      updateAnnotations(prev => prev.filter(a => a.id !== boxId))
+      if (selectedBox === boxId) setSelectedBox(null)
     } else if (toolMode === 'select') {
-      setSelectedAnnotation(annotationId)
+      setSelectedBox(boxId)
     }
   }
 
-  const handleBackgroundClick = () => {
-    if (toolMode === 'select') {
-      setSelectedAnnotation(null)
-    }
-  }
+  const createNewClass = async () => {
+    if (!newClassName.trim()) return
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') {
-        handlePrevFrame()
-      } else if (e.key === 'ArrowRight') {
-        handleNextFrame()
-      } else if (e.key >= '1' && e.key <= '9') {
-        const classIndex = parseInt(e.key) - 1
-        if (classIndex < classes.length) {
-          setActiveClass(classes[classIndex])
-          setToolMode('draw')
-        }
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotation) {
-        updateAnnotations(prev => prev.filter(a => a.id !== selectedAnnotation))
-        setSelectedAnnotation(null)
-      } else if (e.key === ' ') {
-        e.preventDefault()
-        setToolMode(prev => prev === 'draw' ? 'select' : 'draw')
-      } else if (e.key === 'Escape') {
-        setSelectedAnnotation(null)
-        setIsDrawing(false)
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/classes', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: newClassName.trim(),
+          color: newClassColor
+        })
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const nova = data.class || { id: Date.now(), name: newClassName.trim(), color: newClassColor }
+        setClasses(prev => [...prev, nova])
+        setActiveClass(nova)
+        setNewClassName('')
+        setShowNewClassModal(false)
+        setToolMode('draw')
       }
+    } catch (e) {
+      // Silencioso
     }
+  }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedFrame, frames, classes, selectedAnnotation, toolMode])
-
-  // Render bounding boxes on image
   const renderBoundingBoxes = () => {
     const container = imageContainerRef.current
     if (!container) return null
 
-    const rect = container.getBoundingClientRect()
-    const allBoxes = [...annotations, ...suggestions]
-
-    return allBoxes.map((box, index) => {
+    return annotations.map((box) => {
       const left = (box.x_center - box.width / 2) * 100
       const top = (box.y_center - box.height / 2) * 100
       const width = box.width * 100
       const height = box.height * 100
       const classColor = classes.find(c => c.id === box.class_id)?.color || '#ffffff'
-      const isSelected = selectedAnnotation === box.id
-      // Verificar se essa box está selecionada (índice real para annotations)
-      const isBoxSelected = !box.is_suggestion && selectedBoxIndex === index
+      const isSelected = selectedBox === box.id
 
       return (
-        <div
-          key={box.id}
-          onClick={(e) => handleAnnotationClick(box.id, e)}
-          style={{
-            position: 'absolute',
-            left: `${left}%`,
-            top: `${top}%`,
-            width: `${width}%`,
-            height: `${height}%`,
-            border: box.is_suggestion
-              ? `2px dashed ${classColor}`
-              : isBoxSelected
-                ? `3px solid ${classColor}`
-                : `2px solid ${isSelected ? '#ffffff' : classColor}`,
-            backgroundColor: box.is_suggestion
-              ? `${classColor}20`
-              : isSelected || isBoxSelected
-                ? `${classColor}30`
-                : 'transparent',
-            boxShadow: isBoxSelected ? '0 0 0 2px rgba(255,255,255,0.6)' : 'none',
-            cursor: toolMode === 'select' ? 'move' : (toolMode === 'delete' ? 'not-allowed' : 'pointer'),
-            transition: 'all 0.15s',
-            zIndex: isBoxSelected ? 100 : (isSelected ? 10 : 1)
-          }}
-        >
-          {/* Label */}
-          <div style={{
-            position: 'absolute',
-            top: '-16px',
-            left: '-2px',
-            backgroundColor: classColor,
-            color: '#fff',
-            fontSize: '10px',
-            padding: '1px 4px',
-            borderRadius: '2px',
-            whiteSpace: 'nowrap'
-          }}>
-            {box.class_name}
-            {box.confidence && ` ${Math.round(box.confidence * 100)}%`}
+        <div key={box.id}>
+          <div
+            onClick={(e) => handleBoxClick(box.id, e)}
+            style={{
+              position: 'absolute',
+              left: `${left}%`,
+              top: `${top}%`,
+              width: `${width}%`,
+              height: `${height}%`,
+              border: isSelected ? `3px solid ${classColor}` : `2px solid ${classColor}`,
+              backgroundColor: isSelected ? `${classColor}30` : 'transparent',
+              cursor: toolMode === 'select' ? 'move' : (toolMode === 'delete' ? 'not-allowed' : 'pointer'),
+              zIndex: isSelected ? 100 : 1,
+              pointerEvents: 'auto'
+            }}
+          >
+            <div style={{
+              position: 'absolute',
+              top: '-16px',
+              left: '-2px',
+              backgroundColor: classColor,
+              color: '#fff',
+              fontSize: '10px',
+              padding: '1px 4px',
+              borderRadius: '2px',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none'
+            }}>
+              {box.class_name}
+            </div>
           </div>
+
+          {isSelected && toolMode === 'select' && (
+            <>
+              {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map(handle => {
+                const isVertical = handle === 'n' || handle === 's'
+                return (
+                  <div
+                    key={handle}
+                    data-handle={handle}
+                    style={{
+                      position: 'absolute',
+                      width: isVertical ? '14px' : '8px',
+                      height: isVertical ? '8px' : '14px',
+                      backgroundColor: classColor,
+                      border: '2px solid #fff',
+                      borderRadius: '2px',
+                      zIndex: 101,
+                      pointerEvents: 'auto',
+                      cursor: handle === 'nw' ? 'nw-resize' :
+                             handle === 'n' ? 'n-resize' :
+                             handle === 'ne' ? 'ne-resize' :
+                             handle === 'e' ? 'e-resize' :
+                             handle === 'se' ? 'se-resize' :
+                             handle === 's' ? 's-resize' :
+                             handle === 'sw' ? 'sw-resize' : 'w-resize',
+                      ...(handle === 'nw' && { left: `${left}%`, top: `${top}%`, transform: 'translate(-50%, -50%)' }),
+                      ...(handle === 'n' && { left: `${left + width / 2}%`, top: `${top}%`, transform: 'translate(-50%, -50%)' }),
+                      ...(handle === 'ne' && { left: `${left + width}%`, top: `${top}%`, transform: 'translate(50%, -50%)' }),
+                      ...(handle === 'e' && { left: `${left + width}%`, top: `${top + height / 2}%`, transform: 'translate(50%, -50%)' }),
+                      ...(handle === 'se' && { left: `${left + width}%`, top: `${top + height}%`, transform: 'translate(50%, 50%)' }),
+                      ...(handle === 's' && { left: `${left + width / 2}%`, top: `${top + height}%`, transform: 'translate(-50%, 50%)' }),
+                      ...(handle === 'sw' && { left: `${left}%`, top: `${top + height}%`, transform: 'translate(-50%, 50%)' }),
+                      ...(handle === 'w' && { left: `${left}%`, top: `${top + height / 2}%`, transform: 'translate(-50%, 50%)' }),
+                    }}
+                  />
+                )
+              })}
+            </>
+          )}
         </div>
       )
     })
   }
 
-  // Render drawing preview
   const renderDrawingPreview = () => {
     if (!isDrawing || !drawStart || !drawEnd) return null
 
@@ -555,8 +532,8 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     )
   }
 
-  const formatTimestamp = (frameNumber: number, fps: number = 1) => {
-    const seconds = Math.floor(frameNumber / fps)
+  const formatTimestamp = (frameNumber) => {
+    const seconds = Math.floor(frameNumber)
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins}:${secs.toString().padStart(2, '0')}`
@@ -571,7 +548,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
       height: 'calc(100vh - 100px)',
       background: '#0d1117'
     }}>
-      {/* A) Header */}
+      {/* Header */}
       <div style={{
         background: '#161b22',
         borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
@@ -589,11 +566,8 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
             border: '1px solid rgba(255, 255, 255, 0.1)',
             borderRadius: '6px',
             fontSize: '13px',
-            cursor: 'pointer',
-            transition: 'all 0.15s'
+            cursor: 'pointer'
           }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
         >
           ← Voltar
         </button>
@@ -604,32 +578,36 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
           color: '#fff',
           margin: 0
         }}>
-          Anotação de Frames — Vídeo {videoId ? videoId.slice(0, 8) : 'Unknown'}
+          Anotação — Vídeo {videoId ? videoId.slice(0, 8) : 'Unknown'}
         </h2>
 
-        <button
-          onClick={() => selectedFrame && saveAnnotations(selectedFrame.id, annotations.filter(a => !a.is_suggestion))}
-          disabled={saving}
-          style={{
-            padding: '8px 16px',
-            background: hasUnsavedChanges ? 'rgba(245, 158, 11, 0.9)' : 'rgba(37, 99, 235, 0.8)',
-            color: '#fff',
-            border: hasUnsavedChanges ? '1px solid rgba(245, 158, 11, 1)' : 'none',
-            borderRadius: '6px',
-            fontSize: '13px',
-            fontWeight: '500',
-            cursor: saving ? 'wait' : 'pointer',
-            opacity: saving ? 0.6 : 1,
-            transition: 'all 0.15s'
-          }}
-          onMouseEnter={(e) => !saving && ((e.currentTarget as HTMLButtonElement).style.background = hasUnsavedChanges ? 'rgba(245, 158, 11, 1)' : 'rgba(37, 99, 235, 1)')}
-          onMouseLeave={(e) => (e.currentTarget as HTMLButtonElement).style.background = hasUnsavedChanges ? 'rgba(245, 158, 11, 0.9)' : 'rgba(37, 99, 235, 0.8)'}
-        >
-          {saving ? 'Salvando...' : hasUnsavedChanges ? '💾 Salvar*' : '💾 Salvar'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {hasUnsavedChanges && (
+            <span style={{
+              padding: '4px 12px',
+              background: 'rgba(245, 158, 11, 0.2)',
+              color: '#f59e0b',
+              borderRadius: '4px',
+              fontSize: '12px'
+            }}>
+              Não salvo
+            </span>
+          )}
+          {saving && (
+            <span style={{
+              padding: '4px 12px',
+              background: 'rgba(34, 197, 94, 0.2)',
+              color: '#22c55e',
+              borderRadius: '4px',
+              fontSize: '12px'
+            }}>
+              Salvando...
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* B) Toolbar + Classes */}
+      {/* Toolbar */}
       <div style={{
         background: '#161b22',
         borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
@@ -640,64 +618,26 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
       }}>
         {/* Tool buttons */}
         <div style={{ display: 'flex', gap: '8px' }}>
-          {[
-            { mode: 'draw' as ToolMode, label: 'Desenhar' },
-            { mode: 'select' as ToolMode, label: 'Selecionar' },
-            { mode: 'delete' as ToolMode, label: 'Apagar' }
-          ].map(tool => (
+          {['draw', 'select', 'delete'].map(mode => (
             <button
-              key={tool.mode}
-              onClick={() => setToolMode(tool.mode)}
+              key={mode}
+              onClick={() => {
+                setToolMode(mode)
+                setSelectedBox(null)
+              }}
               style={{
                 padding: '8px 16px',
-                background: toolMode === tool.mode
-                  ? 'rgba(37, 99, 235, 0.8)'
-                  : 'transparent',
-                color: toolMode === tool.mode
-                  ? '#fff'
-                  : 'rgba(255, 255, 255, 0.5)',
-                border: toolMode === tool.mode
-                  ? 'none'
-                  : '1px solid rgba(255, 255, 255, 0.1)',
+                background: toolMode === mode ? 'rgba(37, 99, 235, 0.8)' : 'transparent',
+                color: toolMode === mode ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                border: toolMode === mode ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
                 borderRadius: '6px',
                 fontSize: '13px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.15s'
-              }}
-              onMouseEnter={(e) => {
-                if (toolMode !== tool.mode) {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (toolMode !== tool.mode) {
-                  e.currentTarget.style.background = 'transparent'
-                }
+                cursor: 'pointer'
               }}
             >
-              {tool.label}
+              {mode === 'draw' ? 'Desenhar' : mode === 'select' ? 'Selecionar' : 'Apagar'}
             </button>
           ))}
-
-          <button
-            onClick={handleAutoDetect}
-            disabled={detecting}
-            style={{
-              padding: '8px 16px',
-              background: 'transparent',
-              color: 'rgba(255, 255, 255, 0.5)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: '6px',
-              fontSize: '13px',
-              fontWeight: '500',
-              cursor: detecting ? 'wait' : 'pointer',
-              opacity: detecting ? 0.6 : 1,
-              transition: 'all 0.15s'
-            }}
-          >
-            {detecting ? 'Detectando...' : 'Auto-Detect'}
-          </button>
         </div>
 
         <div style={{
@@ -706,110 +646,226 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
           background: 'rgba(255, 255, 255, 0.1)'
         }} />
 
-        {/* Classes */}
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          {classes.map((cls, idx) => (
-            <button
-              key={cls.id}
-              onClick={() => {
-                setActiveClass(cls)
-                setToolMode('draw')
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                background: activeClass.id === cls.id
-                  ? `${cls.color}20`
-                  : 'transparent',
-                border: activeClass.id === cls.id
-                  ? `1px solid ${cls.color}`
-                  : '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '6px',
-                fontSize: '12px',
-                color: activeClass.id === cls.id
-                  ? '#fff'
-                  : 'rgba(255, 255, 255, 0.7)',
-                cursor: 'pointer',
-                transition: 'all 0.15s'
-              }}
-              onMouseEnter={(e) => {
-                if (activeClass.id !== cls.id) {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activeClass.id !== cls.id) {
-                  e.currentTarget.style.background = 'transparent'
-                }
-              }}
-            >
-              <span style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                background: cls.color
-              }} />
-              <span style={{ fontWeight: activeClass.id === cls.id ? '600' : '400' }}>
-                {idx + 1}. {cls.name}
-              </span>
-            </button>
-          ))}
-        </div>
+        {/* Class dropdown */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '13px' }}>Classe:</span>
 
-        {/* Suggestion actions */}
-        {suggestions.length > 0 && (
-          <>
-            <div style={{
-              width: '1px',
-              height: '24px',
-              background: 'rgba(255, 255, 255, 0.1)'
+          <button
+            onClick={() => {
+              if (showNewClassModal) {
+                setShowNewClassModal(false)
+              } else {
+                setShowNewClassModal(true)
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              background: `${activeClass.color}20`,
+              border: `1px solid ${activeClass.color}`,
+              borderRadius: '6px',
+              fontSize: '13px',
+              color: '#fff',
+              cursor: 'pointer'
+            }}
+          >
+            <span style={{
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: activeClass.color
             }} />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={confirmAllSuggestions}
+            {activeClass.name}
+            <span style={{ fontSize: '10px', opacity: 0.5 }}>▼</span>
+          </button>
+
+          {showNewClassModal && (
+            <>
+              <div
+                onClick={() => setShowNewClassModal(false)}
                 style={{
-                  padding: '6px 12px',
-                  background: 'rgba(34, 197, 94, 0.8)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s'
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0, 0, 0, 0.5)',
+                  zIndex: 999
                 }}
-              >
-                ✓ Confirmar Todas ({suggestions.length})
-              </button>
-              <button
-                onClick={discardAllSuggestions}
-                style={{
-                  padding: '6px 12px',
-                  background: 'transparent',
-                  color: 'rgba(239, 68, 68, 0.8)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s'
-                }}
-              >
-                ✕ Descartar
-              </button>
-            </div>
-          </>
-        )}
+              />
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                marginTop: '8px',
+                background: '#161b22',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '8px',
+                padding: '8px',
+                zIndex: 1000,
+                minWidth: '280px',
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}>
+                {/* Existing classes */}
+                <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                  <div style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase' }}>
+                    Classes existentes
+                  </div>
+                  {classes.map(cls => (
+                    <button
+                      key={cls.id}
+                      onClick={() => {
+                        setActiveClass(cls)
+                        setToolMode('draw')
+                        setShowNewClassModal(false)
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        padding: '6px 8px',
+                        background: activeClass.id === cls.id ? `${cls.color}30` : 'transparent',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '13px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <span style={{
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        background: cls.color
+                      }} />
+                      {cls.name}
+                    </button>
+                  ))}
+                </div>
+
+                {/* New class */}
+                <div>
+                  <button
+                    onClick={() => setNewClassName(' ')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      width: '100%',
+                      padding: '6px 8px',
+                      background: 'transparent',
+                      border: '1px dashed rgba(255, 255, 255, 0.2)',
+                      borderRadius: '4px',
+                      fontSize: '13px',
+                      color: 'rgba(255, 255, 255, 0.5)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <span style={{ fontSize: '16px' }}>+</span>
+                    Nova Classe...
+                  </button>
+
+                  {newClassName !== '' && (
+                    <div style={{ marginTop: '8px' }}>
+                      <input
+                        type="text"
+                        value={newClassName}
+                        onChange={(e) => setNewClassName(e.target.value)}
+                        placeholder="Nome da classe"
+                        autoFocus
+                        onFocus={(e) => e.currentTarget.select()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            createNewClass()
+                          } else if (e.key === 'Escape') {
+                            setNewClassName('')
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '6px 8px',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          color: '#fff',
+                          outline: 'none',
+                          marginBottom: '8px'
+                        }}
+                      />
+
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {CLASS_COLORS.map(color => (
+                          <button
+                            key={color}
+                            onClick={() => setNewClassColor(color)}
+                            style={{
+                              width: '24px',
+                              height: '24px',
+                              borderRadius: '4px',
+                              background: color,
+                              border: newClassColor === color ? '2px solid #fff' : '2px solid transparent',
+                              cursor: 'pointer'
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                        <button
+                          onClick={createNewClass}
+                          disabled={!newClassName.trim()}
+                          style={{
+                            flex: 1,
+                            padding: '6px',
+                            background: newClassName.trim() ? 'rgba(34, 197, 94, 0.8)' : 'rgba(255, 255, 255, 0.1)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            cursor: newClassName.trim() ? 'pointer' : 'not-allowed',
+                            opacity: newClassName.trim() ? 1 : 0.5
+                          }}
+                        >
+                          Criar
+                        </button>
+                        <button
+                          onClick={() => setNewClassName('')}
+                          style={{
+                            flex: 1,
+                            padding: '6px',
+                            background: 'transparent',
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* C) Área da imagem */}
+      {/* Image area */}
       <div style={{
         flex: 1,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '24px',
-        overflow: 'hidden',
         background: '#0d1117'
       }}>
         {loading ? (
@@ -822,7 +878,6 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onClick={handleBackgroundClick}
             style={{
               position: 'relative',
               maxWidth: '100%',
@@ -835,22 +890,20 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
             <img
               src={`/api/training/frames/${selectedFrame.id}/image`}
               alt={`Frame ${selectedFrame.frame_number}`}
+              draggable={false}
               style={{
                 maxWidth: '100%',
                 maxHeight: 'calc(100vh - 350px)',
                 display: 'block',
-                userSelect: 'none'
+                userSelect: 'none',
+                pointerEvents: 'none'
               }}
             />
 
-            {/* Bounding boxes */}
             {renderBoundingBoxes()}
-
-            {/* Drawing preview */}
             {renderDrawingPreview()}
 
-            {/* Instructions overlay */}
-            {annotations.length === 0 && suggestions.length === 0 && !isDrawing && (
+            {annotations.length === 0 && !isDrawing && (
               <div style={{
                 position: 'absolute',
                 top: '50%',
@@ -864,7 +917,9 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
                 textAlign: 'center',
                 pointerEvents: 'none'
               }}>
-                <div style={{ fontWeight: '600', marginBottom: '8px' }}>Modo {toolMode === 'draw' ? 'Desenhar' : toolMode === 'select' ? 'Selecionar' : 'Apagar'}</div>
+                <div style={{ fontWeight: '600', marginBottom: '8px' }}>
+                  Modo {toolMode === 'draw' ? 'Desenhar' : toolMode === 'select' ? 'Selecionar' : 'Apagar'}
+                </div>
                 <div style={{ fontSize: '12px', opacity: 0.8 }}>
                   {toolMode === 'draw' && 'Clique e arraste para desenhar caixas'}
                   {toolMode === 'select' && 'Clique em uma caixa para selecioná-la'}
@@ -880,13 +935,12 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
         )}
       </div>
 
-      {/* D) Barra de progresso */}
+      {/* Progress bar */}
       <div style={{
         background: '#161b22',
         borderTop: '1px solid rgba(255, 255, 255, 0.06)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
         padding: '8px 24px',
-        fontFamily: "'DM Mono', monospace",
         fontSize: '12px',
         color: 'rgba(255, 255, 255, 0.6)',
         display: 'flex',
@@ -899,22 +953,18 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
           style={{
             padding: '4px 12px',
             background: 'transparent',
-            color: selectedFrame && currentFrameIndex > 0
-              ? 'rgba(255, 255, 255, 0.7)'
-              : 'rgba(255, 255, 255, 0.2)',
+            color: selectedFrame && currentFrameIndex > 0 ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.2)',
             border: '1px solid transparent',
             borderRadius: '4px',
             fontSize: '12px',
-            cursor: selectedFrame && currentFrameIndex > 0 ? 'pointer' : 'default',
-            transition: 'all 0.15s'
+            cursor: selectedFrame && currentFrameIndex > 0 ? 'pointer' : 'default'
           }}
         >
-          ← Frame {currentFrameIndex + 1}/{frames.length}
+          ← {currentFrameIndex + 1}/{frames.length}
         </button>
 
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '16px' }}>
           <span>Boxes: {annotations.length}</span>
-          {saving && <span style={{ color: '#22c55e' }}>Salvando...</span>}
         </div>
 
         <button
@@ -923,21 +973,18 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
           style={{
             padding: '4px 12px',
             background: 'transparent',
-            color: selectedFrame && currentFrameIndex < frames.length - 1
-              ? 'rgba(255, 255, 255, 0.7)'
-              : 'rgba(255, 255, 255, 0.2)',
+            color: selectedFrame && currentFrameIndex < frames.length - 1 ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.2)',
             border: '1px solid transparent',
             borderRadius: '4px',
             fontSize: '12px',
-            cursor: selectedFrame && currentFrameIndex < frames.length - 1 ? 'pointer' : 'default',
-            transition: 'all 0.15s'
+            cursor: selectedFrame && currentFrameIndex < frames.length - 1 ? 'pointer' : 'default'
           }}
         >
           Boxes: {annotations.length} →
         </button>
       </div>
 
-      {/* E) Timeline */}
+      {/* Timeline */}
       <div style={{
         background: '#0d1117',
         height: '130px',
@@ -945,7 +992,6 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
         display: 'flex',
         flexDirection: 'column'
       }}>
-        {/* Timeline scroll area */}
         <div
           ref={timelineRef}
           style={{
@@ -957,7 +1003,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
             overflowY: 'hidden'
           }}
         >
-          {(frames || []).map((frame, idx) => (
+          {(frames || []).map((frame) => (
             <div
               key={frame.id}
               data-frame-id={frame.id}
@@ -967,28 +1013,14 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
                 flexShrink: 0,
                 width: '80px',
                 height: '50px',
-                border: selectedFrame?.id === frame.id
-                  ? '2px solid #2563eb'
-                  : '1px solid rgba(255, 255, 255, 0.08)',
+                border: selectedFrame?.id === frame.id ? '2px solid #2563eb' : '1px solid rgba(255, 255, 255, 0.08)',
                 borderRadius: '4px',
                 overflow: 'hidden',
                 cursor: 'pointer',
-                transform: selectedFrame?.id === frame.id
-                  ? 'scale(1.08)'
-                  : 'scale(1)',
+                transform: selectedFrame?.id === frame.id ? 'scale(1.08)' : 'scale(1)',
                 transition: 'all 0.15s',
                 zIndex: selectedFrame?.id === frame.id ? 2 : 1,
                 background: '#161b22'
-              }}
-              onMouseEnter={(e) => {
-                if (selectedFrame?.id !== frame.id) {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedFrame?.id !== frame.id) {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)'
-                }
               }}
             >
               <img
@@ -1003,7 +1035,6 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
                 }}
               />
 
-              {/* Annotated indicator */}
               {frame.is_annotated && (
                 <div style={{
                   position: 'absolute',
@@ -1020,17 +1051,15 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
           ))}
         </div>
 
-        {/* Timestamps */}
         <div style={{
           padding: '0 24px 8px',
           display: 'flex',
           gap: '80px',
           overflowX: 'auto',
-          fontFamily: "'DM Mono', monospace",
           fontSize: '9px',
           color: 'rgba(255, 255, 255, 0.25)'
         }}>
-          {frames.filter((_, idx) => idx % 10 === 0).map((frame, idx) => (
+          {frames.filter((_, idx) => idx % 10 === 0).map((frame) => (
             <span key={frame.id} style={{ flexShrink: 0, minWidth: '80px', textAlign: 'center' }}>
               {formatTimestamp(frame.frame_number)}
             </span>

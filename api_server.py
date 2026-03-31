@@ -2008,6 +2008,56 @@ def delete_video_alias(video_id: str):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/training/videos/<video_id>', methods=['PATCH'])
+def update_video(video_id: str):
+    """
+    Update a training video (e.g., rename).
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+        data = request.get_json()
+        name = data.get('name')
+
+        if not name:
+            return jsonify({'success': False, 'error': 'name is required'}), 400
+
+        db = get_db_session()
+
+        # Verify ownership
+        check = db.execute(text("""
+            SELECT v.id FROM training_videos v
+            JOIN training_projects p ON p.id = v.project_id
+            WHERE v.id = :video_id AND p.user_id = :user_id
+        """), {'video_id': video_id, 'user_id': user_id}).fetchone()
+
+        if not check:
+            return jsonify({'success': False, 'error': 'Video not found'}), 404
+
+        # Update name
+        db.execute(text("""
+            UPDATE training_videos SET name = :name WHERE id = :video_id
+        """), {'name': name, 'video_id': video_id})
+
+        db.commit()
+
+        logger.info(f"✅ Video renamed: {video_id} -> {name}")
+
+        return jsonify({'success': True, 'message': 'Video updated'})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Update video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 # Application Entry Point
 # ============================================================================

@@ -6,7 +6,7 @@ import CameraForm from "./components/CameraForm";
 import Modal from "./components/Modal";
 import ToastContainer from "./components/Toast";
 
-import { AnnotationInterface } from "./components/AnnotationInterface.tsx";
+import AnnotationInterface from "./components/AnnotationInterface.jsx";
 // ── Icons ──
 const Icons = {
   menu: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>,
@@ -241,29 +241,344 @@ const ClassesPage = () => (
 
 // ── Training ──
 const TrainingPage = () => {
-  const [progress, setProgress] = useState(0);
-  const [running, setRunning] = useState(false);
-  useEffect(() => { if (running && progress < 100) { const t = setTimeout(() => setProgress(p => Math.min(p + Math.random()*3+0.5, 100)), 200); return () => clearTimeout(t); } if (progress >= 100) setRunning(false); }, [running, progress]);
+  const [videos, setVideos] = useState([]);
+  const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // States para renomear
+  const [renamingVideoId, setRenamingVideoId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+
+  useEffect(() => {
+    loadVideos();
+  }, []);
+
+  const loadVideos = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/training/videos', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (result.success && result.videos) {
+        setVideos(result.videos);
+      }
+    } catch (e) {
+      // Silencioso
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadProgress(0);
+
+    const formData = new FormData();
+    formData.append('video', file);
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/training/videos/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      const data = await res.json();
+      if (data.success) {
+        loadVideos();
+      }
+    } catch (e) {
+      console.error('Upload error:', e);
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const handleDeleteVideo = async (videoId, e) => {
+    e.stopPropagation();
+    if (!confirm('Tem certeza que deseja excluir este vídeo e todos os seus frames e anotações?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/training/videos/${videoId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setVideos(prev => prev.filter(v => v.id !== videoId));
+      }
+    } catch (e) {
+      console.error('Delete error:', e);
+    }
+  };
+
+  const handleRenameVideo = async (videoId) => {
+    if (!renameValue.trim()) {
+      setRenamingVideoId(null);
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/training/videos/${videoId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: renameValue.trim() })
+      });
+      if (res.ok) {
+        setVideos(prev => prev.map(v =>
+          v.id === videoId ? { ...v, name: renameValue.trim() } : v
+        ));
+      }
+    } catch (e) {
+      console.error('Rename error:', e);
+    } finally {
+      setRenamingVideoId(null);
+      setRenameValue('');
+    }
+  };
+
+  // Se um vídeo foi selecionado, mostrar a interface de anotação
+  if (selectedVideoId) {
+    return (
+      <AnnotationInterface
+        videoId={selectedVideoId}
+        onBack={() => setSelectedVideoId(null)}
+      />
+    );
+  }
+
+  // Caso contrário, mostrar a lista de vídeos
   return (
     <div>
-      <div style={{ marginBottom: 28 }}><h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Treinamento</h1><p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Acompanhe o modelo YOLO</p></div>
-      <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 28, marginBottom: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-          <div><h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", margin: 0 }}>{running?"Treinando...":progress>=100?"Concluído!":"Pronto"}</h2><p style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 0" }}>YOLOv8n · 4.860 imgs · 6 classes</p></div>
-          <button onClick={() => { if (!running && progress < 100) setRunning(true); else { setProgress(0); setRunning(false); }}} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 24px", borderRadius: 10, background: running?"#ef444420":"var(--accent)", color: running?"#ef4444":"#fff", border: running?"1px solid #ef444440":"none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{running?Icons.x:Icons.play} {running?"Parar":progress>=100?"Reiniciar":"Iniciar"}</button>
-        </div>
-        <div style={{ background: "var(--bg)", borderRadius: 8, height: 8, overflow: "hidden", marginBottom: 8 }}><div style={{ height: "100%", borderRadius: 8, background: progress>=100?"#22c55e":"var(--accent)", width: `${progress}%`, transition: "width 0.3s" }} /></div>
-        <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "var(--mono)" }}>Epoch {Math.floor(progress/2)}/50</span><span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "var(--mono)" }}>{progress.toFixed(1)}%</span></div>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Treinamento</h1>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Selecione um vídeo para anotar</p>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
-        {[{ l: "Precisão", v: "96.8%", t: "+2.1%" }, { l: "Recall", v: "94.2%", t: "+1.8%" }, { l: "mAP@50", v: "0.952", t: "+0.03" }, { l: "Loss", v: "0.041", t: "-0.008" }].map((m,i) => (
-          <div key={i} style={{ background: "var(--card)", borderRadius: 14, border: "1px solid var(--border)", padding: 20 }}>
-            <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 500, marginBottom: 6 }}>{m.l}</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)" }}>{m.v}</div>
-            <div style={{ fontSize: 12, color: "#22c55e", fontWeight: 500, marginTop: 4 }}>{m.t}</div>
+
+      {/* Upload Zone */}
+      <div
+        onClick={() => !uploading && document.getElementById('video-upload').click()}
+        style={{
+          border: '2px dashed rgba(37,99,235,0.3)',
+          borderRadius: 12,
+          padding: 32,
+          textAlign: 'center',
+          marginBottom: 24,
+          background: 'rgba(37,99,235,0.05)',
+          cursor: uploading ? 'not-allowed' : 'pointer',
+          transition: 'all 0.2s',
+          opacity: uploading ? 0.6 : 1,
+        }}
+        onMouseEnter={(e) => {
+          if (!uploading) e.currentTarget.style.borderColor = 'rgba(37,99,235,0.6)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = '';
+        }}
+      >
+        <input
+          id="video-upload"
+          type="file"
+          accept="video/*"
+          onChange={handleUpload}
+          disabled={uploading}
+          style={{ display: 'none' }}
+        />
+        {uploading ? (
+          <div>
+            <div style={{ fontSize: 14, color: 'var(--accent)', fontWeight: 600, marginBottom: 8 }}>
+              Enviando vídeo... {uploadProgress}%
+            </div>
+            <div style={{ height: 4, background: 'rgba(37,99,235,0.2)', borderRadius: 2, maxWidth: 300, margin: '0 auto' }}>
+              <div style={{ height: '100%', background: 'var(--accent)', borderRadius: 2, width: `${uploadProgress}%`, transition: 'width 0.3s' }} />
+            </div>
           </div>
-        ))}
+        ) : (
+          <div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📹</div>
+            <div style={{ fontSize: 14, color: 'var(--text)', fontWeight: 600, marginBottom: 4 }}>
+              Clique para enviar vídeo
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              MP4, AVI, MOV — O sistema extrai frames automaticamente
+            </div>
+          </div>
+        )}
       </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 80, color: 'var(--muted)' }}>
+          Carregando vídeos...
+        </div>
+      ) : videos.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 80, color: 'var(--muted)' }}>
+          Nenhum vídeo encontrado
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+          {videos.map((video) => (
+            <div
+              key={video.id}
+              onClick={() => setSelectedVideoId(video.id)}
+              style={{
+                background: "var(--card)",
+                borderRadius: 14,
+                border: "1px solid var(--border)",
+                padding: 20,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = ''}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  background: 'rgba(37,99,235,0.15)',
+                  color: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 24
+                }}>
+                  🎬
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {renamingVideoId === video.id ? (
+                    <input
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameVideo(video.id);
+                        if (e.key === 'Escape') setRenamingVideoId(null);
+                      }}
+                      onBlur={() => handleRenameVideo(video.id)}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: '100%',
+                        padding: '4px 8px',
+                        background: 'rgba(255,255,255,0.9)',
+                        border: '2px solid var(--accent)',
+                        borderRadius: 6,
+                        fontSize: 15,
+                        fontWeight: 600,
+                        color: 'var(--text)',
+                        outline: 'none',
+                      }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
+                      {video.name || video.id?.slice(0,8)}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                    {video.frame_count || 0} frames
+                  </div>
+                </div>
+
+                {/* Botões de ação */}
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingVideoId(video.id);
+                      setRenameValue(video.name || video.id?.slice(0, 8));
+                    }}
+                    title="Renomear"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: 'rgba(255,255,255,0.8)',
+                      border: '1px solid var(--border)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 14,
+                    }}
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteVideo(video.id, e)}
+                    title="Excluir vídeo"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      background: 'rgba(239,68,68,0.1)',
+                      border: '1px solid rgba(239,68,68,0.2)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 14,
+                      color: '#ef4444',
+                    }}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {video.annotated_frames || 0}/{video.frame_count || 0} anotados
+                </span>
+                <span style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  fontWeight: 500,
+                  background: video.status === 'completed' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                  color: video.status === 'completed' ? '#22c55e' : '#f59e0b',
+                }}>
+                  {video.status === 'completed' ? '✓ Completo' : 'Processando'}
+                </span>
+              </div>
+
+              {/* BOTÃO ANOTAR — visível e claro */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedVideoId(video.id);
+                }}
+                style={{
+                  marginTop: 12,
+                  width: '100%',
+                  padding: '10px',
+                  background: 'rgba(37,99,235,0.8)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                ✏️ Anotar Frames
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -272,8 +587,8 @@ const TrainingPage = () => {
 // ── MONITORING PAGE — Drag & Drop + Seleção ──
 // ══════════════════════════════════════════════════
 const MonitoringPage = ({ cameras, streams, startStream, stopStream }) => {
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [orderedIds, setOrderedIds] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([1, 2, 4, 5, 6, 7]);
+  const [orderedIds, setOrderedIds] = useState([1, 2, 4, 5, 6, 7]);
   const [grid, setGrid] = useState("3x3");
   const [panelOpen, setPanelOpen] = useState(false);
   const [time, setTime] = useState(new Date());

@@ -5,7 +5,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
-    host: true,
+    strictPort: true,
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:5001',
@@ -17,4 +21,5 @@ export default defineConfig({
       },
     },
   },
+  cacheDir: '/tmp/vite-cache-epi',
 })
