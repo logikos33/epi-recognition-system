@@ -551,6 +551,7 @@ const ClassesPage = () => (
 
 // ── Training ──
 const TrainingPage = () => {
+  const [trainingTab, setTrainingTab] = useState('videos'); // 'videos', 'train', 'history'
   const [videos, setVideos] = useState([]);
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -672,14 +673,54 @@ const TrainingPage = () => {
     );
   }
 
-  // Caso contrário, mostrar a lista de vídeos
+  // Caso contrário, mostrar a lista de vídeos ou outras tabs
+  const tabs = [
+    { id: 'videos', label: 'Vídeos & Dados' },
+    { id: 'train', label: 'Treinar' },
+    { id: 'history', label: 'Histórico' },
+  ];
+
   return (
     <div>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Treinamento</h1>
-        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Selecione um vídeo para anotar</p>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>
+          {trainingTab === 'videos' ? 'Selecione um vídeo para anotar' :
+           trainingTab === 'train' ? 'Acompanhe e gerencie o treinamento do modelo YOLO' :
+           'Histórico completo de treinamentos YOLO'}
+        </p>
       </div>
 
+      {/* Tab Navigation */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setTrainingTab(tab.id)}
+            style={{
+              padding: '10px 16px',
+              background: trainingTab === tab.id ? 'rgba(37,99,235,0.8)' : 'transparent',
+              color: trainingTab === tab.id ? '#fff' : 'var(--text)',
+              border: 'none',
+              borderBottom: trainingTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
+              borderRadius: '8px 8px 0 0',
+              fontSize: 14,
+              fontWeight: trainingTab === tab.id ? '600' : '400',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      {trainingTab === 'train' && <TrainingTrainTab />}
+      {trainingTab === 'history' && <TrainingHistoryTab />}
+
+      {trainingTab === 'videos' && (
+      <>
       {/* Upload Zone */}
       <div
         onClick={() => !uploading && document.getElementById('video-upload').click()}
@@ -943,6 +984,635 @@ const TrainingPage = () => {
               </button>
             </div>
           ))}
+        </div>
+      )}
+      </>
+      )}
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════
+// ── TRAINING TRAIN TAB (Treinar) ──
+// ══════════════════════════════════════════════════
+const TrainingTrainTab = () => {
+  const [datasetStats, setDatasetStats] = useState(null);
+  const [exportedDatasetPath, setExportedDatasetPath] = useState(null);
+  const [activeJob, setActiveJob] = useState(null);
+  const [selectedPreset, setSelectedPreset] = useState('balanced');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  const token = localStorage.getItem('token');
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('/api/training/dataset/stats', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          setDatasetStats(data.stats);
+        } else {
+          setError(data.error || 'Failed to load dataset stats');
+        }
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, [token]);
+
+  useEffect(() => {
+    if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/training/status/${activeJob.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          setActiveJob(data.job);
+        }
+      } catch (err) {
+        console.error('Poll error:', err);
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [activeJob, token]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/training/dataset/export', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setExportedDatasetPath(data.yaml_path);
+      } else {
+        setError(data.error || 'Failed to export dataset');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleStart = async () => {
+    if (!exportedDatasetPath) {
+      setError('Please export dataset first');
+      return;
+    }
+
+    setStarting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/training/start', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: `Training ${new Date().toLocaleString()}`,
+          preset: selectedPreset,
+          dataset_yaml_path: exportedDatasetPath
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const statusRes = await fetch(`/api/training/status/${data.job_id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const statusData = await statusRes.json();
+        if (statusData.success) {
+          setActiveJob(statusData.job);
+        }
+      } else {
+        setError(data.error || 'Failed to start training');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!activeJob) return;
+    try {
+      await fetch(`/api/training/stop/${activeJob.id}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setActiveJob(prev => ({ ...prev, status: 'stopped' }));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>Carregando estatísticas...</div>
+      </div>
+    );
+  }
+
+  if (error && !datasetStats) {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <div style={{ color: '#ef4444', marginBottom: 12 }}>{error}</div>
+        <button onClick={() => window.location.reload()} style={{
+          padding: '10px 20px', borderRadius: 8, background: 'var(--accent)',
+          color: '#fff', border: 'none', cursor: 'pointer'
+        }}>
+          Tentar Novamente
+        </button>
+      </div>
+    );
+  }
+
+  if (!datasetStats || datasetStats.total_frames === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+          Nenhum dado de treinamento disponível
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          Faça upload de vídeos ou imagens e anote os frames primeiro
+        </p>
+      </div>
+    );
+  }
+
+  const isTraining = activeJob?.status === 'running';
+  const progress = activeJob?.progress || 0;
+  const jobMetrics = activeJob?.metrics || {};
+
+  return (
+    <div>
+      <div style={{
+        background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)",
+        padding: 24, marginBottom: 20, animation: "fadeSlideUp 0.5s ease both",
+      }}>
+        <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", margin: "0 0 16px" }}>Dataset</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Frames Anotados</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>{datasetStats.total_frames}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Bounding Boxes</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>{datasetStats.total_boxes}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Classes</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>{Object.keys(datasetStats.class_distribution || {}).length}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Split</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>
+              {datasetStats.train_split}/{datasetStats.val_split}
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+          {!exportedDatasetPath ? (
+            <button
+              onClick={handleExport}
+              disabled={exporting || datasetStats.total_frames === 0}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '10px 20px', borderRadius: 8,
+                background: exporting ? 'var(--border)' : 'var(--accent)',
+                color: '#fff', border: 'none', cursor: exporting ? 'not-allowed' : 'pointer',
+                fontSize: 14, fontWeight: 600, opacity: datasetStats.total_frames === 0 ? 0.5 : 1
+              }}
+            >
+              {exporting ? 'Exportando...' : 'Exportar Dataset'}
+            </button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, color: '#22c55e', fontWeight: 500 }}>
+                ✓ Dataset exportado: {exportedDatasetPath.split('/').slice(-2).join('/')}
+              </span>
+              <button
+                onClick={() => setExportedDatasetPath(null)}
+                style={{ fontSize: 12, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Reexportar
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{
+        background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)",
+        padding: 28, marginBottom: 24, animation: "fadeSlideUp 0.5s ease both",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", margin: 0 }}>
+              {isTraining ? "Treinamento em andamento..." : progress >= 100 ? "Treinamento concluído!" : "Iniciar Treinamento"}
+            </h2>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 0" }}>
+              {!activeJob && `Dataset: ${datasetStats.total_frames} frames · ${Object.keys(datasetStats.class_distribution || {}).length} classes`}
+              {activeJob && `Epoch ${activeJob.current_epoch || 0}/${activeJob.epochs} · ${activeJob.preset}`}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            {!isTraining && !activeJob && (
+              <select
+                value={selectedPreset}
+                onChange={(e) => setSelectedPreset(e.target.value)}
+                disabled={!exportedDatasetPath}
+                style={{
+                  padding: '10px 16px', borderRadius: 8,
+                  background: 'var(--bg)', color: 'var(--text)',
+                  border: '1px solid var(--border)', fontSize: 14,
+                  cursor: !exportedDatasetPath ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <option value="fast">Rápido (YOLOv8n, 50 ep)</option>
+                <option value="balanced">Equilibrado (YOLOv8s, 100 ep)</option>
+                <option value="quality">Qualidade (YOLOv8m, 150 ep)</option>
+              </select>
+            )}
+            <button
+              onClick={isTraining ? handleStop : handleStart}
+              disabled={!exportedDatasetPath && !isTraining}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "10px 24px", borderRadius: 10,
+                background: isTraining ? "#ef444420" : progress >= 100 ? "#22c55e" : !exportedDatasetPath ? "var(--border)" : "var(--accent)",
+                color: isTraining ? "#ef4444" : "#fff",
+                border: isTraining ? "1px solid #ef444440" : "none",
+                fontSize: 14, fontWeight: 600, cursor: (!exportedDatasetPath && !isTraining) ? "not-allowed" : "pointer",
+                opacity: (!exportedDatasetPath && !isTraining) ? 0.5 : 1
+              }}
+            >
+              {starting ? 'Iniciando...' : isTraining ? Icons.x : Icons.play}
+              {starting ? '' : isTraining ? "Parar" : progress >= 100 ? "Novo Treinamento" : "Iniciar"}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ background: "var(--bg)", borderRadius: 8, height: 8, overflow: "hidden", marginBottom: 8 }}>
+          <div style={{
+            height: "100%", borderRadius: 8,
+            background: progress >= 100 ? "#22c55e" : activeJob?.status === 'failed' ? "#ef4444" : "var(--accent)",
+            width: `${progress}%`,
+            transition: "width 0.3s ease",
+          }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "'DM Mono', monospace" }}>
+            {activeJob ? `Epoch ${activeJob.current_epoch || 0}/${activeJob.epochs}` : '-'}
+          </span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "'DM Mono', monospace" }}>
+            {progress.toFixed(1)}%
+          </span>
+        </div>
+        {activeJob?.error_message && (
+          <div style={{ marginTop: 12, padding: 12, background: '#ef444420', borderRadius: 8, fontSize: 13, color: '#ef4444' }}>
+            ❌ {activeJob.error_message}
+          </div>
+        )}
+      </div>
+
+      {activeJob && Object.keys(jobMetrics).length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
+          {[
+            { label: "Precisão", value: jobMetrics.precision ? (jobMetrics.precision * 100).toFixed(1) + '%' : '-' },
+            { label: "Recall", value: jobMetrics.recall ? (jobMetrics.recall * 100).toFixed(1) + '%' : '-' },
+            { label: "mAP@50", value: jobMetrics.mAP50?.toFixed(3) || '-' },
+            { label: "mAP@95", value: jobMetrics.mAP95?.toFixed(3) || '-' },
+          ].map((m, i) => (
+            <div key={i} style={{
+              background: "var(--card)", borderRadius: 14, border: "1px solid var(--border)",
+              padding: 20, animation: `fadeSlideUp 0.4s ease ${0.1 + i * 0.05}s both`,
+            }}>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500, marginBottom: 6 }}>{m.label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)", fontFamily: "'DM Sans', sans-serif" }}>{m.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && datasetStats && (
+        <div style={{
+          marginTop: 20, padding: 16, background: '#ef444420', borderRadius: 10,
+          border: '1px solid #ef444440', fontSize: 14, color: '#ef4444'
+        }}>
+          {error}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════
+// ── TRAINING HISTORY TAB (Histórico) ──
+// ══════════════════════════════════════════════════
+const TrainingHistoryTab = () => {
+  const [jobs, setJobs] = useState([]);
+  const [activeModel, setActiveModel] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedJob, setSelectedJob] = useState(null);
+
+  const token = localStorage.getItem('token');
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const historyRes = await fetch('/api/training/history', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const historyData = await historyRes.json();
+        if (historyData.success) {
+          setJobs(historyData.jobs);
+        } else {
+          setError(historyData.error || 'Failed to load training history');
+        }
+
+        const activeRes = await fetch('/api/training/models/active', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const activeData = await activeRes.json();
+        if (activeData.success && activeData.model) {
+          setActiveModel(activeData.model);
+        }
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [token]);
+
+  const handleActivate = async (modelId) => {
+    try {
+      const res = await fetch(`/api/training/models/${modelId}/activate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActiveModel(data.model);
+        const historyRes = await fetch('/api/training/history', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const historyData = await historyRes.json();
+        if (historyData.success) {
+          setJobs(historyData.jobs);
+        }
+      } else {
+        setError(data.error || 'Failed to activate model');
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const colors = {
+      'pending': '#f59e0b',
+      'running': '#3b82f6',
+      'completed': '#22c55e',
+      'failed': '#ef4444',
+      'stopped': '#6b7280'
+    };
+    const labels = {
+      'pending': 'Pendente',
+      'running': 'Em andamento',
+      'completed': 'Concluído',
+      'failed': 'Falhou',
+      'stopped': 'Parado'
+    };
+    return {
+      color: colors[status] || '#6b7280',
+      label: labels[status] || status
+    };
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleString('pt-BR');
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>Carregando histórico...</div>
+      </div>
+    );
+  }
+
+  if (error && jobs.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <div style={{ color: '#ef4444', marginBottom: 12 }}>{error}</div>
+        <button onClick={() => window.location.reload()} style={{
+          padding: '10px 20px', borderRadius: 8, background: 'var(--accent)',
+          color: '#fff', border: 'none', cursor: 'pointer'
+        }}>
+          Tentar Novamente
+        </button>
+      </div>
+    );
+  }
+
+  if (jobs.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+          Nenhum treinamento encontrado
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          Inicie seu primeiro treinamento na aba "Treinar"
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0, fontFamily: "'DM Sans', sans-serif" }}>Histórico de Treinamentos</h1>
+        <p style={{ color: "var(--text-muted)", margin: "4px 0 0", fontSize: 14 }}>Histórico completo de treinamentos YOLO</p>
+      </div>
+
+      {activeModel && (
+        <div style={{
+          background: "rgba(34, 197, 94, 0.1)", borderRadius: 12, border: "1px solid rgba(34, 197, 94, 0.3)",
+          padding: 16, marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        }}>
+          <div>
+            <div style={{ fontSize: 13, color: '#22c55e', fontWeight: 600, marginBottom: 4 }}>🚀 Modelo Ativo</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{activeModel.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+              {activeModel.model_size} · Criado em {formatDate(activeModel.created_at)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {jobs.map((job, index) => {
+          const statusBadge = getStatusBadge(job.status);
+          const isActive = activeModel?.id === job.model_id;
+          const jobMetrics = job.metrics || {};
+
+          return (
+            <div
+              key={job.id}
+              style={{
+                background: "var(--card)", borderRadius: 14, border: "1px solid var(--border)",
+                padding: 20, cursor: 'pointer', transition: 'all 0.2s',
+                ...(selectedJob === job.id ? { borderColor: 'var(--accent)', borderWidth: 2 } : {})
+              }}
+              onClick={() => setSelectedJob(selectedJob === job.id ? null : job.id)}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0 }}>
+                      {job.name}
+                    </h3>
+                    {isActive && (
+                      <span style={{
+                        fontSize: 11, padding: '2px 8px', borderRadius: 4,
+                        background: '#22c55e', color: '#fff', fontWeight: 600
+                      }}>
+                        ATIVO
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace" }}>
+                    {job.preset} · YOLOv8{job.model_size} · {job.epochs} epochs
+                  </div>
+                </div>
+                <div style={{
+                  padding: '4px 12px', borderRadius: 6,
+                  background: `${statusBadge.color}20`, color: statusBadge.color,
+                  fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap'
+                }}>
+                  {statusBadge.label}
+                </div>
+              </div>
+
+              {job.status === 'running' && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ background: 'var(--bg)', borderRadius: 6, height: 6, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 6,
+                      background: 'var(--accent)', width: `${job.progress}%`,
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, fontFamily: "'DM Mono', monospace" }}>
+                    Epoch {job.current_epoch || 0}/{job.epochs} · {job.progress.toFixed(1)}%
+                  </div>
+                </div>
+              )}
+
+              {selectedJob === job.id && (
+                <div style={{
+                  paddingTop: 12, marginTop: 12, borderTop: '1px solid var(--border)',
+                  animation: 'fadeSlideUp 0.3s ease both'
+                }}>
+                  {Object.keys(jobMetrics).length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 16 }}>
+                      {[
+                        { label: 'Precisão', value: jobMetrics.precision ? (jobMetrics.precision * 100).toFixed(1) + '%' : '-' },
+                        { label: 'Recall', value: jobMetrics.recall ? (jobMetrics.recall * 100).toFixed(1) + '%' : '-' },
+                        { label: 'mAP@50', value: jobMetrics.mAP50?.toFixed(3) || '-' },
+                        { label: 'mAP@95', value: jobMetrics.mAP95?.toFixed(3) || '-' },
+                      ].map((m, i) => (
+                        <div key={i}>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{m.label}</div>
+                          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', fontFamily: "'DM Sans', sans-serif" }}>{m.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+                    <div>
+                      <span style={{ fontWeight: 500 }}>Criado em:</span> {formatDate(job.created_at)}
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 500 }}>Iniciado:</span> {formatDate(job.started_at)}
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 500 }}>Concluído:</span> {formatDate(job.completed_at)}
+                    </div>
+                  </div>
+
+                  {job.error_message && (
+                    <div style={{
+                      marginTop: 12, padding: 10, background: '#ef444420',
+                      borderRadius: 6, fontSize: 12, color: '#ef4444'
+                    }}>
+                      ❌ {job.error_message}
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                    {job.status === 'completed' && job.model_id && !isActive && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleActivate(job.model_id);
+                        }}
+                        style={{
+                          padding: '8px 16px', borderRadius: 6, background: '#22c55e',
+                          color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer'
+                        }}
+                      >
+                        Ativar Modelo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+                <span>Criado em {formatDate(job.created_at)}</span>
+                {selectedJob !== job.id && (
+                  <span style={{ color: 'var(--accent)', fontWeight: 500 }}>
+                    Ver detalhes
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {error && jobs.length > 0 && (
+        <div style={{
+          marginTop: 20, padding: 16, background: '#ef444420', borderRadius: 10,
+          border: '1px solid #ef444440', fontSize: 14, color: '#ef4444'
+        }}>
+          {error}
         </div>
       )}
     </div>
