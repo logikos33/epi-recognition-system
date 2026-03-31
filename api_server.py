@@ -2146,6 +2146,24 @@ def export_dataset():
             total_frames = len(frames)
             train_count = int(total_frames * 0.8)
 
+            # CRITICAL FIX: Get YOLO classes and create ID mapping BEFORE export
+            # YOLO requires 0-based sequential indices (0, 1, 2...)
+            # Database has arbitrary IDs (possibly starting from 1, 2, 5, etc.)
+            classes_result = db.execute(text("""
+                SELECT id, name FROM yolo_classes ORDER BY id ASC
+            """))
+            classes = classes_result.fetchall()
+
+            # Create mapping: database_id -> yolo_index (0, 1, 2...)
+            class_id_to_yolo_index = {}
+            yolo_index_to_class_info = {}  # For data.yaml
+            for yolo_index, (db_id, class_name) in enumerate(classes):
+                class_id_to_yolo_index[db_id] = yolo_index
+                yolo_index_to_class_info[yolo_index] = class_name
+
+            num_classes = len(classes)
+            logger.info(f"✅ Class mapping: {len(class_id_to_yolo_index)} classes → YOLO indices 0-{num_classes-1}")
+
             # Copy frames and export annotations
             for frame in frames:
                 frame_id = str(frame[0])
@@ -2188,28 +2206,29 @@ def export_dataset():
 
                 with open(label_path, 'w') as f:
                     for ann in annotations:
-                        class_id = ann[0]
+                        db_class_id = ann[0]
                         x_center = ann[1]
                         y_center = ann[2]
                         width = ann[3]
                         height = ann[4]
-                        f.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
 
-            # Get YOLO classes
-            classes_result = db.execute(text("""
-                SELECT id, name FROM yolo_classes ORDER BY id
-            """))
-            classes = classes_result.fetchall()
+                        # CRITICAL: Map database class_id to YOLO 0-based index
+                        yolo_class_index = class_id_to_yolo_index.get(db_class_id, db_class_id)
 
-            # Create data.yaml
+                        f.write(f"{yolo_class_index} {x_center} {y_center} {width} {height}\n")
+
+            # Create data.yaml with 0-based indices
             data_yaml_path = os.path.join(dataset_path, 'data.yaml')
             with open(data_yaml_path, 'w') as f:
                 f.write(f"path: {dataset_path}\n")
                 f.write(f"train: images/train\n")
                 f.write(f"val: images/val\n\n")
+                f.write(f"nc: {num_classes}\n\n")  # Number of classes
                 f.write(f"names:\n")
-                for cls in classes:
-                    f.write(f"  {cls[0]}: {cls[1]}\n")
+                # Write 0-based indices with class names
+                for yolo_index in range(num_classes):
+                    class_name = yolo_index_to_class_info[yolo_index]
+                    f.write(f"  {yolo_index}: {class_name}\n")
 
         return jsonify({
             'success': True,
