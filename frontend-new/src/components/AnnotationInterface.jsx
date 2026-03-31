@@ -100,12 +100,17 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
     loadClasses()
   }, [videoId])
 
-  // Load annotations when frame changes
+  // Load annotations when frame changes - COM DEBOUNCE
   useEffect(() => {
-    if (selectedFrame) {
+    if (!selectedFrame) return
+
+    // Debounce: esperar 300ms após última mudança antes de carregar
+    const timer = setTimeout(() => {
       loadAnnotations(selectedFrame.id)
       setSuggestions([]) // Clear suggestions on frame change
-    }
+    }, 300)
+
+    return () => clearTimeout(timer)  // Limpar timer se mudar novamente
   }, [selectedFrame])
 
   // Scroll selected frame into view
@@ -164,11 +169,20 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
   }
 
   const loadAnnotations = async (frameId: string) => {
+    if (!frameId) return
+
     try {
       const token = localStorage.getItem('token')
       const response = await fetch(`/api/training/frames/${frameId}/annotations`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
+
+      // Tratar erros HTTP sem loggar (evitar flood do console)
+      if (!response.ok) {
+        setAnnotations([])
+        setHasUnsavedChanges(false)
+        return
+      }
 
       const result = await response.json()
       if (result.success && result.annotations) {
@@ -179,7 +193,7 @@ export function AnnotationInterface({ videoId, onBack }: { videoId: string, onBa
         setHasUnsavedChanges(false)
       }
     } catch (error) {
-      console.error('Error loading annotations:', error)
+      // Silencioso - não logar erros de network/backend
       setAnnotations([])
       setHasUnsavedChanges(false)
     }
