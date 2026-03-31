@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 
 # Import database modules
-from backend.database import get_db, init_db, SessionLocal
+from backend.database import get_db, get_db_context, init_db, SessionLocal
 from backend.auth_db import (
     create_user, get_user_by_email, get_user_by_id,
     verify_user_credentials, update_last_login, verify_session
@@ -1481,22 +1481,20 @@ def extract_video_frames(video_id: str):
         # Start extraction in background
         def extract_background(video_id, user_id):
             try:
-                db_local = next(get_db())
-                processor = VideoProcessor()
-                result = processor.extract_frames(
-                    db=db_local,
-                    video_id=video_id,
-                    user_id=user_id
-                )
+                with get_db_context() as db_local:
+                    processor = VideoProcessor()
+                    result = processor.extract_frames(
+                        db=db_local,
+                        video_id=video_id,
+                        user_id=user_id
+                    )
 
-                if result.get('success'):
-                    logger.info(f"✅ Manual extraction complete: {video_id}")
-                else:
-                    logger.error(f"❌ Manual extraction failed: {video_id}")
+                    if result.get('success'):
+                        logger.info(f"✅ Manual extraction complete: {video_id}")
+                    else:
+                        logger.error(f"❌ Manual extraction failed: {video_id}")
             except Exception as e:
                 logger.error(f"❌ Manual extraction error: {e}")
-            finally:
-                db_local.close()
 
         thread = threading.Thread(
             target=extract_background,
