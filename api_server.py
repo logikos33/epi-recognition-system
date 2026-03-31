@@ -1653,6 +1653,16 @@ def save_frame_annotations(frame_id: str):
             DELETE FROM frame_annotations WHERE frame_id = :frame_id
         """), {'frame_id': frame_id})
 
+        # Se não tem annotations, marcar como não anotado
+        if len(annotations) == 0:
+            db.execute(text("""
+                UPDATE training_frames
+                SET is_annotated = FALSE
+                WHERE id = :frame_id
+            """), {'frame_id': frame_id})
+            db.commit()
+            return jsonify({'success': True, 'saved': 0})
+
         # Insert new annotations
         for ann in annotations:
             annotation_id = str(uuid.uuid4())
@@ -1694,48 +1704,9 @@ def save_frame_annotations(frame_id: str):
 @app.route('/api/classes', methods=['GET'])
 def list_classes():
     """Lista classes YOLO para anotação"""
-    # Criar tabelas se não existirem
     db = get_db_session()
-    try:
-        # Criar/Recriar tabela frame_annotations com foreign key correta
-        db.execute(text("""
-            DROP TABLE IF EXISTS frame_annotations CASCADE
-        """))
-        db.execute(text("""
-            CREATE TABLE frame_annotations (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                frame_id UUID NOT NULL,
-                class_id INTEGER NOT NULL,
-                bbox_x FLOAT NOT NULL,
-                bbox_y FLOAT NOT NULL,
-                bbox_width FLOAT NOT NULL,
-                bbox_height FLOAT NOT NULL,
-                created_by UUID NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
 
-                CONSTRAINT fk_frame_annotations_frame
-                    FOREIGN KEY (frame_id)
-                    REFERENCES training_frames(id)
-                    ON DELETE CASCADE,
-
-                CONSTRAINT fk_frame_annotations_user
-                    FOREIGN KEY (created_by)
-                    REFERENCES users(id)
-                    ON DELETE CASCADE
-            )
-        """))
-        db.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_frame_annotations_frame_id ON frame_annotations(frame_id)
-        """))
-        db.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_frame_annotations_class_id ON frame_annotations(class_id)
-        """))
-        db.commit()
-        logger.info("✅ Tabela frame_annotations recriada com foreign key correta")
-    except Exception as e:
-        logger.warning(f"Erro ao criar frame_annotations: {e}")
-        db.rollback()
-
+    # Criar tabela yolo_classes se não existir
     try:
         db.execute(text("""
             CREATE TABLE IF NOT EXISTS yolo_classes (
@@ -2041,9 +2012,65 @@ def delete_video_alias(video_id: str):
 # Application Entry Point
 # ============================================================================
 
+# Initialize database tables on startup
+def init_database_tables():
+    """Create necessary tables if they don't exist"""
+    try:
+        db = get_db_session()
+        try:
+            # Create frame_annotations table
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS frame_annotations (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    frame_id UUID NOT NULL,
+                    class_id INTEGER NOT NULL,
+                    bbox_x FLOAT NOT NULL,
+                    bbox_y FLOAT NOT NULL,
+                    bbox_width FLOAT NOT NULL,
+                    bbox_height FLOAT NOT NULL,
+                    created_by UUID NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+
+                    CONSTRAINT fk_frame_annotations_frame
+                        FOREIGN KEY (frame_id)
+                        REFERENCES training_frames(id)
+                        ON DELETE CASCADE,
+
+                    CONSTRAINT fk_frame_annotations_user
+                        FOREIGN KEY (created_by)
+                        REFERENCES users(id)
+                        ON DELETE CASCADE
+                )
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_frame_annotations_frame_id ON frame_annotations(frame_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_frame_annotations_class_id ON frame_annotations(class_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_frame_annotations_created_by ON frame_annotations(created_by)
+            """))
+            db.commit()
+            logger.info("✅ Tabela frame_annotations verificada/criada")
+        except Exception as e:
+            logger.warning(f"Erro ao criar frame_annotations: {e}")
+            db.rollback()
+        finally:
+            # Connection fechada automaticamente pelo teardown
+            pass
+    except Exception as e:
+        logger.error(f"❌ Erro na inicialização do banco: {e}")
+
+
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 Starting EPI Recognition System API Server")
+
+    # Initialize database tables
+    init_database_tables()
+
+    logger.info("=" * 60)
     logger.info("=" * 60)
     logger.info(f"📡 WebSocket support: ENABLED")
     logger.info(f"📹 HLS streaming: ENABLED")
