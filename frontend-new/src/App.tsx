@@ -5,6 +5,7 @@ import { useToast } from "./hooks/useToast";
 import CameraForm from "./components/CameraForm";
 import Modal from "./components/Modal";
 import ToastContainer from "./components/Toast";
+import ImageUploadZone from "./components/ImageUploadZone.jsx";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 
@@ -560,6 +561,9 @@ const TrainingPage = () => {
   const [renamingVideoId, setRenamingVideoId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
 
+  // State para upload de imagens
+  const [imageUploadModalOpen, setImageUploadModalOpen] = useState(false);
+
   useEffect(() => {
     loadVideos();
   }, []);
@@ -726,6 +730,59 @@ const TrainingPage = () => {
           </div>
         )}
       </div>
+
+      {/* Upload Buttons */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+        <button
+          onClick={() => setImageUploadModalOpen(true)}
+          disabled={uploading}
+          style={{
+            flex: 1,
+            padding: '12px 20px',
+            borderRadius: '8px',
+            background: 'var(--card)',
+            border: '1px solid var(--border)',
+            color: 'var(--text)',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'all 0.15s',
+          }}
+          onMouseEnter={(e) => {
+            if (!uploading) {
+              e.currentTarget.style.background = 'var(--bg)';
+              e.currentTarget.style.borderColor = 'var(--accent)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'var(--card)';
+            e.currentTarget.style.borderColor = 'var(--border)';
+          }}
+        >
+          <span>📷</span>
+          Upload Imagens
+        </button>
+      </div>
+
+      {/* Image Upload Modal */}
+      <Modal
+        isOpen={imageUploadModalOpen}
+        onClose={() => setImageUploadModalOpen(false)}
+        title="Upload de Imagens"
+        size="lg"
+      >
+        <ImageUploadZone
+          onUploadComplete={(response) => {
+            console.log('Upload completo:', response);
+            loadVideos();
+          }}
+          onClose={() => setImageUploadModalOpen(false)}
+        />
+      </Modal>
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 80, color: 'var(--muted)' }}>
