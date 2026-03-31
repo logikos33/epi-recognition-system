@@ -1788,9 +1788,9 @@ const TrainingHistoryTab = () => {
             <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", margin: 0 }}>Entendendo as métricas</h3>
           </div>
           <ul style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
-            <li><strong>mAP@50 > 0.7:</strong> modelo bom para produção</li>
-            <li><strong>mAP@50 > 0.5:</strong> funcional, mais dados recomendados</li>
-            <li><strong>mAP@50 < 0.5:</strong> fraco, retreinar com mais dados</li>
+            <li><strong>mAP@50 &gt; 0.7:</strong> modelo bom para produção</li>
+            <li><strong>mAP@50 &gt; 0.5:</strong> funcional, mais dados recomendados</li>
+            <li><strong>mAP@50 &lt; 0.5:</strong> fraco, retreinar com mais dados</li>
             <li><strong>Mais epochs e dados</strong> = melhor resultado</li>
           </ul>
         </div>
