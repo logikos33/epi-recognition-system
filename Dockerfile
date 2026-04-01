@@ -34,5 +34,5 @@ EXPOSE 8080
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
-# Run the application
-CMD ["python", "railway_start.py"]
+# Run the application (simplified - no automatic migrations)
+CMD ["python", "railway_start_simple.py"]
