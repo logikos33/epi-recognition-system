@@ -100,6 +100,7 @@ const Icons = {
   shield: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   alertTriangle: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/></svg>,
   settings: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+  sliders: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
   logout: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>,
   eye: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   edit: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
@@ -2459,6 +2460,383 @@ const MonitoringPage = () => {
   );
 };
 
+// ── Rules (FASE 3) ──
+const RulesPage = () => {
+  const [templates, setTemplates] = useState([]);
+  const [customRules, setCustomRules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const { success, error: toastError } = useToast();
+
+  // Polling para regras (30s com backoff)
+  useEffect(() => {
+    let mounted = true;
+    let failCount = 0;
+    let pollInterval = 30000; // 30s inicial
+
+    const fetchRules = async () => {
+      try {
+        const res = await fetch("http://localhost:5001/api/rules");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (mounted && data.success) {
+          // Separar templates de regras customizadas
+          const temps = data.rules.filter(r => r.template_type !== null);
+          const customs = data.rules.filter(r => r.template_type === null);
+
+          setTemplates(temps);
+          setCustomRules(customs);
+          setError(null);
+          failCount = 0; // Reset falhas
+          pollInterval = 30000; // Reset intervalo
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error("Erro ao buscar regras:", err);
+          failCount++;
+          // Exponential backoff até 60s max
+          pollInterval = Math.min(30000 * Math.pow(2, failCount - 1), 60000);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchRules();
+    const interval = setInterval(fetchRules, pollInterval);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Toggle rule active/inactive
+  const handleToggle = async (ruleId, currentState) => {
+    try {
+      const res = await fetch(`http://localhost:5001/api/rules/${ruleId}/toggle`, {
+        method: "POST",
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (data.success) {
+        // Atualizar estado local otimista
+        const updateList = (list) =>
+          list.map(r =>
+            r.id === ruleId ? { ...r, is_active: !r.is_active } : r
+          );
+
+        setTemplates(updateList(templates));
+        setCustomRules(updateList(customRules));
+
+        success(`Regra ${currentState ? "desativada" : "ativada"} com sucesso!`);
+      } else {
+        throw new Error(data.error || "Erro ao alternar regra");
+      }
+    } catch (err) {
+      console.error("Erro ao alternar regra:", err);
+      toastError(err.message || "Erro ao alternar regra");
+    }
+  };
+
+  // Template descriptions
+  const getTemplateDescription = (template) => {
+    const descriptions = {
+      "bay_control": "Detecta caminhão e gerencia sessões automaticamente",
+      "product_count": "Conta cada produto detectado com cooldown de 3s",
+      "plate_capture": "Associa placa detectada à sessão ativa",
+      "epi_compliance": "Alerta quando operador sem EPI",
+    };
+    return descriptions[template.template_type] || template.description || "";
+  };
+
+  // Get template label
+  const getTemplateLabel = (template) => {
+    const labels = {
+      "Controle de Baia — Início": "Controle de Baia — Início",
+      "Controle de Baia — Fim": "Controle de Baia — Fim",
+      "Contagem de Produtos": "Contagem de Produtos",
+      "Captura de Placa": "Captura de Placa",
+    };
+    return labels[template.name] || template.name;
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>
+          Regras
+        </h1>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>
+          Configure regras de negócio para processamento de detecções YOLO
+        </p>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60 }}>
+          <div style={{
+            width: 40, height: 40, margin: "0 auto 16px",
+            border: "3px solid var(--border)", borderTopColor: "var(--accent)",
+            borderRadius: "50%", animation: "spin 1s linear infinite"
+          }} />
+          <p style={{ color: "var(--muted)", fontSize: 14 }}>Carregando regras...</p>
+        </div>
+      ) : error ? (
+        <div style={{
+          background: "#fef2f2", border: "1px solid #fecaca",
+          borderRadius: 12, padding: 24, textAlign: "center"
+        }}>
+          <p style={{ color: "#dc2626", fontSize: 14, fontWeight: 500, margin: "0 0 8px" }}>
+            Erro ao carregar regras
+          </p>
+          <p style={{ color: "#991b1b", fontSize: 13, margin: 0 }}>{error}</p>
+        </div>
+      ) : (
+        <>
+          {/* Templates Pré-configurados */}
+          <div style={{
+            background: "var(--card)", borderRadius: 16,
+            border: "1px solid var(--border)", padding: 24, marginBottom: 24
+          }}>
+            <h2 style={{
+              fontSize: 16, fontWeight: 600, color: "var(--text)",
+              margin: "0 0 20px", display: "flex", alignItems: "center", gap: 8
+            }}>
+              {Icons.settings} Templates Pré-configurados
+            </h2>
+
+            {templates.length === 0 ? (
+              <p style={{ color: "var(--muted)", fontSize: 14, margin: 0 }}>
+                Nenhum template disponível.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {templates.map((template, index) => (
+                  <div key={template.id} style={{
+                    padding: 16, borderRadius: 12,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 16,
+                    transition: "transform 0.15s, box-shadow 0.15s",
+                    animation: `fadeUp 0.4s ease ${0.1 + index * 0.05}s both`
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "";
+                    e.currentTarget.style.boxShadow = "";
+                  }}>
+                    {/* Toggle Button */}
+                    <button
+                      onClick={() => handleToggle(template.id, template.is_active)}
+                      style={{
+                        width: 48, height: 28, flexShrink: 0,
+                        background: template.is_active ? "#22c55e" : "rgba(0,0,0,0.08)",
+                        borderRadius: 14, position: "relative", cursor: "pointer",
+                        border: "none", transition: "background 0.2s"
+                      }}
+                    >
+                      <span style={{
+                        position: "absolute", top: 3,
+                        left: template.is_active ? 25 : 4,
+                        width: 22, height: 22, borderRadius: "50%",
+                        background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                        transition: "left 0.2s"
+                      }} />
+                    </button>
+
+                    {/* Template Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8, marginBottom: 4
+                      }}>
+                        <span style={{
+                          fontSize: 14, fontWeight: 600, color: "var(--text)"
+                        }}>
+                          {getTemplateLabel(template)}
+                        </span>
+                        {template.is_active && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, color: "#22c55e",
+                            padding: "2px 8px", borderRadius: 10,
+                            background: "rgba(34,197,94,0.1)"
+                          }}>
+                            ATIVO
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                        {getTemplateDescription(template)}
+                      </div>
+                    </div>
+
+                    {/* Action Type Badge */}
+                    <span style={{
+                      fontSize: 11, fontWeight: 500, color: "var(--muted)",
+                      padding: "4px 10px", borderRadius: 6,
+                      background: "var(--bg)", border: "1px solid var(--border)",
+                      textTransform: "uppercase", letterSpacing: 0.5
+                    }}>
+                      {template.action_type === "start_session" && "Iniciar Sessão"}
+                      {template.action_type === "end_session" && "Encerrar Sessão"}
+                      {template.action_type === "count_product" && "Contar"}
+                      {template.action_type === "associate_plate" && "Placa"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Regras Customizadas */}
+          <div style={{
+            background: "var(--card)", borderRadius: 16,
+            border: "1px solid var(--border)", padding: 24
+          }}>
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              marginBottom: 20
+            }}>
+              <h2 style={{
+                fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0,
+                display: "flex", alignItems: "center", gap: 8
+              }}>
+                {Icons.sliders} Regras Customizadas
+              </h2>
+              <button style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 16px", borderRadius: 8,
+                background: "var(--accent)", color: "#fff",
+                border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer",
+                transition: "all 0.15s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                {Icons.plus} Adicionar
+              </button>
+            </div>
+
+            {customRules.length === 0 ? (
+              <div style={{
+                padding: 40, textAlign: "center",
+                background: "var(--bg)", borderRadius: 12
+              }}>
+                <p style={{ color: "var(--muted)", fontSize: 14, margin: 0 }}>
+                  Nenhuma regra customizada criada ainda.
+                </p>
+                <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 4 }}>
+                  Clique em "Adicionar" para criar sua primeira regra customizada.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {customRules.map((rule, index) => (
+                  <div key={rule.id} style={{
+                    padding: 16, borderRadius: 12,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 16,
+                    transition: "transform 0.15s, box-shadow 0.15s",
+                    animation: `fadeUp 0.4s ease ${0.2 + index * 0.05}s both`
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "";
+                    e.currentTarget.style.boxShadow = "";
+                  }}>
+                    {/* Toggle Button */}
+                    <button
+                      onClick={() => handleToggle(rule.id, rule.is_active)}
+                      style={{
+                        width: 48, height: 28, flexShrink: 0,
+                        background: rule.is_active ? "#22c55e" : "rgba(0,0,0,0.08)",
+                        borderRadius: 14, position: "relative", cursor: "pointer",
+                        border: "none", transition: "background 0.2s"
+                      }}
+                    >
+                      <span style={{
+                        position: "absolute", top: 3,
+                        left: rule.is_active ? 25 : 4,
+                        width: 22, height: 22, borderRadius: "50%",
+                        background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                        transition: "left 0.2s"
+                      }} />
+                    </button>
+
+                    {/* Rule Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8, marginBottom: 4
+                      }}>
+                        <span style={{
+                          fontSize: 14, fontWeight: 600, color: "var(--text)"
+                        }}>
+                          {rule.name}
+                        </span>
+                        {rule.is_active && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, color: "#22c55e",
+                            padding: "2px 8px", borderRadius: 10,
+                            background: "rgba(34,197,94,0.1)"
+                          }}>
+                            ATIVO
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                        {rule.description || "Sem descrição"}
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={{
+                        padding: "6px 12px", borderRadius: 6,
+                        background: "var(--bg)", color: "var(--text)",
+                        border: "1px solid var(--border)", fontSize: 12,
+                        fontWeight: 500, cursor: "pointer", display: "flex",
+                        alignItems: "center", gap: 4, transition: "all 0.15s"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}>
+                        {Icons.edit} Editar
+                      </button>
+                      <button style={{
+                        padding: "6px 12px", borderRadius: 6,
+                        background: "var(--bg)", color: "#ef4444",
+                        border: "1px solid var(--border)", fontSize: 12,
+                        fontWeight: 500, cursor: "pointer", display: "flex",
+                        alignItems: "center", gap: 4, transition: "all 0.15s"
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = "#ef4444";
+                        e.currentTarget.style.background = "#fef2f2";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = "var(--border)";
+                        e.currentTarget.style.background = "var(--bg)";
+                      }}>
+                        {Icons.trash} Excluir
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── Nav ──
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: Icons.dashboard },
@@ -2466,6 +2844,7 @@ const NAV = [
   { id: "monitoring", label: "Monitoramento", icon: Icons.monitor },
   { id: "classes", label: "Classes", icon: Icons.classes },
   { id: "training", label: "Treinamento", icon: Icons.training },
+  { id: "rules", label: "Regras", icon: Icons.sliders },
 ];
 
 // ── App ──
@@ -2610,6 +2989,7 @@ export default function App() {
             {page === "monitoring" && <MonitoringPage />}
             {page === "classes" && <ClassesPage />}
             {page === "training" && <TrainingPage />}
+            {page === "rules" && <RulesPage />}
           </main>
         </div>
       </div>
