@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=os.environ.get('CORS_ORIGINS', '*').split(','))
 
 # ============================================================================
 # Camera System Blueprint (Feature 1)
@@ -299,6 +299,19 @@ def verify_token(token: str) -> dict:
 #     leave_room(room)
 #     logger.info(f"📹 Client {request.sid} unsubscribed from camera {camera_id}")
 #     emit('unsubscribed', {'camera_id': camera_id, 'room': room})
+
+
+@app.after_request
+def add_security_headers(response):
+    """Headers de segurança HTTP para produção."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    if os.environ.get('FLASK_ENV') == 'production':
+        response.headers['Strict-Transport-Security'] = \
+            'max-age=31536000; includeSubDomains'
+    return response
 
 
 # ============================================================================
