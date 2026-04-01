@@ -79,6 +79,19 @@ from cameras.health_checker import CameraHealthChecker
 camera_health_checker = CameraHealthChecker()
 camera_health_checker.start()
 
+# ============================================================================
+# Rules Engine Blueprint (FASE 3 - State Machine para processamento YOLO)
+# ============================================================================
+from rules.routes import rules_bp, sessions_bp
+app.register_blueprint(rules_bp, url_prefix='/api/rules')
+app.register_blueprint(sessions_bp, url_prefix='/api/sessions')
+
+# ============================================================================
+# Dashboard Blueprint (FASE 5 - KPIs e Excel Export)
+# ============================================================================
+from dashboard.routes import dashboard_bp
+app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+
 
 # ============================================================================
 # Global Exception Handlers - Backend Never Crashes
@@ -196,16 +209,32 @@ yolo_processor_manager = YOLOProcessorManager()
 if model:
     yolo_processor_manager.set_model(model)
 
-# Detection callback for WebSocket broadcasting
+# Detection callback for WebSocket broadcasting + Rules Engine processing
 def on_detection_result(result: dict):
-    """Callback for YOLO detection results - broadcasts via WebSocket"""
+    """Callback for YOLO detection results - processes via Rules Engine + broadcasts via WebSocket"""
     try:
-        # Emit to camera-specific room
+        camera_id = result.get('camera_id')
+        detections = result.get('detections', [])
+
+        # NOVO: Processar detecções através da Rules Engine
+        if camera_id and detections:
+            try:
+                from rules.service import get_rules_engine
+                rules_engine = get_rules_engine()
+                actions = rules_engine.process_detections(str(camera_id), detections)
+
+                # Logar ações executadas
+                for action in actions:
+                    logger.info(f"✅ Rules action: {action.get('action_type')} for camera {camera_id}")
+            except Exception as rules_error:
+                logger.error(f"❌ Rules Engine error: {rules_error}")
+
+        # Emit to camera-specific room (mantido)
         room = f"camera_{result['camera_id']}"
         socketio.emit('detection', result, room=room)
         logger.debug(f"📡 Emitted detection to {room}: {len(result.get('detections', []))} objects")
     except Exception as e:
-        logger.error(f"❌ Error emitting detection: {e}")
+        logger.error(f"❌ Error in detection callback: {e}")
 
 # Register detection callback
 yolo_processor_manager.set_detection_callback(on_detection_result)
@@ -589,20 +618,8 @@ def get_stream_status(camera_id):
 
 @app.route('/api/streams/status', methods=['GET'])
 def get_all_streams_status():
-    """Get status of all active streams and detections."""
-    # Verify JWT token
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Authorization required'}), 401
-
-    token = auth_header.split(' ')[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Invalid token'}), 401
-
+    """Get status of all active streams and detections.
+    NOTE: Public endpoint - no auth required for health monitoring."""
     # Get all stream statuses
     stream_statuses = stream_manager.get_all_streams_status() if stream_manager else {}
 
@@ -630,20 +647,8 @@ def get_streams_health():
         - Uptime in seconds
         - Restart count
         - Last health check timestamp
+    NOTE: Public endpoint - no auth required for health monitoring.
     """
-    # Verify JWT token
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Authorization required'}), 401
-
-    token = auth_header.split(' ')[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Invalid token'}), 401
-
     # Get health report from stream manager
     if stream_manager:
         health_report = stream_manager.get_stream_health_report()
