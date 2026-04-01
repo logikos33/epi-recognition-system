@@ -17,3 +17,4 @@ gunicorn
 eventlet
 redis
 requests
+sqlalchemy
