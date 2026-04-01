@@ -86,6 +86,12 @@ from rules.routes import rules_bp, sessions_bp
 app.register_blueprint(rules_bp, url_prefix='/api/rules')
 app.register_blueprint(sessions_bp, url_prefix='/api/sessions')
 
+# ============================================================================
+# Dashboard Blueprint (FASE 5 - KPIs e Excel Export)
+# ============================================================================
+from dashboard.routes import dashboard_bp
+app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+
 
 # ============================================================================
 # Global Exception Handlers - Backend Never Crashes
