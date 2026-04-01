@@ -12,6 +12,9 @@ except ImportError:
         """Mock video processor when cv2 is not available"""
         def __init__(self):
             pass
-        
+
         def process_video(self, *args, **kwargs):
-            return {"error": "Video processing not available - cv2 not installed"}
+            return {"success": False, "error": "Video processing not available - cv2 not installed"}
+
+        def extract_frames(self, *args, **kwargs):
+            return {"success": False, "error": "Frame extraction not available - cv2 not installed"}
