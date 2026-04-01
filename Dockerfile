@@ -1,7 +1,7 @@
-# EPI Monitor - Dockerfile otimizado para Railway
+# EPI Monitor - Dockerfile para Railway
 FROM python:3.11-slim
 
-# Instalar dependências do sistema (Debian 12 Bookworm)
+# Instalar dependências do sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1 \
@@ -10,14 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     libgomp1 \
-    gcc \
-    g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
+# Copy requirements first
 COPY requirements.txt .
 
 # Install Python dependencies
@@ -34,5 +31,5 @@ EXPOSE 8080
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
-# Run the application (simplified - no automatic migrations)
+# Run the application with verification
 CMD ["python", "railway_start_simple.py"]
