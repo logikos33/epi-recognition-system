@@ -10,6 +10,7 @@ import ImageUploadZone from "./components/ImageUploadZone.jsx";
 import { api } from "./services/api";
 import { CameraWizard } from "./components/CameraWizard";
 import { CameraEditModal } from "./components/CameraEditModal";
+import { LoginPage } from "./components/LoginPage";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
@@ -3927,7 +3928,17 @@ export default function App() {
         ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
       `}</style>
 
-      <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)", fontFamily: "'DM Sans', sans-serif" }}>
+      {!isLoggedIn ? (
+        <LoginPage
+          onLoginSuccess={(data) => {
+            setIsLoggedIn(true);
+            setUserRole(data.user?.role || 'operator');
+            setUserName(data.user?.full_name || data.user?.email || 'Admin');
+          }}
+        />
+      ) : (
+        <>
+          <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)", fontFamily: "'DM Sans', sans-serif" }}>
         {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40, backdropFilter: "blur(4px)" }} />}
 
         {/* Sidebar */}
@@ -4114,7 +4125,9 @@ export default function App() {
       )}
 
       {/* Toast Notifications */}
-      <ToastContainer />
+        <ToastContainer />
+        </>
+      )}
     </>
   );
 }

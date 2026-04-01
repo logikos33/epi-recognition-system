@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Icons } from "../icons";
 
 /**
  * LoginPage - Página de login/registro estilo Instagram (tema azul)
