@@ -3361,6 +3361,28 @@ def init_database_tables():
         logger.error(f"❌ Erro na inicialização do banco: {e}")
 
 
+# ============================================================================
+# SERVIR FRONTEND REACT EM PRODUÇÃO
+# ============================================================================
+import os as _os
+from flask import send_from_directory as _sfd
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
+    """Serve React frontend build em produção Railway."""
+    dist_dir = _os.path.join(
+        _os.path.dirname(_os.path.abspath(__file__)),
+        'frontend-new', 'dist'
+    )
+    if path and _os.path.exists(_os.path.join(dist_dir, path)):
+        return _sfd(dist_dir, path)
+    index = _os.path.join(dist_dir, 'index.html')
+    if _os.path.exists(index):
+        return _sfd(dist_dir, 'index.html')
+    return jsonify({'error': 'Frontend não buildado. Executar npm run build'}), 404
+
+
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 Starting EPI Recognition System API Server")

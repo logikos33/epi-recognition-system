@@ -1,18 +1,11 @@
 [phases.setup]
-nixPkgs = ["postgresql", "libpq", "ffmpeg"]
-
-[phases.build]
-nixPkgs = ["pkg-config", "libpq", "postgresql"]
+nixPkgs = ["python311", "ffmpeg", "libGL", "libGLU", "glib", "gcc"]
 
 [phases.install]
-nixPkgs = ["opencv", "python311", "ffmpeg"]
-
-[variables]
-PYTHON_VERSION = "3.11"
-PORT = "5001"
+cmds = [
+  "pip install --upgrade pip setuptools wheel",
+  "pip install -r requirements.txt"
+]
 
 [start]
-cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 api_server:app"
-
-[build]
-nixPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender-dev", "libgomp1"]
+cmd = "python railway_start.py"
