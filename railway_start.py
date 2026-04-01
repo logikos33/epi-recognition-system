@@ -1,229 +1,182 @@
 #!/usr/bin/env python3
 """
-Inicialização do EPI Monitor no Railway.
-Corrige DATABASE_URL, executa migrations, cria admin, inicia servidor.
+EPI Monitor — Inicialização Railway.
+SERVICE_TYPE=api    → Flask API (padrão)
+SERVICE_TYPE=worker → Worker FFmpeg/YOLO
 """
-import os
-import sys
-import glob
+import os, sys, glob, logging
 
-# ============================================================
-# VARIÁVEIS OBRIGATÓRIAS
-# ============================================================
-DATABASE_URL = os.environ.get('DATABASE_URL', '')
-PORT = os.environ.get('PORT', '8080')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [INIT] %(levelname)s %(message)s'
+)
+log = logging.getLogger(__name__)
 
-# Railway usa postgres:// mas psycopg2 precisa postgresql://
-if DATABASE_URL.startswith('postgres://'):
-    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-    os.environ['DATABASE_URL'] = DATABASE_URL
-    print(f"✅ DATABASE_URL prefixo corrigido: postgresql://...")
+# ── Variáveis ────────────────────────────────────────────────
+SERVICE = os.environ.get('SERVICE_TYPE', 'api')
+PORT    = os.environ.get('PORT', '8080')
+DB_URL  = os.environ.get('DATABASE_URL', '')
+REDIS   = os.environ.get('REDIS_URL', '')
 
-if not DATABASE_URL:
-    print("❌ DATABASE_URL não definida — verificar variáveis no Railway")
-    sys.exit(1)
+# Corrigir prefixo Railway
+if DB_URL.startswith('postgres://'):
+    DB_URL = DB_URL.replace('postgres://', 'postgresql://', 1)
+    os.environ['DATABASE_URL'] = DB_URL
 
-print(f"✅ PORT: {PORT}")
-print(f"✅ DATABASE_URL: postgresql://...{DATABASE_URL[-20:]}")
+log.info(f"SERVICE_TYPE : {SERVICE}")
+log.info(f"PORT         : {PORT}")
+log.info(f"DATABASE_URL : {'OK' if DB_URL else 'AUSENTE'}")
+log.info(f"REDIS_URL    : {'OK' if REDIS else 'ausente'}")
 
-# ============================================================
-# MIGRATIONS
-# ============================================================
-def run_migrations():
-    print("\n=== Executando migrations ===")
+# ── Verificar banco ──────────────────────────────────────────
+def check_db():
+    if not DB_URL:
+        log.error("DATABASE_URL não definida")
+        return False
     try:
         import psycopg2
-        conn = psycopg2.connect(DATABASE_URL)
+        c = psycopg2.connect(DB_URL, connect_timeout=15)
+        c.cursor().execute("SELECT 1")
+        c.close()
+        log.info("✅ Banco OK")
+        return True
+    except Exception as e:
+        log.error(f"Banco inacessível: {e}")
+        return False
+
+# ── Migrations ───────────────────────────────────────────────
+def run_migrations():
+    log.info("=== Migrations ===")
+    try:
+        import psycopg2
+        conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        
-        migration_files = sorted(glob.glob('migrations/*.sql'))
-        if not migration_files:
-            print("  ⚠️  Nenhum arquivo SQL em migrations/")
-            conn.close()
-            return True
-        
-        for filepath in migration_files:
-            print(f"  Executando {filepath}...")
+        for f in sorted(glob.glob('migrations/*.sql')):
+            log.info(f"  {f}...")
             try:
-                with open(filepath) as f:
-                    sql = f.read().strip()
-                if sql:
-                    cur.execute(sql)
-                    conn.commit()
-                    print(f"  ✅ {filepath}")
+                cur.execute(open(f).read())
+                conn.commit()
+                log.info(f"  ✅")
             except Exception as e:
                 conn.rollback()
-                # Ignorar erros de "já existe" — são esperados em redeploys
-                err_str = str(e).lower()
-                if 'already exists' in err_str or 'duplicate' in err_str:
-                    print(f"  ⚠️  {filepath}: já existe (OK)")
+                if 'already exists' in str(e).lower() or 'duplicate' in str(e).lower():
+                    log.info(f"  já existe (OK)")
                 else:
-                    print(f"  ❌ {filepath}: {e}")
-        
+                    log.error(f"  ❌ {e}")
         conn.close()
-        print("✅ Migrations concluídas")
+        log.info("✅ Migrations OK")
         return True
-        
-    except psycopg2.OperationalError as e:
-        print(f"❌ Erro de conexão com banco: {e}")
-        print("   Verificar DATABASE_URL no Railway")
-        return False
     except Exception as e:
-        print(f"❌ Erro inesperado nas migrations: {e}")
-        import traceback
-        traceback.print_exc()
+        log.error(f"Migrations: {e}")
         return False
 
-# ============================================================
-# CRIAR ADMIN
-# ============================================================
+# ── Criar admin ──────────────────────────────────────────────
 def create_admin():
-    print("\n=== Configurando admin ===")
     try:
-        import psycopg2
-        import bcrypt
-        
-        conn = psycopg2.connect(DATABASE_URL)
+        import psycopg2, bcrypt
+        conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        
-        # Verificar se tabela users existe
         cur.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_name = 'users'
+            SELECT EXISTS(
+                SELECT FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='users'
             )
         """)
         if not cur.fetchone()[0]:
-            print("  ⚠️  Tabela users não existe ainda — pulando")
+            log.info("Tabela users não existe — pulando admin")
             conn.close()
             return
-        
-        email = os.environ.get('ADMIN_EMAIL', 'admin@epimonitor.com')
+        email    = os.environ.get('ADMIN_EMAIL',    'admin@epimonitor.com')
         password = os.environ.get('ADMIN_PASSWORD', 'EpiMonitor@2024!')
-        name = os.environ.get('ADMIN_NAME', 'Administrador')
-        
-        cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+        name     = os.environ.get('ADMIN_NAME',     'Administrador')
+        cur.execute("SELECT id FROM users WHERE email=%s", (email,))
         if cur.fetchone():
-            print(f"  ✅ Admin já existe: {email}")
+            log.info(f"  Admin já existe: {email}")
         else:
-            hashed = bcrypt.hashpw(
-                password.encode('utf-8'), 
-                bcrypt.gensalt()
-            ).decode('utf-8')
-            
-            # Tentar com coluna role, sem role se não existir
+            hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
             try:
-                cur.execute("""
-                    INSERT INTO users (email, password_hash, full_name, role)
-                    VALUES (%s, %s, %s, 'admin')
-                """, (email, hashed, name))
+                cur.execute(
+                    "INSERT INTO users (email,password_hash,name,role) VALUES(%s,%s,%s,'admin')",
+                    (email, hashed, name)
+                )
             except Exception:
-                cur.execute("""
-                    INSERT INTO users (email, password_hash, full_name)
-                    VALUES (%s, %s, %s)
-                """, (email, hashed, name))
-            
+                cur.execute(
+                    "INSERT INTO users (email,password_hash,name) VALUES(%s,%s,%s)",
+                    (email, hashed, name)
+                )
             conn.commit()
-            print(f"  ✅ Admin criado: {email}")
-        
+            log.info(f"  ✅ Admin criado: {email} / {password}")
         conn.close()
-        
     except Exception as e:
-        print(f"  ⚠️  Erro ao criar admin (não crítico): {e}")
+        log.warning(f"Admin: {e}")
 
-# ============================================================
-# VERIFICAR SAÚDE DO BANCO
-# ============================================================
-def check_database():
-    print("\n=== Verificando banco ===")
-    try:
-        import psycopg2
-        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public'
-            ORDER BY table_name
-        """)
-        tables = [r[0] for r in cur.fetchall()]
-        print(f"  Tabelas: {tables}")
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"  ❌ Erro ao conectar ao banco: {e}")
-        return False
+# ── Iniciar API ──────────────────────────────────────────────
+def start_api():
+    log.info(f"=== Iniciando API na porta {PORT} ===")
 
-# ============================================================
-# INICIAR SERVIDOR
-# ============================================================
-def start_server():
-    print(f"\n=== Iniciando servidor na porta {PORT} ===")
-    
-    # Verificar se gunicorn está disponível
-    try:
-        import gunicorn
-        print(f"  gunicorn: {gunicorn.__version__}")
-    except ImportError:
-        print("  ❌ gunicorn não instalado")
+    # Detectar módulo correto
+    module = None
+    for name in ['api_server', 'app', 'main']:
+        if os.path.exists(f'{name}.py'):
+            module = name
+            break
+    if not module:
+        log.error("Nenhum arquivo de API encontrado")
         sys.exit(1)
-    
-    # Verificar se eventlet está disponível
+    log.info(f"Módulo: {module}:app")
+
+    # Worker class
     try:
         import eventlet
-        print(f"  eventlet: {eventlet.__version__}")
+        worker_class, workers = 'eventlet', '1'
+        log.info("Worker: eventlet (WebSocket)")
     except ImportError:
-        print("  ⚠️  eventlet não disponível — usando sync worker")
-        # Fallback para worker síncrono
-        os.execvp('gunicorn', [
-            'gunicorn',
-            '-w', '2',
-            '--bind', f'0.0.0.0:{PORT}',
-            '--timeout', '120',
-            '--log-level', 'info',
-            '--access-logfile', '-',
-            '--error-logfile', '-',
-            'api_server:app'
-        ])
-        return
-    
-    # Usar eventlet worker para WebSocket
+        worker_class, workers = 'sync', '2'
+        log.warning("Worker: sync (sem WebSocket)")
+
     os.execvp('gunicorn', [
         'gunicorn',
-        '--worker-class', 'eventlet',
-        '-w', '1',
+        '--worker-class', worker_class,
+        '-w', workers,
         '--bind', f'0.0.0.0:{PORT}',
         '--timeout', '120',
         '--keep-alive', '5',
         '--log-level', 'info',
         '--access-logfile', '-',
         '--error-logfile', '-',
-        'api_server:app'
+        f'{module}:app'
     ])
 
-# ============================================================
-# EXECUÇÃO PRINCIPAL
-# ============================================================
-if __name__ == '__main__':
-    print("=" * 50)
-    print("EPI Monitor — Iniciando no Railway")
-    print("=" * 50)
-    
-    # 1. Verificar banco
-    db_ok = check_database()
-    if not db_ok:
-        print("❌ Banco inacessível — abortando")
+# ── Iniciar Worker ───────────────────────────────────────────
+def start_worker():
+    log.info("=== Iniciando Worker ===")
+    if not REDIS:
+        log.error("REDIS_URL obrigatório para Worker")
         sys.exit(1)
-    
-    # 2. Migrations
-    migrations_ok = run_migrations()
-    if not migrations_ok:
-        print("❌ Migrations falharam — abortando")
+    try:
+        import redis as r
+        r.from_url(REDIS).ping()
+        log.info("✅ Redis OK")
+    except Exception as e:
+        log.error(f"Redis: {e}")
         sys.exit(1)
-    
-    # 3. Admin
+
+    sys.path.insert(0, '.')
+    from services.worker.worker_server import main
+    main()
+
+# ── Main ─────────────────────────────────────────────────────
+if SERVICE == 'api':
+    if not check_db():
+        sys.exit(1)
+    run_migrations()
     create_admin()
-    
-    # 4. Servidor
-    start_server()
+    start_api()
+
+elif SERVICE == 'worker':
+    check_db()
+    start_worker()
+
+else:
+    log.error(f"SERVICE_TYPE inválido: '{SERVICE}' — use 'api' ou 'worker'")
+    sys.exit(1)

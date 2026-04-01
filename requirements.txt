@@ -15,4 +15,5 @@ numpy
 openpyxl
 gunicorn
 eventlet
+redis
 requests
