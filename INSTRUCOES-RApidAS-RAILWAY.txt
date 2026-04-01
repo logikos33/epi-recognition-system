@@ -1,0 +1,82 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║           🚀 DEPLOY RAILWAY - INSTRUÇÕES RÁPIDAS                           ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+🔗 LINK DIRETO PROJETO RAILWAY:
+   https://railway.app/project/366c8fae-197b-4e55-9ec9-b5261b3f4b62
+
+┌─ PASSO 1: CRIAR SERVIÇOS (5 min) ───────────────────────────────────────────┐
+│                                                                            │
+│  1.1 API Service                                                           │
+│      → New Service → Deploy from GitHub repo                               │
+│      → Repo: logikos33/epi-recognition-system                             │
+│      → Branch: V2-clean                                                    │
+│      → Deploy Now                                                          │
+│                                                                            │
+│  1.2 PostgreSQL                                                            │
+│      → New Service → Database → PostgreSQL                                 │
+│                                                                            │
+│  1.3 Redis                                                                 │
+│      → New Service → Database → Redis                                      │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PASSO 2: CONFIGURAR API (3 min) ───────────────────────────────────────────┐
+│                                                                            │
+│  2.1 Conectar Serviços                                                     │
+│      Clicar no serviço API → Variables → Connect Service                  │
+│      ✓ PostgreSQL (injeta DATABASE_URL)                                    │
+│      ✓ Redis (injeta REDIS_URL)                                            │
+│                                                                            │
+│  2.2 Adicionar Variáveis                                                   │
+│      SERVICE_TYPE=api                                                      │
+│      PORT=8080                                                             │
+│      JWT_SECRET_KEY=abc123... (gerar novo!)                                │
+│      SECRET_KEY=def456... (gerar novo!)                                    │
+│      CAMERA_SECRET_KEY=ghi789... (gerar novo!)                             │
+│      ADMIN_EMAIL=admin@epimonitor.com                                      │
+│      ADMIN_PASSWORD=EpiMonitor@2024!                                       │
+│      ADMIN_NAME=Administrador                                              │
+│      CORS_ORIGINS=https://seu-dominio.com  ⚠️ MUITO IMPORTANTE!           │
+│                                                                            │
+│  🎯 GERAR SECRETS:                                                         │
+│  openssl rand -hex 32                                                      │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PASSO 3: REDEPLOY (2 min) ─────────────────────────────────────────────────┐
+│                                                                            │
+│  3.1 Clicar aba "Deployments"                                              │
+│  3.2 Clicar botão "Redeploy"                                               │
+│  3.3 Aguardar 2-3 minutos                                                  │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PASSO 4: VERIFICAR (1 min) ────────────────────────────────────────────────┐
+│                                                                            │
+│  4.1 Logs do Deployment                                                    │
+│      ✅ "DATABASE_URL : OK"                                                │
+│      ✅ "REDIS_URL : OK"                                                   │
+│      ✅ "✅ Banco OK"                                                      │
+│      ✅ "✅ Migrations executadas"                                         │
+│      ✅ "✅ Admin criado: admin@epimonitor.com"                            │
+│      ✅ "Starting API server on port 8080"                                 │
+│                                                                            │
+│  4.2 Health Check                                                          │
+│      curl https://<projeto>.up.railway.app/health                          │
+│      Esperado: {"status":"healthy",...}                                    │
+│                                                                            │
+│  4.3 Login                                                                 │
+│      curl -X POST https://<projeto>.up.railway.app/api/auth/login \        │
+│        -H "Content-Type: application/json" \                               │
+│        -d '{"email":"admin@epimonitor.com","password":"EpiMonitor@2024!"}'│
+│      Esperado: {"access_token":"eyJ..."}                                   │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  ✅ DEPLOY COMPLETO!                                                        ║
+║     Tempo total: ~10 minutos                                               ║
+║     Custo: ~$30/mês                                                         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+

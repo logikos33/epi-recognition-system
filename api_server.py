@@ -10,8 +10,8 @@ import base64
 import numpy as np
 import os
 import json
-from cv2 import imdecode, IMREAD_COLOR
-from ultralytics import YOLO
+# from cv2 import imdecode, IMREAD_COLOR  # Moved to Worker - not needed in API
+# from ultralytics import YOLO  # Moved to Worker - not needed in API
 import bcrypt
 import jwt
 import datetime
@@ -22,6 +22,8 @@ import sys
 import logging
 import shutil
 import subprocess
+import traceback
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add backend directory to path for imports
@@ -41,20 +43,118 @@ from backend.training_db import TrainingProjectDB
 from backend.camera_service import CameraService  # For fueling monitoring cameras (bays)
 from backend.ip_camera_service import IPCameraService  # For IP cameras
 from backend.fueling_session_service import FuelingSessionService
-from backend.ocr_service import OCRService
+from backend.ocr_service_wrapper import OCRService
 from backend.stream_manager import StreamManager
-from backend.yolo_processor import YOLOProcessorManager
+from backend.yolo_processor_wrapper import YOLOProcessorManager
+from training.training_optimizer import TrainingResourceManager
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+os.makedirs('logs', exist_ok=True)
+
+# Configurar logging persistente
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        handlers=[
+            logging.FileHandler('logs/api_server.log'),
+            logging.StreamHandler(sys.stdout)
+        ],
+        force=False  # Não sobrescrever handlers existentes
+    )
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=os.environ.get('CORS_ORIGINS', '*').split(','))
+
+# ============================================================================
+# Camera System Blueprint (Feature 1)
+# ============================================================================
+from cameras.routes import cameras_bp
+app.register_blueprint(cameras_bp, url_prefix='/api/cameras')
+
+# Iniciar health checker de câmeras (background thread)
+from cameras.health_checker import CameraHealthChecker
+camera_health_checker = CameraHealthChecker()
+camera_health_checker.start()
+
+# ============================================================================
+# Rules Engine Blueprint (FASE 3 - State Machine para processamento YOLO)
+# ============================================================================
+from rules.routes import rules_bp, sessions_bp
+app.register_blueprint(rules_bp, url_prefix='/api/rules')
+app.register_blueprint(sessions_bp, url_prefix='/api/sessions')
+
+# ============================================================================
+# Dashboard Blueprint (FASE 5 - KPIs e Excel Export)
+# ============================================================================
+from dashboard.routes import dashboard_bp
+app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+
+
+# ============================================================================
+# Global Exception Handlers - Backend Never Crashes
+# ============================================================================
+
+# Handler global para exceções não tratadas - backend retorna JSON, nunca crasha
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e):
+    """
+    Captura TODAS as exceções não tratadas no Flask.
+    Backend sempre retorna JSON com erro, nunca cai.
+    """
+    logger.error(
+        f"[UNHANDLED] {request.method} {request.path} → "
+        f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+    )
+    return jsonify({
+        'error': 'Erro interno do servidor',
+        'type': type(e).__name__,
+        'timestamp': datetime.datetime.now().isoformat()
+    }), 500
+
+
+@app.errorhandler(404)
+def handle_not_found(e):
+    """Endpoint não encontrado - retorna JSON amigável."""
+    return jsonify({'error': 'Endpoint não encontrado', 'path': request.path}), 404
+
+
+@app.errorhandler(405)
+def handle_method_not_allowed(e):
+    """Método HTTP não permitido - retorna JSON amigável."""
+    return jsonify({'error': 'Método não permitido', 'path': request.path}), 405
+
+
+# Capturar exceções em threads de background (treinamento, health checker, etc.)
+def handle_thread_exception(args):
+    """
+    Captura crashes em threads de background.
+    Thread crasha mas o processo principal continua vivo.
+    """
+    logger.error(
+        f"[THREAD CRASH] Thread '{args.thread.name}': "
+        f"{args.exc_type.__name__}: {args.exc_value}\n"
+        f"{''.join(traceback.format_tb(args.exc_traceback))}"
+    )
+
+
+threading.excepthook = handle_thread_exception
+
+
+def _backend_heartbeat():
+    """Loga a cada 60s que o backend está vivo. Útil para diagnóstico."""
+    import time as _time
+    while True:
+        logger.info(
+            f"[HEARTBEAT] Backend vivo | "
+            f"threads={threading.active_count()}"
+        )
+        _time.sleep(60)
+
+_hb = threading.Thread(target=_backend_heartbeat, daemon=True, name="heartbeat")
+_hb.start()
 
 
 # ============================================================================
@@ -95,7 +195,7 @@ PORT = int(os.environ.get('PORT', 5001))
 model_path = 'models/yolov8n.pt'
 try:
     logger.info(f"Loading YOLO model from: {model_path}")
-    model = YOLO(model_path)
+    from ultralytics import YOLO; model = YOLO(model_path)
     logger.info("✅ YOLO model loaded successfully")
 except Exception as e:
     logger.error(f"❌ Failed to load YOLO model: {e}")
@@ -109,16 +209,32 @@ yolo_processor_manager = YOLOProcessorManager()
 if model:
     yolo_processor_manager.set_model(model)
 
-# Detection callback for WebSocket broadcasting
+# Detection callback for WebSocket broadcasting + Rules Engine processing
 def on_detection_result(result: dict):
-    """Callback for YOLO detection results - broadcasts via WebSocket"""
+    """Callback for YOLO detection results - processes via Rules Engine + broadcasts via WebSocket"""
     try:
-        # Emit to camera-specific room
+        camera_id = result.get('camera_id')
+        detections = result.get('detections', [])
+
+        # NOVO: Processar detecções através da Rules Engine
+        if camera_id and detections:
+            try:
+                from rules.service import get_rules_engine
+                rules_engine = get_rules_engine()
+                actions = rules_engine.process_detections(str(camera_id), detections)
+
+                # Logar ações executadas
+                for action in actions:
+                    logger.info(f"✅ Rules action: {action.get('action_type')} for camera {camera_id}")
+            except Exception as rules_error:
+                logger.error(f"❌ Rules Engine error: {rules_error}")
+
+        # Emit to camera-specific room (mantido)
         room = f"camera_{result['camera_id']}"
         socketio.emit('detection', result, room=room)
         logger.debug(f"📡 Emitted detection to {room}: {len(result.get('detections', []))} objects")
     except Exception as e:
-        logger.error(f"❌ Error emitting detection: {e}")
+        logger.error(f"❌ Error in detection callback: {e}")
 
 # Register detection callback
 yolo_processor_manager.set_detection_callback(on_detection_result)
@@ -183,6 +299,19 @@ def verify_token(token: str) -> dict:
 #     leave_room(room)
 #     logger.info(f"📹 Client {request.sid} unsubscribed from camera {camera_id}")
 #     emit('unsubscribed', {'camera_id': camera_id, 'room': room})
+
+
+@app.after_request
+def add_security_headers(response):
+    """Headers de segurança HTTP para produção."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    if os.environ.get('FLASK_ENV') == 'production':
+        response.headers['Strict-Transport-Security'] = \
+            'max-age=31536000; includeSubDomains'
+    return response
 
 
 # ============================================================================
@@ -296,10 +425,11 @@ def login():
         token = jwt.encode({
             'user_id': user['id'],
             'email': user['email'],
+            'role': user.get('role', 'operator'),
             'exp': datetime.datetime.now(datetime.timezone.utc) + timedelta(days=7)
         }, SECRET_KEY, algorithm='HS256')
 
-        logger.info(f"✅ User logged in: {email}")
+        logger.info(f"✅ User logged in: {email} (role: {user.get('role', 'operator')})")
 
         return jsonify({
             'success': True,
@@ -307,7 +437,8 @@ def login():
                 'id': user['id'],
                 'email': user['email'],
                 'full_name': user.get('full_name'),
-                'company_name': user.get('company_name')
+                'company_name': user.get('company_name'),
+                'role': user.get('role', 'operator')
             },
             'token': token
         }), 200
@@ -502,20 +633,8 @@ def get_stream_status(camera_id):
 
 @app.route('/api/streams/status', methods=['GET'])
 def get_all_streams_status():
-    """Get status of all active streams and detections."""
-    # Verify JWT token
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Authorization required'}), 401
-
-    token = auth_header.split(' ')[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Invalid token'}), 401
-
+    """Get status of all active streams and detections.
+    NOTE: Public endpoint - no auth required for health monitoring."""
     # Get all stream statuses
     stream_statuses = stream_manager.get_all_streams_status() if stream_manager else {}
 
@@ -543,20 +662,8 @@ def get_streams_health():
         - Uptime in seconds
         - Restart count
         - Last health check timestamp
+    NOTE: Public endpoint - no auth required for health monitoring.
     """
-    # Verify JWT token
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Authorization required'}), 401
-
-    token = auth_header.split(' ')[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Invalid token'}), 401
-
     # Get health report from stream manager
     if stream_manager:
         health_report = stream_manager.get_stream_health_report()
@@ -1036,7 +1143,7 @@ def websocket_test():
 import threading
 import os
 
-from backend.video_processor import VideoProcessor
+from backend.video_processor_wrapper import VideoProcessor
 
 
 @app.route('/api/training/projects/<project_id>/videos', methods=['POST'])
@@ -1433,6 +1540,15 @@ def extract_video_frames(video_id: str):
 
     This endpoint is for re-extraction or manual extraction.
     Normally extraction starts automatically after upload.
+
+    Request body (optional):
+    {
+        "start_time": 120,  # Start time in seconds (optional)
+        "end_time": 480     # End time in seconds (optional)
+    }
+
+    If start_time and end_time are provided, extracts only that segment.
+    Otherwise, extracts the full video.
     """
     try:
         auth_header = request.headers.get('Authorization')
@@ -1445,6 +1561,31 @@ def extract_video_frames(video_id: str):
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
         user_id = payload['user_id']
+
+        # Get optional time range parameters
+        data = request.get_json() or {}
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+
+        # Validate time range parameters
+        if start_time is not None and end_time is not None:
+            if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
+                return jsonify({'success': False, 'error': 'start_time and end_time must be numbers'}), 400
+
+            if start_time < 0 or end_time < 0:
+                return jsonify({'success': False, 'error': 'start_time and end_time must be non-negative'}), 400
+
+            if start_time >= end_time:
+                return jsonify({'success': False, 'error': 'start_time must be less than end_time'}), 400
+
+            segment_duration = end_time - start_time
+            if segment_duration < 60:
+                return jsonify({'success': False, 'error': f'Segment duration too short: {segment_duration}s (minimum: 60s)'}), 400
+
+        elif start_time is not None or end_time is not None:
+            # Only one provided
+            return jsonify({'success': False, 'error': 'Both start_time and end_time must be provided together'}), 400
+
         db = get_db_session()
 
         # Check video ownership and current status
@@ -1480,14 +1621,16 @@ def extract_video_frames(video_id: str):
         db.commit()
 
         # Start extraction in background
-        def extract_background(video_id, user_id):
+        def extract_background(video_id, user_id, start_time, end_time):
             try:
                 with get_db_context() as db_local:
                     processor = VideoProcessor()
                     result = processor.extract_frames(
                         db=db_local,
                         video_id=video_id,
-                        user_id=user_id
+                        user_id=user_id,
+                        start_time=start_time,
+                        end_time=end_time
                     )
 
                     if result.get('success'):
@@ -1499,7 +1642,7 @@ def extract_video_frames(video_id: str):
 
         thread = threading.Thread(
             target=extract_background,
-            args=(video_id, user_id),
+            args=(video_id, user_id, start_time, end_time),
             daemon=True
         )
         thread.start()
@@ -1560,7 +1703,26 @@ def list_video_frames(video_id: str):
 
 @app.route('/api/training/frames/<frame_id>/image', methods=['GET'])
 def serve_frame_image(frame_id: str):
-    """Serve frame image file."""
+    """Serve frame image file.
+
+    GET /api/training/frames/{frame_id}/image
+    Returns JPEG image from training frame.
+    """
+    # Validar formato do UUID antes de consultar o banco
+    import re
+    uuid_pattern = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        re.IGNORECASE
+    )
+
+    if not uuid_pattern.match(frame_id):
+        logger.warning(f"Invalid UUID format: {frame_id}")
+        return jsonify({
+            'success': False,
+            'error': 'Invalid frame ID format',
+            'details': 'Frame ID must be a valid UUID'
+        }), 400
+
     try:
         db = get_db_session()
         query = text("""
@@ -1570,19 +1732,35 @@ def serve_frame_image(frame_id: str):
         row = result.fetchone()
 
         if not row:
-            return jsonify({'success': False, 'error': 'Frame not found'}), 404
+            logger.warning(f"Frame not found in database: {frame_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Frame not found'
+            }), 404
 
         frame_path = row[0]
 
         if not os.path.exists(frame_path):
-            logger.error(f"❌ Frame image file not found: {frame_path}")
-            return jsonify({'success': False, 'error': 'Frame image file not found on disk'}), 404
+            logger.error(f"❌ Frame image file not found: {frame_path} (id={frame_id})")
+            return jsonify({
+                'success': False,
+                'error': 'Frame image file not found on disk'
+            }), 404
 
-        return send_from_directory(os.path.dirname(frame_path), os.path.basename(frame_path))
+        # Serve imagem com cache de 5 minutos
+        from flask import send_file
+        return send_file(
+            frame_path,
+            mimetype='image/jpeg',
+            max_age=300
+        )
 
     except Exception as e:
-        logger.error(f"❌ Serve frame image error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        logger.error(f"❌ Serve frame image error for {frame_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error'
+        }), 500
 
 
 @app.route('/api/training/frames/<frame_id>/annotations', methods=['GET'])
@@ -1929,8 +2107,8 @@ def serve_training_image(image_id: int):
 # Training Control API
 # ============================================================================
 
-# Global tracking for active training threads
-active_training_threads = {}  # job_id -> thread
+# Global tracking for active training subprocesses
+active_training_processes = {}  # job_id -> subprocess.Popen
 
 
 def init_training_tables():
@@ -2013,6 +2191,8 @@ def get_dataset_stats():
     - Total bounding boxes
     - Class distribution
     - Train/val split info
+
+    Note: Admins see all data, operators see only their own data.
     """
     try:
         auth_header = request.headers.get('Authorization')
@@ -2027,40 +2207,51 @@ def get_dataset_stats():
         user_id = payload['user_id']
 
         with get_db_context() as db:
+            # Check if user is admin
+            user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
+            user_role = user[0] if user else 'operator'
+
+            # Build WHERE clause based on role
+            # Admin: no filter (see all data)
+            # Operator: filter by user_id
+            if user_role == 'admin':
+                where_clause = ""
+                params = {}
+            else:
+                where_clause = "WHERE tv.user_id = :user_id"
+                params = {'user_id': user_id}
+
             # Get total annotated frames
-            result = db.execute(text("""
+            result = db.execute(text(f"""
                 SELECT COUNT(DISTINCT fa.frame_id)
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN training_projects tp ON tp.id = tv.project_id
-                WHERE tp.user_id = :user_id
-            """), {'user_id': user_id})
+                {where_clause}
+            """), params)
             total_frames = result.scalar() or 0
 
             # Get total bounding boxes
-            result = db.execute(text("""
+            result = db.execute(text(f"""
                 SELECT COUNT(*)
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN training_projects tp ON tp.id = tv.project_id
-                WHERE tp.user_id = :user_id
-            """), {'user_id': user_id})
+                {where_clause}
+            """), params)
             total_boxes = result.scalar() or 0
 
             # Get class distribution
-            result = db.execute(text("""
+            result = db.execute(text(f"""
                 SELECT yc.name, COUNT(*) as count
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN training_projects tp ON tp.id = tv.project_id
                 JOIN yolo_classes yc ON yc.id = fa.class_id
-                WHERE tp.user_id = :user_id
+                {where_clause}
                 GROUP BY yc.name
                 ORDER BY count DESC
-            """), {'user_id': user_id})
+            """), params)
             class_distribution = {row[0]: row[1] for row in result}
 
             return jsonify({
@@ -2289,13 +2480,22 @@ def start_training():
         if not dataset_yaml_path or not os.path.exists(dataset_yaml_path):
             return jsonify({'success': False, 'error': 'Dataset not found'}), 400
 
-        # Map preset to model size and epochs
-        preset_config = {
-            'fast': {'model_size': 'n', 'epochs': 50},
-            'balanced': {'model_size': 's', 'epochs': 100},
-            'quality': {'model_size': 'm', 'epochs': 150}
+        # Use TrainingResourceManager for safe, optimized config
+        # Map preset to model size for TrainingResourceManager
+        model_size_map = {
+            'fast': 'n',
+            'balanced': 's',
+            'quality': 'm'
         }
-        config = preset_config[preset]
+        model_size = model_size_map[preset]
+
+        # Get optimized training config based on system resources
+        training_config = TrainingResourceManager.get_training_config(preset, f'yolov8{model_size}')
+
+        config = {
+            'model_size': model_size,
+            'epochs': training_config['epochs']
+        }
 
         # Create job record
         with get_db_context() as db:
@@ -2315,171 +2515,56 @@ def start_training():
 
             job_id = str(result.scalar())
 
-        # Start training in background thread
-        def train_in_background(job_id, user_id, config, dataset_path):
-            try:
-                import threading
-                from ultralytics import YOLO
+        # Create config file for train_worker.py
+        output_dir = f"storage/models/{job_id}"
+        os.makedirs(output_dir, exist_ok=True)
 
-                # Update status to running
-                with get_db_context() as db:
-                    db.execute(text("""
-                        UPDATE training_jobs
-                        SET status = 'running', started_at = NOW()
-                        WHERE id = :job_id
-                    """), {'job_id': job_id})
+        progress_file = os.path.join(output_dir, 'progress.json')
 
-                # Initialize model
-                model_name = f"yolov8{config['model_size']}.pt"
-                model = YOLO(model_name)
+        worker_config = {
+            'job_id': job_id,
+            'name': name,
+            'dataset_yaml': dataset_yaml_path,
+            'model_size': f"yolov8{config['model_size']}",
+            'epochs': config['epochs'],
+            'batch': training_config['batch'],
+            'workers': training_config['workers'],
+            'imgsz': training_config['imgsz'],
+            'patience': training_config['patience'],
+            'output_dir': output_dir,
+            'progress_file': progress_file,
+            'user_id': user_id
+        }
 
-                # Create output directory
-                output_dir = f"storage/models/{job_id}"
-                os.makedirs(output_dir, exist_ok=True)
+        config_file = os.path.join(output_dir, 'config.json')
+        with open(config_file, 'w') as f:
+            json.dump(worker_config, f, indent=2)
 
-                # Define progress callback
-                def on_train_epoch_end(trainer):
-                    """Called at the end of each epoch to update progress."""
-                    try:
-                        current_epoch = trainer.epoch + 1
-                        total_epochs = trainer.epochs
-                        progress = int((current_epoch / total_epochs) * 100)
+        # Start training in isolated subprocess
+        logger.info(f"🚀 Starting training {job_id} in isolated subprocess")
+        logger.info(f"⚙️  Config: {config['epochs']} epochs, {training_config['workers']} workers, batch={training_config['batch']}")
+        logger.info(f"⏱️  Estimated time: {training_config['estimated_minutes']} minutes")
 
-                        # Get metrics from validator
-                        metrics = {}
-                        if hasattr(trainer, 'validator') and trainer.validator:
-                            val_metrics = trainer.validator.metrics
-                            # Access metrics as attributes, not with .get()
-                            metrics = {
-                                'mAP50': float(getattr(val_metrics, 'metrics/mAP50(B)', 0)),
-                                'mAP95': float(getattr(val_metrics, 'metrics/mAP95(B)', 0)),
-                                'precision': float(getattr(val_metrics, 'metrics/precision(B)', 0)),
-                                'recall': float(getattr(val_metrics, 'metrics/recall(B)', 0))
-                            }
-
-                        # Update progress in database
-                        with get_db_context() as db:
-                            db.execute(text("""
-                                UPDATE training_jobs
-                                SET progress = :progress,
-                                    current_epoch = :current_epoch,
-                                    metrics = :metrics
-                                WHERE id = :job_id
-                            """), {
-                                'job_id': job_id,
-                                'progress': progress,
-                                'current_epoch': current_epoch,
-                                'metrics': json.dumps(metrics)
-                            })
-
-                        logger.info(f"📊 Training {job_id}: Epoch {current_epoch}/{total_epochs} ({progress}%)")
-
-                    except Exception as e:
-                        logger.error(f"❌ Error updating progress for {job_id}: {e}")
-                        import traceback
-                        traceback.print_exc()
-
-                # Add callback to trainer
-                model.add_callback("on_train_epoch_end", on_train_epoch_end)
-
-                # Train model
-                logger.info(f"🚀 Starting training {job_id}: {config['epochs']} epochs, {config['model_size']} model")
-                results = model.train(
-                    data=dataset_path,
-                    epochs=config['epochs'],
-                    project=output_dir,
-                    name='train',
-                    exist_ok=True,
-                    verbose=False  # Reduce log output
-                )
-
-                # Extract final metrics
-                final_metrics = {}
-                if hasattr(results, 'results_dict'):
-                    res_dict = results.results_dict
-                    final_metrics = {
-                        'mAP50': float(res_dict.get('metrics/mAP50(B)', 0)),
-                        'mAP95': float(res_dict.get('metrics/mAP95(B)', 0)),
-                        'precision': float(res_dict.get('metrics/precision(B)', 0)),
-                        'recall': float(res_dict.get('metrics/recall(B)', 0))
-                    }
-                else:
-                    # Fallback: get from trainer
-                    final_metrics = {
-                        'mAP50': 0.0,
-                        'mAP95': 0.0,
-                        'precision': 0.0,
-                        'recall': 0.0
-                    }
-
-                # Save trained model
-                best_model_path = os.path.join(output_dir, 'train', 'weights', 'best.pt')
-
-                # Update job as completed
-                with get_db_context() as db:
-                    db.execute(text("""
-                        UPDATE training_jobs
-                        SET status = 'completed',
-                            progress = 100,
-                            completed_at = NOW(),
-                            model_output_path = :model_path,
-                            metrics = :metrics::jsonb
-                        WHERE id = :job_id
-                    """), {
-                        'job_id': job_id,
-                        'model_path': best_model_path,
-                        'metrics': json.dumps(final_metrics)
-                    })
-
-                # Create trained model record
-                db.execute(text("""
-                    INSERT INTO trained_models
-                    (user_id, job_id, name, model_path, model_size, metrics)
-                    VALUES (:user_id, :job_id, :name, :model_path, :model_size, :metrics::jsonb)
-                """), {
-                    'user_id': user_id,
-                    'job_id': job_id,
-                    'name': name,
-                    'model_path': best_model_path,
-                    'model_size': config['model_size'],
-                    'metrics': json.dumps(final_metrics)
-                })
-
-                logger.info(f"✅ Training complete: {job_id}")
-                logger.info(f"📊 Final metrics: mAP50={final_metrics['mAP50']:.3f}, mAP95={final_metrics['mAP95']:.3f}")
-
-            except Exception as e:
-                logger.error(f"❌ Training error for {job_id}: {e}")
-                import traceback
-                traceback.print_exc()
-
-                with get_db_context() as db:
-                    db.execute(text("""
-                        UPDATE training_jobs
-                        SET status = 'failed',
-                            error_message = :error,
-                            completed_at = NOW()
-                        WHERE id = :job_id
-                    """), {'job_id': job_id, 'error': str(e)})
-
-            finally:
-                # Clean up thread tracking
-                if job_id in active_training_threads:
-                    del active_training_threads[job_id]
-
-        # Start background thread
-        thread = threading.Thread(
-            target=train_in_background,
-            args=(job_id, user_id, config, dataset_yaml_path),
-            daemon=True
+        process = subprocess.Popen(
+            [sys.executable, 'training/train_worker.py', config_file],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
-        thread.start()
-        active_training_threads[job_id] = thread
+
+        # Track process
+        active_training_processes[job_id] = process
 
         return jsonify({
             'success': True,
             'job_id': job_id,
-            'status': 'pending'
+            'status': 'pending',
+            'estimated_minutes': training_config['estimated_minutes'],
+            'config': {
+                'epochs': config['epochs'],
+                'workers': training_config['workers'],
+                'batch': training_config['batch']
+            }
         })
 
     except Exception as e:
@@ -2517,23 +2602,44 @@ def get_training_status(job_id: str):
             if not row:
                 return jsonify({'success': False, 'error': 'Job not found'}), 404
 
+            # Build job response from database
+            job_response = {
+                'id': str(row[0]),
+                'name': row[1],
+                'status': row[2],
+                'preset': row[3],
+                'model_size': row[4],
+                'epochs': row[5],
+                'progress': row[6] or 0,
+                'current_epoch': row[7] or 0,
+                'metrics': row[8],
+                'error_message': row[9],
+                'started_at': row[10].isoformat() if row[10] else None,
+                'completed_at': row[11].isoformat() if row[11] else None,
+                'created_at': row[12].isoformat() if row[12] else None
+            }
+
+            # Check progress file for real-time updates (if job is running)
+            progress_file = f"storage/models/{job_id}/progress.json"
+            if os.path.exists(progress_file):
+                try:
+                    with open(progress_file, 'r') as f:
+                        progress_data = json.load(f)
+
+                    # Override database values with progress file values
+                    job_response.update({
+                        'status': progress_data.get('status', job_response['status']),
+                        'progress': progress_data.get('progress', job_response['progress']),
+                        'current_epoch': progress_data.get('current_epoch', job_response['current_epoch']),
+                        'metrics': progress_data.get('metrics', job_response['metrics']),
+                        'error_message': progress_data.get('error', job_response['error_message'])
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to read progress file for {job_id}: {e}")
+
             return jsonify({
                 'success': True,
-                'job': {
-                    'id': str(row[0]),
-                    'name': row[1],
-                    'status': row[2],
-                    'preset': row[3],
-                    'model_size': row[4],
-                    'epochs': row[5],
-                    'progress': row[6] or 0,
-                    'current_epoch': row[7] or 0,
-                    'metrics': row[8],
-                    'error_message': row[9],
-                    'started_at': row[10].isoformat() if row[10] else None,
-                    'completed_at': row[11].isoformat() if row[11] else None,
-                    'created_at': row[12].isoformat() if row[12] else None
-                }
+                'job': job_response
             })
 
     except Exception as e:
@@ -2580,8 +2686,22 @@ def stop_training(job_id: str):
                 WHERE id = :job_id
             """), {'job_id': job_id})
 
-            # Note: Background thread will check status and stop naturally
-            # For immediate termination, we would need threading.Event flags
+            # Terminate subprocess if running
+            if job_id in active_training_processes:
+                process = active_training_processes[job_id]
+                try:
+                    process.terminate()
+                    # Give it 5 seconds to terminate gracefully
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        # Force kill if it doesn't terminate
+                        process.kill()
+                    logger.info(f"✅ Training process {job_id} terminated")
+                except Exception as e:
+                    logger.warning(f"⚠️  Error terminating process {job_id}: {e}")
+                finally:
+                    del active_training_processes[job_id]
 
         return jsonify({'success': True, 'message': 'Job stopped'})
 
@@ -2903,7 +3023,7 @@ def predict_frame(frame_id):
                 model_path = "models/yolov8n.pt"
 
             if os.path.exists(model_path):
-                model = YOLO(model_path)
+                from ultralytics import YOLO; model = YOLO(model_path)
                 results = model(image_path)
                 annotations = []
                 for r in results:
@@ -2951,40 +3071,49 @@ def list_all_videos():
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Get user's default project (or first project)
-        project = db.execute(text("""
-            SELECT id FROM training_projects
-            WHERE user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 1
-        """), {'user_id': user_id}).fetchone()
+        # Check if user is admin
+        user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
+        user_role = user[0] if user else 'operator'
 
-        if not project:
-            # No project exists, return empty list
-            return jsonify({'success': True, 'videos': []})
+        # Admin sees all videos, operator sees only their own
+        if user_role == 'admin':
+            # Admin: all videos from all users
+            videos = db.execute(text("""
+                SELECT id, project_id, filename, storage_path, duration_seconds,
+                       frame_count, fps, uploaded_at, selected_start, selected_end,
+                       total_chunks, processed_chunks, status, user_id
+                FROM training_videos
+                ORDER BY uploaded_at DESC
+            """)).fetchall()
+        else:
+            # Operator: only their own videos
+            videos = db.execute(text("""
+                SELECT id, project_id, filename, storage_path, duration_seconds,
+                       frame_count, fps, uploaded_at, selected_start, selected_end,
+                       total_chunks, processed_chunks, status, user_id
+                FROM training_videos
+                WHERE user_id = :user_id
+                ORDER BY uploaded_at DESC
+            """), {'user_id': user_id}).fetchall()
 
-        project_id = str(project[0])
-
-        # Use existing endpoint logic
-        from backend.video_db import VideoService
-        video_service = VideoService()
-        videos = video_service.list_project_videos(db, project_id, user_id)
-
-        # Add status information
         videos_with_status = []
         for video in videos:
-            video_data = dict(video)
-            status_row = db.execute(text("""
-                SELECT status, processed_chunks, total_chunks, duration_seconds
-                FROM training_videos WHERE id = :video_id
-            """), {'video_id': video['id']}).fetchone()
-
-            if status_row:
-                video_data['status'] = status_row[0]
-                video_data['processed_chunks'] = status_row[1] or 0
-                video_data['total_chunks'] = status_row[2] or 0
-                video_data['duration_seconds'] = status_row[3]
-
+            video_data = {
+                'id': str(video[0]),
+                'project_id': str(video[1]) if video[1] else None,
+                'filename': video[2],
+                'storage_path': video[3],
+                'duration_seconds': float(video[4]) if video[4] else None,
+                'frame_count': video[5],
+                'fps': float(video[6]) if video[6] else None,
+                'uploaded_at': video[7].isoformat() if video[7] else None,
+                'selected_start': video[8],
+                'selected_end': video[9],
+                'total_chunks': video[10],
+                'processed_chunks': video[11] or 0,
+                'status': video[12] or 'pending',
+                'user_id': str(video[13]) if len(video) > 13 else None
+            }
             videos_with_status.append(video_data)
 
         return jsonify({'success': True, 'videos': videos_with_status})
@@ -3013,32 +3142,60 @@ def upload_video_alias():
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Get or create default project
-        project = db.execute(text("""
-            SELECT id FROM training_projects
-            WHERE user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 1
-        """), {'user_id': user_id}).fetchone()
+        # Generate a UUID for the video (no project_id needed)
+        import uuid
+        video_id = str(uuid.uuid4())
 
-        if not project:
-            # Create default project
-            from backend.training_db import TrainingProjectDB
-            project_db = TrainingProjectDB()
-            project = project_db.create_project(
-                db=db,
-                user_id=user_id,
-                name='Default Project',
-                description='Automatically created project'
-            )
-            if not project:
-                return jsonify({'success': False, 'error': 'Failed to create project'}), 500
-            project_id = project['id']
-        else:
-            project_id = str(project[0])
+        # Check if file was provided
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
 
-        # Delegate to existing endpoint
-        return upload_training_video(project_id)
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+        # Save file
+        from pathlib import Path
+        upload_dir = Path('storage/training_videos')
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_filename = f"{video_id}_{file.filename}"
+        file_path = upload_dir / safe_filename
+        file.save(str(file_path))
+
+        # Get video metadata
+        import cv2
+        cap = cv2.VideoCapture(str(file_path))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration_seconds = frame_count / fps if fps and fps > 0 else None
+        cap.release()
+
+        # Insert into database (project_id is optional, set to NULL)
+        db.execute(text("""
+            INSERT INTO training_videos
+            (id, project_id, user_id, filename, storage_path, duration_seconds,
+             frame_count, fps, uploaded_at, status)
+            VALUES (:id, :project_id, :user_id, :filename, :storage_path,
+                    :duration_seconds, :frame_count, :fps, NOW(), 'pending')
+        """), {
+            'id': video_id,
+            'project_id': None,  # No project required
+            'user_id': user_id,
+            'filename': file.filename,
+            'storage_path': str(file_path),
+            'duration_seconds': duration_seconds,
+            'frame_count': frame_count,
+            'fps': fps
+        })
+        db.commit()
+
+        return jsonify({
+            'success': True,
+            'video_id': video_id,
+            'filename': file.filename,
+            'message': 'Video uploaded successfully'
+        })
 
     except Exception as e:
         logger.error(f"❌ Upload video alias error: {e}")
@@ -3063,11 +3220,10 @@ def delete_video_alias(video_id: str):
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Verify ownership
+        # Verify ownership (user_id on video directly)
         check = db.execute(text("""
-            SELECT v.id FROM training_videos v
-            JOIN training_projects p ON p.id = v.project_id
-            WHERE v.id = :video_id AND p.user_id = :user_id
+            SELECT id FROM training_videos
+            WHERE id = :video_id AND user_id = :user_id
         """), {'video_id': video_id, 'user_id': user_id}).fetchone()
 
         if not check:
@@ -3203,6 +3359,59 @@ def init_database_tables():
             pass
     except Exception as e:
         logger.error(f"❌ Erro na inicialização do banco: {e}")
+
+
+# ============================================================================
+# SERVIR FRONTEND REACT EM PRODUÇÃO
+# ============================================================================
+import os as _os
+from flask import send_from_directory as _sfd
+
+
+# Correção Railway: postgres:// → postgresql://
+import os as _os_db
+_db_url = _os_db.environ.get('DATABASE_URL', '')
+if _db_url.startswith('postgres://'):
+    _os_db.environ['DATABASE_URL'] = _db_url.replace('postgres://', 'postgresql://', 1)
+
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
+    """Serve React frontend build em produção Railway."""
+    dist_dir = _os.path.join(
+        _os.path.dirname(_os.path.abspath(__file__)),
+        'frontend-new', 'dist'
+    )
+    if path and _os.path.exists(_os.path.join(dist_dir, path)):
+        return _sfd(dist_dir, path)
+    index = _os.path.join(dist_dir, 'index.html')
+    if _os.path.exists(index):
+        return _sfd(dist_dir, 'index.html')
+    return jsonify({'error': 'Frontend não buildado. Executar npm run build'}), 404
+
+
+# ============================================================================
+# WORKERS HEALTH — Microserviços (Redis)
+# ============================================================================
+@app.route('/api/workers/health', methods=['GET'])
+def get_workers_health():
+    """Retornar status de todos os workers ativos via Redis."""
+    try:
+        from services.api_worker_proxy import get_workers_health
+        workers = get_workers_health()
+        return jsonify({
+            'workers': workers,
+            'total': len(workers),
+            'mode': 'distributed' if workers else 'local'
+        })
+    except Exception as e:
+        return jsonify({
+            'workers': [],
+            'total': 0,
+            'mode': 'local',
+            'error': str(e)
+        }), 200
 
 
 if __name__ == '__main__':

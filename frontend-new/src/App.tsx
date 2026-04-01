@@ -3,11 +3,17 @@ import { useCameras } from "./hooks/useCameras";
 import { useStreams } from "./hooks/useStreams";
 import { useToast } from "./hooks/useToast";
 import CameraForm from "./components/CameraForm";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import Modal from "./components/Modal";
 import ToastContainer from "./components/Toast";
 import ImageUploadZone from "./components/ImageUploadZone.jsx";
+import { api } from "./services/api";
+import { CameraWizard } from "./components/CameraWizard";
+import { CameraEditModal } from "./components/CameraEditModal";
+import { LoginPage } from "./components/LoginPage";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
+import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 
 // ══════════════════════════════════════════════════
 // DEMO DATA — Câmeras e Detecções (Mock para demonstração)
@@ -15,15 +21,15 @@ import AnnotationInterface from "./components/AnnotationInterface.jsx";
 // ══════════════════════════════════════════════════
 
 const DEMO_CAMERAS = [
-  { id: 1, name: 'Doca 01 — Carga', ip: '192.168.1.101', status: 'online', location: 'Galpão A', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: 'd7211594-f19e-4885-ab59-f713751f65e3' },
-  { id: 2, name: 'Doca 02 — Descarga', ip: '192.168.1.102', status: 'online', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '4K', frameId: 'eae73fe4-5a71-49e5-a88a-d5753edef84c' },
-  { id: 3, name: 'Pátio Externo', ip: '192.168.1.103', status: 'offline', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: null },
-  { id: 4, name: 'Doca 03 — Lateral', ip: '192.168.1.104', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '13a146cd-2e48-4eb5-b8a5-486f920dc641' },
-  { id: 5, name: 'Portaria — Entrada', ip: '192.168.1.105', status: 'online', location: 'Portaria', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: 'c5550068-5fc2-439c-bc27-fe7028b1e137' },
-  { id: 6, name: 'Doca 04 — Fundo', ip: '192.168.1.106', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '95cc3626-2407-4def-8f13-c86d3b90c062' },
-  { id: 7, name: 'Estacionamento', ip: '192.168.1.107', status: 'online', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: 'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1' },
-  { id: 8, name: 'Sala de Controle', ip: '192.168.1.108', status: 'online', location: 'Adm', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: null },
-  { id: 9, name: 'Corredor Central', ip: '192.168.1.109', status: 'offline', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: null },
+  { id: 1, name: 'Doca 01 — Carga', ip: '192.168.1.101', status: 'online', location: 'Galpão A', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 2, name: 'Doca 02 — Descarga', ip: '192.168.1.102', status: 'online', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '4K' },
+  { id: 3, name: 'Pátio Externo', ip: '192.168.1.103', status: 'offline', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p' },
+  { id: 4, name: 'Doca 03 — Lateral', ip: '192.168.1.104', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 5, name: 'Portaria — Entrada', ip: '192.168.1.105', status: 'online', location: 'Portaria', model: 'Hikvision DS-2CD', resolution: '1080p' },
+  { id: 6, name: 'Doca 04 — Fundo', ip: '192.168.1.106', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 7, name: 'Estacionamento', ip: '192.168.1.107', status: 'online', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p' },
+  { id: 8, name: 'Sala de Controle', ip: '192.168.1.108', status: 'online', location: 'Adm', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 9, name: 'Corredor Central', ip: '192.168.1.109', status: 'offline', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '1080p' },
 ]
 
 const CAMERA_DETECTIONS = {
@@ -76,39 +82,9 @@ const CAMERA_DETECTIONS = {
 // SLIDESHOW FRAMES — Frames para câmeras sem frameId
 // Troca a cada 5 segundos (câmera usa offset diferente)
 // ══════════════════════════════════════════════════
-const SLIDESHOW_FRAMES = [
-  'd7211594-f19e-4885-ab59-f713751f65e3',
-  'eae73fe4-5a71-49e5-a88a-d5753edef84c',
-  '13a146cd-2e48-4eb5-b8a5-486f920dc641',
-  'c5550068-5fc2-439c-bc27-fe7028b1e137',
-  '95cc3626-2407-4def-8f13-c86d3b90c062',
-  'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1',
-  'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
-  'f6e5d4c3-b2a1-4f3e-9d8c-7b6a5f4e3d2c',
-  '2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b',
-  '7d8e9f0a-1b2c-4d5e-9f0a-2b3c4d5e6f7a',
-  '3a4b5c6d-7e8f-4a5b-9c0d-1e2f3a4b5c6d',
-  '8b9c0d1e-2f3a-4b5c-0d1e-3f4a5b6c7d8e',
-  '4c5d6e7f-8a9b-4c5d-0e1f-4a5b6c7d8e9f',
-  '9d0e1f2a-3b4c-4d5e-1f2a-5b6c7d8e9f0a',
-  '5e6f7a8b-9c0d-4e5f-2a3b-6c7d8e9f0a1b',
-  '0f1a2b3c-4d5e-4f6a-3b4c-7d8e9f0a1b2c',
-  'a1b2c3d4-5e6f-4a7b-4c5d-8e9f0a1b2c3d',
-  'b2c3d4e5-6f7a-4b8c-5d6e-9f0a1b2c3d4e',
-  'c3d4e5f6-7a8b-4c9d-6e7f-0a1b2c3d4e5f',
-  'd4e5f6a7-8b9c-4d0e-7f8a-1b2c3d4e5f6a',
-  'e5f6a7b8-9c0d-4e1f-8a9b-2c3d4e5f6a7b',
-  'f6a7b8c9-0d1e-4f2a-9b0c-3d4e5f6a7b8c',
-  'a7b8c9d0-1e2f-4a3b-0c1d-4e5f6a7b8c9d',
-  'b8c9d0e1-2f3a-4b4c-1d2e-5f6a7b8c9d0e',
-  'c9d0e1f2-3a4b-4c5d-2e3f-6a7b8c9d0e1f',
-  'd0e1f2a3-4b5c-4d6e-3f4a-7b8c9d0e1f2a',
-  'e1f2a3b4-5c6d-4e7f-4a5b-8c9d0e1f2a3b',
-  'f2a3b4c5-6d7e-4f8a-5b6c-9d0e1f2a3b4c',
-  'a3b4c5d6-7e8f-4a9b-6c7d-0e1f2a3b4c5d',
-  'b4c5d6e7-8f9a-4b0c-7d8e-1f2a3b4c5d6e',
-  'c5d6e7f8-9a0b-4c1d-8e9f-2a3b4c5d6e7f',
-];
+// NOTA: Slideshow desabilitado - IDs hardcoded foram removidos
+// para evitar 404 ao tentar carregar frames que não existem no banco
+const SLIDESHOW_FRAMES = [];
 
 // ── Icons ──
 const Icons = {
@@ -129,6 +105,7 @@ const Icons = {
   shield: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   alertTriangle: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/></svg>,
   settings: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+  sliders: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
   logout: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>,
   eye: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   edit: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
@@ -173,58 +150,300 @@ const StatCard = ({ icon, label, value, sub, color, delay }) => (
   </div>
 );
 
-// ── Dashboard ──
-const DashboardPage = ({ cameras }) => (
-  <div>
-    <div style={{ marginBottom: 32 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Dashboard</h1>
-      <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Visão geral do sistema de monitoramento</p>
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
-      <StatCard icon={Icons.camera} label="Câmeras" value={cameras.length} sub={`${cameras.filter(c=>c.status==="online").length} online`} color="#3b82f6" delay={0} />
-      <StatCard icon={Icons.shield} label="Detecções Hoje" value="2.847" sub="+12% vs ontem" color="#22c55e" delay={0.05} />
-      <StatCard icon={Icons.alertTriangle} label="Alertas" value="23" sub="7 críticos" color="#f59e0b" delay={0.1} />
-      <StatCard icon={Icons.activity} label="Conformidade" value="94%" sub="Meta: 98%" color="#8b5cf6" delay={0.15} />
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 20 }}>
-      <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.2s both" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0 }}>Alertas Recentes</h2>
-          <span style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 500 }}>Ver todos</span>
-        </div>
-        {ALERTS.map((a, i) => (
-          <div key={a.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "11px 14px", borderRadius: 10, background: "var(--bg)", marginBottom: 8, animation: `fadeUp 0.4s ease ${0.25+i*0.05}s both` }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", marginTop: 6, flexShrink: 0, background: a.type==="critical"?"#ef4444":a.type==="warning"?"#f59e0b":"#22c55e" }} />
-            <div><div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>{a.message}</div><div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{a.camera} · {a.time}</div></div>
-          </div>
-        ))}
+// ── Dashboard (FASE 5 - Atualizado com dados reais) ──
+const DashboardPage = ({ cameras }) => {
+  const [kpis, setKpis] = useState(null);
+  const [productsPerHour, setProductsPerHour] = useState([]);
+  const [sessionsPerBay, setSessionsPerBay] = useState([]);
+  const [recentAlerts, setRecentAlerts] = useState([]);
+  const [recentValidated, setRecentValidated] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [period, setPeriod] = useState("today");
+  const { success, error: toastError } = useToast();
+
+  // Polling para dashboard data (30s com backoff)
+  useEffect(() => {
+    let mounted = true;
+    let failCount = 0;
+    let pollInterval = 30000; // 30s inicial
+
+    const fetchDashboardData = async () => {
+      try {
+        const token = localStorage.getItem("token") || "";
+        const headers = { "Authorization": `Bearer ${token}` };
+
+        // Buscar dados em paralelo
+        const [
+          kpisRes,
+          productsRes,
+          sessionsRes,
+          alertsRes,
+          validatedRes,
+        ] = await Promise.all([
+          fetch(`http://localhost:5001/api/dashboard/kpis?period=${period}`, { headers }),
+          fetch("http://localhost:5001/api/dashboard/chart/products-per-hour", { headers }),
+          fetch("http://localhost:5001/api/dashboard/chart/sessions-per-bay", { headers }),
+          fetch("http://localhost:5001/api/dashboard/alerts/recent?limit=5", { headers }),
+          fetch("http://localhost:5001/api/dashboard/sessions/recent-validated?limit=5", { headers }),
+        ]);
+
+        if (!kpisRes.ok) throw new Error(`KPIs: HTTP ${kpisRes.status}`);
+        if (!productsRes.ok) throw new Error(`Products: HTTP ${productsRes.status}`);
+        if (!sessionsRes.ok) throw new Error(`Sessions: HTTP ${sessionsRes.status}`);
+        if (!alertsRes.ok) throw new Error(`Alerts: HTTP ${alertsRes.status}`);
+        if (!validatedRes.ok) throw new Error(`Validated: HTTP ${validatedRes.status}`);
+
+        const kpisData = await kpisRes.json();
+        const productsData = await productsRes.json();
+        const sessionsData = await sessionsRes.json();
+        const alertsData = await alertsRes.json();
+        const validatedData = await validatedRes.json();
+
+        if (mounted) {
+          if (kpisData.success) setKpis(kpisData.kpis);
+          if (productsData.success) setProductsPerHour(productsData.data);
+          if (sessionsData.success) setSessionsPerBay(sessionsData.data);
+          if (alertsData.success) setRecentAlerts(alertsData.alerts);
+          if (validatedData.success) setRecentValidated(validatedData.sessions);
+          setError(null);
+          failCount = 0;
+          pollInterval = 30000;
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error("Erro ao buscar dados do dashboard:", err);
+          failCount++;
+          pollInterval = Math.min(30000 * Math.pow(2, failCount - 1), 60000);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, pollInterval);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [period]);
+
+  // Export Excel
+  const handleExportExcel = async () => {
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch("http://localhost:5001/api/dashboard/export/excel", {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      // Download file
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `EPI_Monitor_Relatorio_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      success("Relatório Excel exportado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao exportar Excel:", err);
+      toastError(err.message || "Erro ao exportar Excel");
+    }
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>
+          Dashboard
+        </h1>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>
+          Visão geral do sistema de monitoramento
+        </p>
       </div>
-      <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.25s both" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0 }}>Classes YOLO</h2>
-          <span style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 500 }}>Gerenciar</span>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60 }}>
+          <div style={{
+            width: 40, height: 40, margin: "0 auto 16px",
+            border: "3px solid var(--border)", borderTopColor: "var(--accent)",
+            borderRadius: "50%", animation: "spin 1s linear infinite"
+          }} />
+          <p style={{ color: "var(--muted)", fontSize: 14 }}>Carregando dashboard...</p>
         </div>
-        {CLASSES.map((c, i) => (
-          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, animation: `fadeUp 0.4s ease ${0.3+i*0.04}s both` }}>
-            <span style={{ fontSize: 18, width: 28, textAlign: "center" }}>{c.icon}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>{c.name}</span>
-                <span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "var(--mono)" }}>{c.count.toLocaleString()}</span>
-              </div>
-              <div style={{ height: 4, borderRadius: 2, background: "var(--bg)" }}><div style={{ height: "100%", borderRadius: 2, background: c.color, width: `${(c.count/1300)*100}%` }} /></div>
+      ) : kpis ? (
+        <>
+          {/* KPI Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
+            <StatCard icon={Icons.camera} label="Câmeras" value={cameras.length} sub={`${cameras.filter(c=>c.status==="online").length} online`} color="#3b82f6" delay={0} />
+            <StatCard icon={Icons.shield} label="Produtos Hoje" value={kpis.products_total.toLocaleString()} sub={`${kpis.sessions_total} sessões`} color="#22c55e" delay={0.05} />
+            <StatCard icon={Icons.alertTriangle} label="Pendentes" value={kpis.pending_validation} sub="Aguardando validação" color="#f59e0b" delay={0.1} />
+            <StatCard icon={Icons.activity} label="Precisão IA" value={`${kpis.accuracy_rate}%`} sub={`${kpis.avg_duration_minutes}min médio`} color="#8b5cf6" delay={0.15} />
+          </div>
+
+          {/* Period Selector + Export Button */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["today", "7days", "30days", "all"].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  style={{
+                    padding: "8px 16px", borderRadius: 8,
+                    background: period === p ? "var(--accent)" : "var(--bg)",
+                    color: period === p ? "#fff" : "var(--text)",
+                    border: period === p ? "none" : "1px solid var(--border)",
+                    fontSize: 13, fontWeight: period === p ? 600 : 500, cursor: "pointer",
+                    transition: "all 0.15s"
+                  }}
+                  onMouseEnter={e => { if (period !== p) e.currentTarget.style.borderColor = "var(--accent)"; }}
+                  onMouseLeave={e => { if (period !== p) e.currentTarget.style.borderColor = "var(--border)"; }}
+                >
+                  {p === "today" && "Hoje"}
+                  {p === "7days" && "7 dias"}
+                  {p === "30days" && "30 dias"}
+                  {p === "all" && "Tudo"}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleExportExcel}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "10px 18px", borderRadius: 8,
+                background: "#22c55e", color: "#fff",
+                border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                transition: "opacity 0.15s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+            >
+              {Icons.activity} Exportar Excel
+            </button>
+          </div>
+
+          {/* Charts */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 20, marginBottom: 20 }}>
+            {/* Products per Hour Chart */}
+            <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.2s both" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px" }}>
+                Produtos por Hora
+              </h3>
+              {productsPerHour.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={productsPerHour}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="hour" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
+                    <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} dot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <p style={{ color: "var(--muted)", fontSize: 14, textAlign: "center", padding: 40 }}>
+                  Nenhum dado disponível
+                </p>
+              )}
+            </div>
+
+            {/* Sessions per Bay Chart */}
+            <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.25s both" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px" }}>
+                Sessões por Baia
+              </h3>
+              {sessionsPerBay.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={sessionsPerBay}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="bay_id" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
+                    <Bar dataKey="sessions" fill="#8b5cf6" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p style={{ color: "var(--muted)", fontSize: 14, textAlign: "center", padding: 40 }}>
+                  Nenhum dado disponível
+                </p>
+              )}
             </div>
           </div>
-        ))}
-      </div>
+
+          {/* Recent Validated Sessions */}
+          {recentValidated.length > 0 && (
+            <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.3s both" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px" }}>
+                Últimas Validações
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {recentValidated.map((session, index) => (
+                  <div key={session.id} style={{
+                    padding: 14, borderRadius: 10,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 12,
+                    animation: `fadeUp 0.3s ease ${0.35 + index * 0.05}s both`
+                  }}>
+                    <span style={{ fontSize: 24 }}>✅</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 14, fontWeight: 500, color: "var(--text)",
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+                      }}>
+                        {session.truck_plate || "Placa não identificada"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        Baia {session.bay_id || session.camera_id || "?"} · IA: {session.ai_count}
+                        {session.operator_count && session.operator_count !== session.ai_count && (
+                          <span style={{ color: "#f59e0b", fontWeight: 500 }}>
+                            → Operador: {session.operator_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{
+          background: "#fef2f2", border: "1px solid #fecaca",
+          borderRadius: 12, padding: 24, textAlign: "center"
+        }}>
+          <p style={{ color: "#dc2626", fontSize: 14, fontWeight: 500, margin: "0 0 8px" }}>
+            Erro ao carregar dados
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: "10px 20px", borderRadius: 8,
+              background: "#dc2626", color: "#fff",
+              border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer"
+            }}
+          >
+            Recarregar Página
+          </button>
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 // ── Cameras ──
 const CamerasPage = () => {
   const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showWizard, setShowWizard] = useState(false);
+  const [editCamera, setEditCamera] = useState(null);
 
   const filteredCameras = DEMO_CAMERAS.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -252,7 +471,7 @@ const CamerasPage = () => {
           <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Câmeras</h1>
           <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Gerencie suas câmeras IP</p>
         </div>
-        <button style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, background: "var(--accent)", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={() => setShowWizard(true)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, background: "var(--accent)", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
           {Icons.plus} Nova Câmera
         </button>
       </div>
@@ -442,6 +661,7 @@ const CamerasPage = () => {
                   {/* Action Buttons */}
                   <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                     <button
+                      onClick={() => setEditCamera(cam)}
                       style={{
                         flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                         padding: "9px 12px", borderRadius: 8,
@@ -517,6 +737,32 @@ const CamerasPage = () => {
           </div>
         </div>
       )}
+
+      {/* Camera Wizard */}
+      {showWizard && (
+        <CameraWizard
+          onClose={() => setShowWizard(false)}
+          onSaved={() => {
+            setShowWizard(false);
+            // Camera list would refresh here with real API
+            window.location.reload();
+          }}
+        />
+      )}
+
+      {/* Camera Edit Modal */}
+      {editCamera && (
+        <CameraEditModal
+          camera={editCamera}
+          isConfigMode={false}
+          onClose={() => setEditCamera(null)}
+          onSave={() => {
+            setEditCamera(null);
+            // Camera list would refresh here with real API
+            window.location.reload();
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -564,6 +810,12 @@ const TrainingPage = () => {
 
   // State para upload de imagens
   const [imageUploadModalOpen, setImageUploadModalOpen] = useState(false);
+
+  // State para timeline selector (vídeos > 10min)
+  const [timelineModal, setTimelineModal] = useState({
+    open: false,
+    video: null
+  });
 
   useEffect(() => {
     loadVideos();
@@ -660,6 +912,85 @@ const TrainingPage = () => {
     } finally {
       setRenamingVideoId(null);
       setRenameValue('');
+    }
+  };
+
+  const handleExtractFrames = (video) => {
+    // Para vídeos > 10min (600s), mostrar timeline selector
+    const duration = video.duration_seconds || 0;
+    if (duration > 600) {
+      setTimelineModal({
+        open: true,
+        video: video
+      });
+    } else {
+      // Para vídeos curtos, extrair direto
+      extractVideoFrames(video.id);
+    }
+  };
+
+  const extractVideoFrames = async (videoId, startTime = null, endTime = null) => {
+    try {
+      const token = localStorage.getItem('token');
+
+      const body = {};
+      if (startTime !== null && endTime !== null) {
+        body.start_time = startTime;
+        body.end_time = endTime;
+      }
+
+      const res = await fetch(`/api/training/videos/${videoId}/extract`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        // Atualizar status do vídeo para 'extracting'
+        setVideos(prev => prev.map(v => {
+          if (v.id === videoId) {
+            return { ...v, status: 'extracting' };
+          }
+          return v;
+        }));
+
+        // Fechar modal se estiver aberto
+        if (timelineModal.open) {
+          setTimelineModal({ open: false, video: null });
+        }
+
+        // Poll para atualizar progresso
+        const pollInterval = setInterval(async () => {
+          try {
+            const token = localStorage.getItem('token');
+            const statusRes = await fetch(`/api/training/videos`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const statusData = await statusRes.json();
+
+            if (statusData.success && statusData.videos) {
+              const updatedVideo = statusData.videos.find(v => v.id === videoId);
+              if (updatedVideo && updatedVideo.status !== 'extracting') {
+                clearInterval(pollInterval);
+                setVideos(statusData.videos);
+              }
+            }
+          } catch (e) {
+            clearInterval(pollInterval);
+          }
+        }, 2000);
+
+      } else {
+        alert('Erro ao extrair frames: ' + (data.error || 'Erro desconhecido'));
+      }
+    } catch (e) {
+      console.error('Extract error:', e);
+      alert('Erro ao extrair frames');
     }
   };
 
@@ -940,6 +1271,25 @@ const TrainingPage = () => {
         />
       </Modal>
 
+      {/* Timeline Selector Modal (para vídeos > 10min) */}
+      {timelineModal.open && timelineModal.video && (
+        <VideoTimelineSelector
+          video={{
+            id: timelineModal.video.id,
+            filename: timelineModal.video.name || timelineModal.video.id?.slice(0, 8),
+            duration_seconds: timelineModal.video.duration_seconds || 0,
+            storage_path: timelineModal.video.storage_path
+          }}
+          onExtract={(startTime, endTime) => {
+            extractVideoFrames(timelineModal.video.id, startTime, endTime);
+          }}
+          onExtractFull={() => {
+            extractVideoFrames(timelineModal.video.id);
+          }}
+          onClose={() => setTimelineModal({ open: false, video: null })}
+        />
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 80, color: 'var(--muted)' }}>
           Carregando vídeos...
@@ -1062,7 +1412,7 @@ const TrainingPage = () => {
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {video.annotated_frames || 0}/{video.frame_count || 0} anotados
+                  {video.frame_count || 0} frames • {Math.round((video.duration_seconds || 0) / 60)}min
                 </span>
                 <span style={{
                   padding: '4px 10px',
@@ -1075,6 +1425,39 @@ const TrainingPage = () => {
                   {video.status === 'completed' ? '✓ Completo' : 'Processando'}
                 </span>
               </div>
+
+              {/* Botão Extrair Frames (apenas se não estiver completado) */}
+              {video.status !== 'completed' && video.status !== 'extracting' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleExtractFrames(video);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    background: 'linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.9) 100%)',
+                    border: 'none',
+                    borderRadius: 8,
+                    color: '#fff',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    marginBottom: 8
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, rgba(37,99,235,1) 0%, rgba(59,130,246,1) 100%)';
+                    e.target.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.9) 100%)';
+                    e.target.style.transform = '';
+                  }}
+                >
+                  🎞️ Extrair Frames
+                </button>
+              )}
 
               {/* BOTÃO ANOTAR — visível e claro */}
               <button
@@ -2351,6 +2734,1072 @@ const MonitoringPage = () => {
   );
 };
 
+// ── Rules (FASE 3) ──
+const RulesPage = () => {
+  const [templates, setTemplates] = useState([]);
+  const [customRules, setCustomRules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showAddRuleModal, setShowAddRuleModal] = useState(false);
+  const [newRule, setNewRule] = useState({
+    name: '',
+    event_type: 'detection',
+    event_config: { class_name: 'produto' },
+    action_type: 'count_product',
+    action_config: {},
+    cooldown_seconds: 3,
+    min_confidence: 0.5
+  });
+  const { success, error: toastError } = useToast();
+
+  // Polling para regras (30s com backoff)
+  useEffect(() => {
+    let mounted = true;
+    let failCount = 0;
+    let pollInterval = 30000; // 30s inicial
+
+    const fetchRules = async () => {
+      try {
+        const res = await fetch("http://localhost:5001/api/rules");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (mounted && data.success) {
+          // Separar templates de regras customizadas
+          const temps = data.rules.filter(r => r.template_type !== null);
+          const customs = data.rules.filter(r => r.template_type === null);
+
+          setTemplates(temps);
+          setCustomRules(customs);
+          setError(null);
+          failCount = 0; // Reset falhas
+          pollInterval = 30000; // Reset intervalo
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error("Erro ao buscar regras:", err);
+          failCount++;
+          // Exponential backoff até 60s max
+          pollInterval = Math.min(30000 * Math.pow(2, failCount - 1), 60000);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchRules();
+    const interval = setInterval(fetchRules, pollInterval);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Toggle rule active/inactive
+  const handleToggle = async (ruleId, currentState) => {
+    try {
+      const res = await fetch(`http://localhost:5001/api/rules/${ruleId}/toggle`, {
+        method: "POST",
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (data.success) {
+        // Atualizar estado local otimista
+        const updateList = (list) =>
+          list.map(r =>
+            r.id === ruleId ? { ...r, is_active: !r.is_active } : r
+          );
+
+        setTemplates(updateList(templates));
+        setCustomRules(updateList(customRules));
+
+        success(`Regra ${currentState ? "desativada" : "ativada"} com sucesso!`);
+      } else {
+        throw new Error(data.error || "Erro ao alternar regra");
+      }
+    } catch (err) {
+      console.error("Erro ao alternar regra:", err);
+      toastError(err.message || "Erro ao alternar regra");
+    }
+  };
+
+  // Create custom rule
+  const handleCreateRule = async () => {
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const res = await fetch('http://localhost:5001/api/rules', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(newRule)
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        success('Regra criada com sucesso!');
+        setShowAddRuleModal(false);
+        setNewRule({
+          name: '',
+          event_type: 'detection',
+          event_config: { class_name: 'produto' },
+          action_type: 'count_product',
+          action_config: {},
+          cooldown_seconds: 3,
+          min_confidence: 0.5
+        });
+        // Refresh rules
+        const fetchRules = async () => {
+          const ruleRes = await fetch("http://localhost:5001/api/rules");
+          const ruleData = await ruleRes.json();
+          if (ruleData.success) {
+            const temps = ruleData.rules.filter(r => r.template_type !== null);
+            const customs = ruleData.rules.filter(r => r.template_type === null);
+            setTemplates(temps);
+            setCustomRules(customs);
+          }
+        };
+        fetchRules();
+      } else {
+        throw new Error(data.error || 'Erro ao criar regra');
+      }
+    } catch (err) {
+      console.error('Erro ao criar regra:', err);
+      toastError(err.message || 'Erro ao criar regra');
+    }
+  };
+
+  // Template descriptions
+  const getTemplateDescription = (template) => {
+    const descriptions = {
+      "bay_control": "Detecta caminhão e gerencia sessões automaticamente",
+      "product_count": "Conta cada produto detectado com cooldown de 3s",
+      "plate_capture": "Associa placa detectada à sessão ativa",
+      "epi_compliance": "Alerta quando operador sem EPI",
+    };
+    return descriptions[template.template_type] || template.description || "";
+  };
+
+  // Get template label
+  const getTemplateLabel = (template) => {
+    const labels = {
+      "Controle de Baia — Início": "Controle de Baia — Início",
+      "Controle de Baia — Fim": "Controle de Baia — Fim",
+      "Contagem de Produtos": "Contagem de Produtos",
+      "Captura de Placa": "Captura de Placa",
+    };
+    return labels[template.name] || template.name;
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>
+          Regras
+        </h1>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>
+          Configure regras de negócio para processamento de detecções YOLO
+        </p>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60 }}>
+          <div style={{
+            width: 40, height: 40, margin: "0 auto 16px",
+            border: "3px solid var(--border)", borderTopColor: "var(--accent)",
+            borderRadius: "50%", animation: "spin 1s linear infinite"
+          }} />
+          <p style={{ color: "var(--muted)", fontSize: 14 }}>Carregando regras...</p>
+        </div>
+      ) : error ? (
+        <div style={{
+          background: "#fef2f2", border: "1px solid #fecaca",
+          borderRadius: 12, padding: 24, textAlign: "center"
+        }}>
+          <p style={{ color: "#dc2626", fontSize: 14, fontWeight: 500, margin: "0 0 8px" }}>
+            Erro ao carregar regras
+          </p>
+          <p style={{ color: "#991b1b", fontSize: 13, margin: 0 }}>{error}</p>
+        </div>
+      ) : (
+        <>
+          {/* Templates Pré-configurados */}
+          <div style={{
+            background: "var(--card)", borderRadius: 16,
+            border: "1px solid var(--border)", padding: 24, marginBottom: 24
+          }}>
+            <h2 style={{
+              fontSize: 16, fontWeight: 600, color: "var(--text)",
+              margin: "0 0 20px", display: "flex", alignItems: "center", gap: 8
+            }}>
+              {Icons.settings} Templates Pré-configurados
+            </h2>
+
+            {templates.length === 0 ? (
+              <p style={{ color: "var(--muted)", fontSize: 14, margin: 0 }}>
+                Nenhum template disponível.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {templates.map((template, index) => (
+                  <div key={template.id} style={{
+                    padding: 16, borderRadius: 12,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 16,
+                    transition: "transform 0.15s, box-shadow 0.15s",
+                    animation: `fadeUp 0.4s ease ${0.1 + index * 0.05}s both`
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "";
+                    e.currentTarget.style.boxShadow = "";
+                  }}>
+                    {/* Toggle Button */}
+                    <button
+                      onClick={() => handleToggle(template.id, template.is_active)}
+                      style={{
+                        width: 48, height: 28, flexShrink: 0,
+                        background: template.is_active ? "#22c55e" : "rgba(0,0,0,0.08)",
+                        borderRadius: 14, position: "relative", cursor: "pointer",
+                        border: "none", transition: "background 0.2s"
+                      }}
+                    >
+                      <span style={{
+                        position: "absolute", top: 3,
+                        left: template.is_active ? 25 : 4,
+                        width: 22, height: 22, borderRadius: "50%",
+                        background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                        transition: "left 0.2s"
+                      }} />
+                    </button>
+
+                    {/* Template Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8, marginBottom: 4
+                      }}>
+                        <span style={{
+                          fontSize: 14, fontWeight: 600, color: "var(--text)"
+                        }}>
+                          {getTemplateLabel(template)}
+                        </span>
+                        {template.is_active && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, color: "#22c55e",
+                            padding: "2px 8px", borderRadius: 10,
+                            background: "rgba(34,197,94,0.1)"
+                          }}>
+                            ATIVO
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                        {getTemplateDescription(template)}
+                      </div>
+                    </div>
+
+                    {/* Action Type Badge */}
+                    <span style={{
+                      fontSize: 11, fontWeight: 500, color: "var(--muted)",
+                      padding: "4px 10px", borderRadius: 6,
+                      background: "var(--bg)", border: "1px solid var(--border)",
+                      textTransform: "uppercase", letterSpacing: 0.5
+                    }}>
+                      {template.action_type === "start_session" && "Iniciar Sessão"}
+                      {template.action_type === "end_session" && "Encerrar Sessão"}
+                      {template.action_type === "count_product" && "Contar"}
+                      {template.action_type === "associate_plate" && "Placa"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Regras Customizadas */}
+          <div style={{
+            background: "var(--card)", borderRadius: 16,
+            border: "1px solid var(--border)", padding: 24
+          }}>
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              marginBottom: 20
+            }}>
+              <h2 style={{
+                fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0,
+                display: "flex", alignItems: "center", gap: 8
+              }}>
+                {Icons.sliders} Regras Customizadas
+              </h2>
+              <button
+                onClick={() => setShowAddRuleModal(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 16px", borderRadius: 8,
+                  background: "var(--accent)", color: "#fff",
+                  border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer",
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+                {Icons.plus} Adicionar
+              </button>
+            </div>
+
+            {customRules.length === 0 ? (
+              <div style={{
+                padding: 40, textAlign: "center",
+                background: "var(--bg)", borderRadius: 12
+              }}>
+                <p style={{ color: "var(--muted)", fontSize: 14, margin: 0 }}>
+                  Nenhuma regra customizada criada ainda.
+                </p>
+                <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 4 }}>
+                  Clique em "Adicionar" para criar sua primeira regra customizada.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {customRules.map((rule, index) => (
+                  <div key={rule.id} style={{
+                    padding: 16, borderRadius: 12,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 16,
+                    transition: "transform 0.15s, box-shadow 0.15s",
+                    animation: `fadeUp 0.4s ease ${0.2 + index * 0.05}s both`
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "";
+                    e.currentTarget.style.boxShadow = "";
+                  }}>
+                    {/* Toggle Button */}
+                    <button
+                      onClick={() => handleToggle(rule.id, rule.is_active)}
+                      style={{
+                        width: 48, height: 28, flexShrink: 0,
+                        background: rule.is_active ? "#22c55e" : "rgba(0,0,0,0.08)",
+                        borderRadius: 14, position: "relative", cursor: "pointer",
+                        border: "none", transition: "background 0.2s"
+                      }}
+                    >
+                      <span style={{
+                        position: "absolute", top: 3,
+                        left: rule.is_active ? 25 : 4,
+                        width: 22, height: 22, borderRadius: "50%",
+                        background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                        transition: "left 0.2s"
+                      }} />
+                    </button>
+
+                    {/* Rule Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8, marginBottom: 4
+                      }}>
+                        <span style={{
+                          fontSize: 14, fontWeight: 600, color: "var(--text)"
+                        }}>
+                          {rule.name}
+                        </span>
+                        {rule.is_active && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, color: "#22c55e",
+                            padding: "2px 8px", borderRadius: 10,
+                            background: "rgba(34,197,94,0.1)"
+                          }}>
+                            ATIVO
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                        {rule.description || "Sem descrição"}
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={{
+                        padding: "6px 12px", borderRadius: 6,
+                        background: "var(--bg)", color: "var(--text)",
+                        border: "1px solid var(--border)", fontSize: 12,
+                        fontWeight: 500, cursor: "pointer", display: "flex",
+                        alignItems: "center", gap: 4, transition: "all 0.15s"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "var(--accent)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}>
+                        {Icons.edit} Editar
+                      </button>
+                      <button style={{
+                        padding: "6px 12px", borderRadius: 6,
+                        background: "var(--bg)", color: "#ef4444",
+                        border: "1px solid var(--border)", fontSize: 12,
+                        fontWeight: 500, cursor: "pointer", display: "flex",
+                        alignItems: "center", gap: 4, transition: "all 0.15s"
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = "#ef4444";
+                        e.currentTarget.style.background = "#fef2f2";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = "var(--border)";
+                        e.currentTarget.style.background = "var(--bg)";
+                      }}>
+                        {Icons.trash} Excluir
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Add Rule Modal */}
+      {showAddRuleModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--card)', borderRadius: 16,
+            padding: 24, maxWidth: 500, width: '90%',
+            maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: 'var(--text)' }}>
+              Nova Regra Customizada
+            </h3>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                Nome
+              </label>
+              <input
+                type="text"
+                value={newRule.name}
+                onChange={e => setNewRule({...newRule, name: e.target.value})}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+                placeholder="Ex: Contar produtos da baia 1"
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                Classe YOLO
+              </label>
+              <select
+                value={newRule.event_config.class_name}
+                onChange={e => setNewRule({...newRule, event_config: {...newRule.event_config, class_name: e.target.value}})}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+              >
+                <option value="produto">Produto</option>
+                <option value="caminhao">Caminhão</option>
+                <option value="placa">Placa</option>
+                <option value="epi">EPI</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                Ação
+              </label>
+              <select
+                value={newRule.action_type}
+                onChange={e => setNewRule({...newRule, action_type: e.target.value})}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+              >
+                <option value="count_product">Contar Produto</option>
+                <option value="start_session">Iniciar Sessão</option>
+                <option value="end_session">Encerrar Sessão</option>
+                <option value="associate_plate">Associar Placa</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button
+                onClick={() => setShowAddRuleModal(false)}
+                style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateRule}
+                disabled={!newRule.name.trim()}
+                style={{ padding: '10px 20px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: !newRule.name.trim() ? 0.5 : 1 }}
+              >
+                Criar Regra
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Validation (FASE 4) ──
+const ValidationPage = () => {
+  const [pendingSessions, setPendingSessions] = useState([]);
+  const [validatedSessions, setValidatedSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [editingSession, setEditingSession] = useState(null);
+  const [operatorCount, setOperatorCount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [rejectConfirm, setRejectConfirm] = useState(null);
+  const { success, error: toastError } = useToast();
+
+  // Polling para sessões pendentes (10s com backoff)
+  useEffect(() => {
+    let mounted = true;
+    let failCount = 0;
+    let pollInterval = 10000; // 10s inicial
+
+    const fetchSessions = async () => {
+      try {
+        // Fetch pending sessions (com autenticação)
+        const token = localStorage.getItem("token") || "";
+        const headers = { "Authorization": `Bearer ${token}` };
+
+        const [pendingRes, validatedRes] = await Promise.all([
+          fetch("http://localhost:5001/api/sessions/pending", { headers }),
+          fetch("http://localhost:5001/api/sessions/history?limit=20&status=validated", { headers }),
+        ]);
+
+        if (!pendingRes.ok || !validatedRes.ok) throw new Error("HTTP error");
+
+        const pendingData = await pendingRes.json();
+        const validatedData = await validatedRes.json();
+
+        if (mounted) {
+          if (pendingData.success) setPendingSessions(pendingData.sessions || []);
+          if (validatedData.success) setValidatedSessions(validatedData.sessions || []);
+          setError(null);
+          failCount = 0;
+          pollInterval = 10000;
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error("Erro ao buscar sessões:", err);
+          failCount++;
+          pollInterval = Math.min(10000 * Math.pow(2, failCount - 1), 60000);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchSessions();
+    const interval = setInterval(fetchSessions, pollInterval);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Validate session
+  const handleValidate = async (sessionId, count, notesText) => {
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`http://localhost:5001/api/sessions/${sessionId}/validate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          validated_by: "operador",
+          operator_count: count,
+          notes: notesText,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (data.success) {
+        // Remover da lista de pendentes
+        setPendingSessions(prev => prev.filter(s => s.id !== sessionId));
+        // Adicionar ao histórico (local update otimista)
+        const session = pendingSessions.find(s => s.id === sessionId);
+        if (session) {
+          setValidatedSessions(prev => [
+            { ...session, operator_count: count, validation_notes: notesText, status: "validated", validated_at: new Date().toISOString() },
+            ...prev,
+          ]);
+        }
+        success("Sessão validada com sucesso!");
+        setEditingSession(null);
+        setOperatorCount("");
+        setNotes("");
+      } else {
+        throw new Error(data.error || "Erro ao validar sessão");
+      }
+    } catch (err) {
+      console.error("Erro ao validar sessão:", err);
+      toastError(err.message || "Erro ao validar sessão");
+    }
+  };
+
+  // Reject session
+  const handleReject = async (sessionId, notesText) => {
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`http://localhost:5001/api/sessions/${sessionId}/reject`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          validated_by: "operador",
+          notes: notesText,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (data.success) {
+        setPendingSessions(prev => prev.filter(s => s.id !== sessionId));
+        success("Sessão rejeitada.");
+        setRejectConfirm(null);
+        setNotes("");
+      } else {
+        throw new Error(data.error || "Erro ao rejeitar sessão");
+      }
+    } catch (err) {
+      console.error("Erro ao rejeitar sessão:", err);
+      toastError(err.message || "Erro ao rejeitar sessão");
+    }
+  };
+
+  // Format duration
+  const formatDuration = (seconds) => {
+    if (!seconds) return "-";
+    const mins = Math.floor(seconds / 60);
+    return `${mins} min`;
+  };
+
+  // Format time range
+  const formatTimeRange = (startedAt, endedAt) => {
+    if (!startedAt) return "-";
+    const start = new Date(startedAt);
+    const end = endedAt ? new Date(endedAt) : new Date();
+    const startFmt = start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const endFmt = end.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return `${startFmt} → ${endFmt}`;
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>
+          Validações
+        </h1>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>
+          Valide ou corrija a contagem de produtos feita pela IA
+        </p>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60 }}>
+          <div style={{
+            width: 40, height: 40, margin: "0 auto 16px",
+            border: "3px solid var(--border)", borderTopColor: "var(--accent)",
+            borderRadius: "50%", animation: "spin 1s linear infinite"
+          }} />
+          <p style={{ color: "var(--muted)", fontSize: 14 }}>Carregando sessões...</p>
+        </div>
+      ) : error ? (
+        <div style={{
+          background: "#fef2f2", border: "1px solid #fecaca",
+          borderRadius: 12, padding: 24, textAlign: "center"
+        }}>
+          <p style={{ color: "#dc2626", fontSize: 14, fontWeight: 500, margin: "0 0 8px" }}>
+            Erro ao carregar sessões
+          </p>
+          <p style={{ color: "#991b1b", fontSize: 13, margin: 0 }}>{error}</p>
+        </div>
+      ) : (
+        <>
+          {/* Pending Sessions */}
+          <div style={{
+            background: "var(--card)", borderRadius: 16,
+            border: "1px solid var(--border)", padding: 24, marginBottom: 24
+          }}>
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              marginBottom: 20
+            }}>
+              <h2 style={{
+                fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0,
+                display: "flex", alignItems: "center", gap: 8
+              }}>
+                {Icons.activity} Validações Pendentes
+                {pendingSessions.length > 0 && (
+                  <span style={{
+                    fontSize: 12, fontWeight: 600, color: "#fff",
+                    padding: "2px 10px", borderRadius: 12,
+                    background: "var(--accent)"
+                  }}>
+                    {pendingSessions.length} aguardando
+                  </span>
+                )}
+              </h2>
+            </div>
+
+            {pendingSessions.length === 0 ? (
+              <div style={{
+                padding: 40, textAlign: "center",
+                background: "var(--bg)", borderRadius: 12
+              }}>
+                <span style={{ fontSize: 40 }}>✅</span>
+                <p style={{ color: "var(--muted)", fontSize: 14, margin: "8px 0 0" }}>
+                  Nenhuma sessão pendente de validação
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {pendingSessions.map((session, index) => {
+                  const isEditing = editingSession === session.id;
+                  const currentCount = operatorCount !== "" ? parseInt(operatorCount) : session.ai_count;
+
+                  return (
+                    <div key={session.id} style={{
+                      padding: 20, borderRadius: 12,
+                      background: "var(--bg)", border: "1px solid var(--border)",
+                      animation: `fadeUp 0.4s ease ${0.1 + index * 0.05}s both`
+                    }}>
+                      {/* Session Header */}
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 12, marginBottom: 16
+                      }}>
+                        <span style={{ fontSize: 32 }}>🚛</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{
+                            fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 4
+                          }}>
+                            {session.truck_plate || "Placa não identificada"}
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                            Baia {session.bay_id || session.camera_id || "?"} ·{" "}
+                            {formatTimeRange(session.started_at, session.ended_at)} ·{" "}
+                            {formatDuration(session.duration_seconds)}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 12, color: "var(--muted)" }}>IA contou:</div>
+                          <div style={{
+                            fontSize: 24, fontWeight: 700, color: "var(--text)"
+                          }}>
+                            {session.ai_count || 0}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Camera Info */}
+                      <div style={{
+                        fontSize: 12, color: "var(--muted)",
+                        marginBottom: 16, padding: "8px 12px",
+                        background: "rgba(0,0,0,0.03)", borderRadius: 6
+                      }}>
+                        Câmera: {session.camera_id || "Não identificada"}
+                      </div>
+
+                      {/* Editing Mode */}
+                      {isEditing ? (
+                        <>
+                          {/* Edit Count */}
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{
+                              fontSize: 13, fontWeight: 500, color: "var(--text)",
+                              display: "block", marginBottom: 8
+                            }}>
+                              Contagem correta:
+                            </label>
+                            <input
+                              type="number"
+                              value={operatorCount}
+                              onChange={(e) => setOperatorCount(e.target.value)}
+                              style={{
+                                width: "100%", padding: "10px 14px", borderRadius: 8,
+                                border: "1px solid var(--border)", fontSize: 14,
+                                background: "var(--card)", color: "var(--text)"
+                              }}
+                              placeholder={session.ai_count.toString()}
+                            />
+                          </div>
+
+                          {/* Notes */}
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{
+                              fontSize: 13, fontWeight: 500, color: "var(--text)",
+                              display: "block", marginBottom: 8
+                            }}>
+                              Observações (opcional):
+                            </label>
+                            <input
+                              type="text"
+                              value={notes}
+                              onChange={(e) => setNotes(e.target.value)}
+                              style={{
+                                width: "100%", padding: "10px 14px", borderRadius: 8,
+                                border: "1px solid var(--border)", fontSize: 14,
+                                background: "var(--card)", color: "var(--text)"
+                              }}
+                              placeholder="Correção, motivo, etc."
+                            />
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div style={{ display: "flex", gap: 12 }}>
+                            <button
+                              onClick={() => handleValidate(session.id, currentCount, notes)}
+                              style={{
+                                flex: 1, padding: "10px 16px", borderRadius: 8,
+                                background: "#22c55e", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s"
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              ✅ Salvar Correção
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingSession(null);
+                                setOperatorCount("");
+                                setNotes("");
+                              }}
+                              style={{
+                                padding: "10px 16px", borderRadius: 8,
+                                background: "var(--bg)", color: "var(--text)",
+                                border: "1px solid var(--border)", fontSize: 14,
+                                fontWeight: 500, cursor: "pointer"
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Default View */}
+                          <div style={{
+                            display: "flex", gap: 12, alignItems: "stretch",
+                            flexWrap: "wrap"
+                          }}>
+                            <button
+                              onClick={() => handleValidate(session.id, session.ai_count, "")}
+                              style={{
+                                flex: 1, minWidth: 140, padding: "10px 16px", borderRadius: 8,
+                                background: "#22c55e", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s",
+                                display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              {Icons.check} Validar
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingSession(session.id);
+                                setOperatorCount("");
+                                setNotes("");
+                              }}
+                              style={{
+                                flex: 1, minWidth: 160, padding: "10px 16px", borderRadius: 8,
+                                background: "#f59e0b", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s",
+                                display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              {Icons.edit} Corrigir e Validar
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRejectConfirm(session.id);
+                                setNotes("");
+                              }}
+                              style={{
+                                flex: 1, minWidth: 120, padding: "10px 16px", borderRadius: 8,
+                                background: "#ef4444", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s",
+                                display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              {Icons.trash} Rejeitar
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Validated Sessions History */}
+          {validatedSessions.length > 0 && (
+            <div style={{
+              background: "var(--card)", borderRadius: 16,
+              border: "1px solid var(--border)", padding: 24
+            }}>
+              <h2 style={{
+                fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px",
+                display: "flex", alignItems: "center", gap: 8
+              }}>
+                {Icons.shield} Histórico de Validações
+                <span style={{
+                  fontSize: 12, fontWeight: 400, color: "var(--muted)"
+                }}>
+                  (últimas {validatedSessions.length})
+                </span>
+              </h2>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {validatedSessions.map((session, index) => (
+                  <div key={session.id} style={{
+                    padding: 14, borderRadius: 10,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 12,
+                    animation: `fadeUp 0.3s ease ${0.2 + index * 0.03}s both`
+                  }}>
+                    <span style={{ fontSize: 24 }}>✅</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 14, fontWeight: 500, color: "var(--text)",
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+                      }}>
+                        {session.truck_plate || "Placa não identificada"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        Baia {session.bay_id || session.camera_id || "?"} ·{" "}
+                        IA: {session.ai_count || 0}
+                        {session.operator_count !== null && session.operator_count !== session.ai_count && (
+                          <span style={{ color: "#f59e0b", fontWeight: 500 }}>
+                            → Operador: {session.operator_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontSize: 12, color: "var(--muted)", textAlign: "right"
+                    }}>
+                      {session.validated_at
+                        ? new Date(session.validated_at).toLocaleDateString("pt-BR")
+                        : "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Reject Confirmation Modal */}
+          {rejectConfirm && (
+            <div style={{
+              position: "fixed", inset: 0, zIndex: 100,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+              animation: "fadeUp 0.2s ease both"
+            }}>
+              <div style={{
+                background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)",
+                padding: 24, maxWidth: 420, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
+              }}>
+                <h3 style={{
+                  fontSize: 18, fontWeight: 700, color: "var(--text)", margin: "0 0 12px"
+                }}>
+                  Rejeitar Validação
+                </h3>
+                <p style={{
+                  fontSize: 14, color: "var(--muted)", lineHeight: 1.5, margin: "0 0 20px"
+                }}>
+                  Tem certeza que deseja rejeitar esta sessão? Esta ação não pode ser desfeita.
+                </p>
+
+                {/* Notes for rejection */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{
+                    fontSize: 13, fontWeight: 500, color: "var(--text)",
+                    display: "block", marginBottom: 8
+                  }}>
+                    Motivo (opcional):
+                  </label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    style={{
+                      width: "100%", padding: "10px 14px", borderRadius: 8,
+                      border: "1px solid var(--border)", fontSize: 14,
+                      background: "var(--bg)", color: "var(--text)"
+                    }}
+                    placeholder="Por que está rejeitando?"
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => {
+                      setRejectConfirm(null);
+                      setNotes("");
+                    }}
+                    style={{
+                      padding: "10px 20px", borderRadius: 8,
+                      background: "var(--bg)", color: "var(--text)",
+                      border: "1px solid var(--border)", fontSize: 14, fontWeight: 500, cursor: "pointer"
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => handleReject(rejectConfirm, notes)}
+                    style={{
+                      padding: "10px 20px", borderRadius: 8,
+                      background: "#ef4444", color: "#fff",
+                      border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer"
+                    }}
+                  >
+                    Rejeitar Sessão
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── Nav ──
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: Icons.dashboard },
@@ -2358,6 +3807,8 @@ const NAV = [
   { id: "monitoring", label: "Monitoramento", icon: Icons.monitor },
   { id: "classes", label: "Classes", icon: Icons.classes },
   { id: "training", label: "Treinamento", icon: Icons.training },
+  { id: "rules", label: "Regras", icon: Icons.sliders },
+  { id: "validations", label: "Validações", icon: Icons.shield },
 ];
 
 // ── App ──
@@ -2365,6 +3816,14 @@ export default function App() {
   const [page, setPage] = useState("monitoring");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
+  const [userRole, setUserRole] = useState(localStorage.getItem('userRole') || 'operator');
+  const [userName, setUserName] = useState(JSON.parse(localStorage.getItem('user') || '{}')?.full_name || 'Admin');
+  const [loginEmail, setLoginEmail] = useState('admin@empresa.com');
+  const [loginPassword, setLoginPassword] = useState('admin123');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
 
   // Camera management state
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
@@ -2376,6 +3835,48 @@ export default function App() {
   const { success, error } = useToast();
 
   useEffect(() => { const c = () => setIsMobile(window.innerWidth < 768); c(); window.addEventListener("resize", c); return () => window.removeEventListener("resize", c); }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      const response = await fetch('http://localhost:5001/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+      const data = await response.json();
+      if (data.success && data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('userRole', data.user?.role || 'operator');
+        setIsLoggedIn(true);
+        setUserRole(data.user?.role || 'operator');
+        setUserName(data.user?.full_name || data.user?.email || 'Admin');
+        setShowLoginModal(false);
+        setLoginError('');
+        success(`Bem-vindo, ${data.user.full_name || data.user.email}!`);
+      } else {
+        setLoginError(data.error || 'Falha no login');
+      }
+    } catch (err) {
+      setLoginError('Erro ao conectar. Tente novamente.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userName');
+    setIsLoggedIn(false);
+    setUserRole('operator');
+    setUserName('Admin');
+    setShowLoginModal(false);
+  };
 
   const handleCreateCamera = () => {
     setEditingCamera(null);
@@ -2430,7 +3931,17 @@ export default function App() {
         ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
       `}</style>
 
-      <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)", fontFamily: "'DM Sans', sans-serif" }}>
+      {!isLoggedIn ? (
+        <LoginPage
+          onLoginSuccess={(data) => {
+            setIsLoggedIn(true);
+            setUserRole(data.user?.role || 'operator');
+            setUserName(data.user?.full_name || data.user?.email || 'Admin');
+          }}
+        />
+      ) : (
+        <>
+          <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)", fontFamily: "'DM Sans', sans-serif" }}>
         {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40, backdropFilter: "blur(4px)" }} />}
 
         {/* Sidebar */}
@@ -2469,14 +3980,39 @@ export default function App() {
             })}
           </nav>
           <div style={{ padding: "12px 12px 14px", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 7, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.35)" }}>{Icons.user}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.7)" }}>Admin</div>
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>admin@empresa.com</div>
+            {isLoggedIn ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 7, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.35)" }}>{Icons.user}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.7)" }}>{userName}</div>
+                    <span style={{
+                      fontSize: 9, padding: "2px 6px", borderRadius: 4,
+                      background: userRole === 'admin' ? "rgba(37,99,235,0.2)" : "rgba(34,197,94,0.2)",
+                      color: userRole === 'admin' ? "#60a5fa" : "#22c55e",
+                      fontWeight: 600, textTransform: "uppercase"
+                    }}>{userRole === 'admin' ? 'Admin' : 'Operador'}</span>
+                  </div>
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>admin@empresa.com</div>
+                </div>
+                <button onClick={handleLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer" }} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.2)"}>{Icons.logout}</button>
               </div>
-              <button style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer" }} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.2)"}>{Icons.logout}</button>
-            </div>
+            ) : (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px", borderRadius: 7, background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)",
+                  fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s"
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}
+              >
+                <div style={{ width: 30, height: 30, borderRadius: 7, background: "rgba(37,99,235,0.2)", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563eb" }}>{Icons.user}</div>
+                <span>Fazer Login</span>
+              </button>
+            )}
           </div>
         </aside>
 
@@ -2502,6 +4038,8 @@ export default function App() {
             {page === "monitoring" && <MonitoringPage />}
             {page === "classes" && <ClassesPage />}
             {page === "training" && <TrainingPage />}
+            {page === "rules" && <RulesPage />}
+            {page === "validations" && <ValidationPage />}
           </main>
         </div>
       </div>
@@ -2517,8 +4055,82 @@ export default function App() {
         onSave={handleSaveCamera}
       />
 
+      {/* Login Modal */}
+      {showLoginModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--card)', borderRadius: 16,
+            padding: 24, maxWidth: 400, width: '90%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20, color: 'var(--text)', margin: 0, paddingBottom: 16 }}>
+              Login
+            </h2>
+
+            <form onSubmit={handleLogin}>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={e => setLoginEmail(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
+                  placeholder="admin@empresa.com"
+                />
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                  Senha
+                </label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={e => setLoginPassword(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {loginError && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#ef444410', color: '#ef4444', fontSize: 13, marginBottom: 16, border: '1px solid #ef444420' }}>
+                  {loginError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowLoginModal(false); setLoginError(''); }}
+                  style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loginLoading}
+                  style={{ padding: '10px 20px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: loginLoading ? 0.6 : 1 }}
+                >
+                  {loginLoading ? 'Entrando...' : 'Entrar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notifications */}
-      <ToastContainer />
+        <ToastContainer />
+        </>
+      )}
     </>
   );
 }

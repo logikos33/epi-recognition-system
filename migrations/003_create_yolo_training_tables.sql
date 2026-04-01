@@ -40,9 +40,7 @@ CREATE TABLE IF NOT EXISTS contagens_deteccao (
   camera_id       INTEGER REFERENCES ip_cameras(id) ON DELETE CASCADE,
   classe_id       INTEGER REFERENCES classes_yolo(id) ON DELETE CASCADE,
   quantidade      INTEGER DEFAULT 0,
-  valor_total     DECIMAL(10,2) GENERATED ALWAYS AS
-                  (quantidade * (SELECT valor_unitario FROM classes_yolo
-                   WHERE id = classe_id)) STORED,
+  valor_total     DECIMAL(10,2) DEFAULT 0.00,
   sessao_id       VARCHAR(50),
   detectado_em    TIMESTAMP DEFAULT NOW()
 );
