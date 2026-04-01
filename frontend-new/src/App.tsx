@@ -7,6 +7,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import Modal from "./components/Modal";
 import ToastContainer from "./components/Toast";
 import ImageUploadZone from "./components/ImageUploadZone.jsx";
+import { api } from "./services/api";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
@@ -3754,7 +3755,7 @@ export default function App() {
                 <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.7)" }}>Admin</div>
                 <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>admin@empresa.com</div>
               </div>
-              <button style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer" }} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.2)"}>{Icons.logout}</button>
+              <button onClick={api.logout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer" }} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.2)"}>{Icons.logout}</button>
             </div>
           </div>
         </aside>
