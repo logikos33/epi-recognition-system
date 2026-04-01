@@ -8,6 +8,7 @@ import Modal from "./components/Modal";
 import ToastContainer from "./components/Toast";
 import ImageUploadZone from "./components/ImageUploadZone.jsx";
 import { api } from "./services/api";
+import { CameraWizard } from "./components/CameraWizard";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
@@ -439,6 +440,7 @@ const DashboardPage = ({ cameras }) => {
 const CamerasPage = () => {
   const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showWizard, setShowWizard] = useState(false);
 
   const filteredCameras = DEMO_CAMERAS.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -466,7 +468,7 @@ const CamerasPage = () => {
           <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Câmeras</h1>
           <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Gerencie suas câmeras IP</p>
         </div>
-        <button style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, background: "var(--accent)", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={() => setShowWizard(true)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, background: "var(--accent)", color: "#fff", border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
           {Icons.plus} Nova Câmera
         </button>
       </div>
@@ -730,6 +732,18 @@ const CamerasPage = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Camera Wizard */}
+      {showWizard && (
+        <CameraWizard
+          onClose={() => setShowWizard(false)}
+          onSaved={() => {
+            setShowWizard(false);
+            // Camera list would refresh here with real API
+            window.location.reload();
+          }}
+        />
       )}
     </div>
   );
