@@ -1143,7 +1143,7 @@ def websocket_test():
 import threading
 import os
 
-from backend.video_processor import VideoProcessor
+from backend.video_processor_wrapper import VideoProcessor
 
 
 @app.route('/api/training/projects/<project_id>/videos', methods=['POST'])
