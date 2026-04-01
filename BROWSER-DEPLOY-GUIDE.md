@@ -70,9 +70,9 @@ No serviço **API** clicar em **"Variables"** → **"New Variable"**:
 
 ```
 SERVICE_TYPE=api
-JWT_SECRET_KEY=c95c9deea5d12c6c29c5cb0904f31d33fd5796aa550bcdd096d2b70f43229b8b
-SECRET_KEY=cc0f18f0c496acbf695dbde98bfce0349cdd1af3cd8a616923b84f37afd6c03a
-CAMERA_SECRET_KEY=LgcYZ-oaTO5dla6qEobzO_DMPcc-MGE4Uxzue3xYbc0
+JWT_SECRET_KEY=<gerar-32-hex>
+SECRET_KEY=<gerar-32-hex>
+CAMERA_SECRET_KEY=<gerar-32-hex>
 FLASK_ENV=staging
 PYTHONUNBUFFERED=1
 ADMIN_EMAIL=admin@epimonitor.com
