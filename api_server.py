@@ -10,8 +10,8 @@ import base64
 import numpy as np
 import os
 import json
-from cv2 import imdecode, IMREAD_COLOR
-from ultralytics import YOLO
+# from cv2 import imdecode, IMREAD_COLOR  # Moved to Worker - not needed in API
+# from ultralytics import YOLO  # Moved to Worker - not needed in API
 import bcrypt
 import jwt
 import datetime
@@ -195,7 +195,7 @@ PORT = int(os.environ.get('PORT', 5001))
 model_path = 'models/yolov8n.pt'
 try:
     logger.info(f"Loading YOLO model from: {model_path}")
-    model = YOLO(model_path)
+    from ultralytics import YOLO; model = YOLO(model_path)
     logger.info("✅ YOLO model loaded successfully")
 except Exception as e:
     logger.error(f"❌ Failed to load YOLO model: {e}")
@@ -3023,7 +3023,7 @@ def predict_frame(frame_id):
                 model_path = "models/yolov8n.pt"
 
             if os.path.exists(model_path):
-                model = YOLO(model_path)
+                from ultralytics import YOLO; model = YOLO(model_path)
                 results = model(image_path)
                 annotations = []
                 for r in results:
