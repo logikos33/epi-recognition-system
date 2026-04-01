@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment
+.env
+.env.*
+*.local
+
+# Logs
+*.log
+logs/
+
+# Tests
+tests/
+test_*.py
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large files
+storage/training_videos/*
+storage/training_frames/*
+storage/streams/*
+storage/training/*
+storage/models/active/*.pt
+
+# Keep directories
+!storage/.gitkeep
+!storage/training_videos/.gitkeep
+!storage/training_frames/.gitkeep
+!storage/streams/.gitkeep
+!storage/training/.gitkeep
+!storage/models/.gitkeep
+!logs/.gitkeep
