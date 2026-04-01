@@ -10,6 +10,7 @@ import ImageUploadZone from "./components/ImageUploadZone.jsx";
 import { api } from "./services/api";
 import { CameraWizard } from "./components/CameraWizard";
 import { CameraEditModal } from "./components/CameraEditModal";
+import { LoginPage } from "./components/LoginPage";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
@@ -3867,11 +3868,20 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    api.logout();
+    // Clear all auth state from localStorage
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userName');
+
+    // Reset state
     setIsLoggedIn(false);
     setUserRole('operator');
     setUserName('Admin');
     setShowLoginModal(false);
+
+    // Optional: reload page to clear any cached state
+    // window.location.reload();
   };
 
   const handleCreateCamera = () => {
@@ -3927,8 +3937,18 @@ export default function App() {
         ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
       `}</style>
 
-      <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)", fontFamily: "'DM Sans', sans-serif" }}>
-        {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40, backdropFilter: "blur(4px)" }} />}
+      {/* Authentication Gate */}
+      {!isLoggedIn ? (
+        <LoginPage
+          onLoginSuccess={(data) => {
+            setIsLoggedIn(true);
+            setUserRole(data.user?.role || 'operator');
+            setUserName(data.user?.full_name || data.user?.email || 'Admin');
+          }}
+        />
+      ) : (
+        <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)", fontFamily: "'DM Sans', sans-serif" }}>
+          {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40, backdropFilter: "blur(4px)" }} />}
 
         {/* Sidebar */}
         <aside style={{
@@ -4041,80 +4061,10 @@ export default function App() {
         onSave={handleSaveCamera}
       />
 
-      {/* Login Modal */}
-      {showLoginModal && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)'
-        }}>
-          <div style={{
-            background: 'var(--card)', borderRadius: 16,
-            padding: 24, maxWidth: 400, width: '90%',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
-          }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20, color: 'var(--text)', margin: 0, paddingBottom: 16 }}>
-              Login
-            </h2>
-
-            <form onSubmit={handleLogin}>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={e => setLoginEmail(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
-                  placeholder="admin@empresa.com"
-                />
-              </div>
-
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
-                  Senha
-                </label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={e => setLoginPassword(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
-                  placeholder="••••••••"
-                />
-              </div>
-
-              {loginError && (
-                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#ef444410', color: '#ef4444', fontSize: 13, marginBottom: 16, border: '1px solid #ef444420' }}>
-                  {loginError}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
-                <button
-                  type="button"
-                  onClick={() => { setShowLoginModal(false); setLoginError(''); }}
-                  style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={loginLoading}
-                  style={{ padding: '10px 20px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: loginLoading ? 0.6 : 1 }}
-                >
-                  {loginLoading ? 'Entrando...' : 'Entrar'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Toast Notifications */}
       <ToastContainer />
+        </div>
+      )}
     </>
   );
 }
