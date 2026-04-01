@@ -32,4 +32,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
 # Run the application with verification
-CMD ["python", "railway_start_simple.py"]
+CMD ["python", "railway_start.py"]
