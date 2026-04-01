@@ -25,3 +25,7 @@ except ImportError:
 
         def stop_processing(self, *args, **kwargs):
             pass
+
+        def get_active_cameras(self):
+            """Return list of active cameras - mock version for API"""
+            return []  # Empty list since YOLO not available in API
