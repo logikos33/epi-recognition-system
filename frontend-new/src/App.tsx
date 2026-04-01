@@ -16,15 +16,15 @@ import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 // ══════════════════════════════════════════════════
 
 const DEMO_CAMERAS = [
-  { id: 1, name: 'Doca 01 — Carga', ip: '192.168.1.101', status: 'online', location: 'Galpão A', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: 'd7211594-f19e-4885-ab59-f713751f65e3' },
-  { id: 2, name: 'Doca 02 — Descarga', ip: '192.168.1.102', status: 'online', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '4K', frameId: 'eae73fe4-5a71-49e5-a88a-d5753edef84c' },
-  { id: 3, name: 'Pátio Externo', ip: '192.168.1.103', status: 'offline', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: null },
-  { id: 4, name: 'Doca 03 — Lateral', ip: '192.168.1.104', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '13a146cd-2e48-4eb5-b8a5-486f920dc641' },
-  { id: 5, name: 'Portaria — Entrada', ip: '192.168.1.105', status: 'online', location: 'Portaria', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: 'c5550068-5fc2-439c-bc27-fe7028b1e137' },
-  { id: 6, name: 'Doca 04 — Fundo', ip: '192.168.1.106', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '95cc3626-2407-4def-8f13-c86d3b90c062' },
-  { id: 7, name: 'Estacionamento', ip: '192.168.1.107', status: 'online', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: 'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1' },
-  { id: 8, name: 'Sala de Controle', ip: '192.168.1.108', status: 'online', location: 'Adm', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: null },
-  { id: 9, name: 'Corredor Central', ip: '192.168.1.109', status: 'offline', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: null },
+  { id: 1, name: 'Doca 01 — Carga', ip: '192.168.1.101', status: 'online', location: 'Galpão A', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 2, name: 'Doca 02 — Descarga', ip: '192.168.1.102', status: 'online', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '4K' },
+  { id: 3, name: 'Pátio Externo', ip: '192.168.1.103', status: 'offline', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p' },
+  { id: 4, name: 'Doca 03 — Lateral', ip: '192.168.1.104', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 5, name: 'Portaria — Entrada', ip: '192.168.1.105', status: 'online', location: 'Portaria', model: 'Hikvision DS-2CD', resolution: '1080p' },
+  { id: 6, name: 'Doca 04 — Fundo', ip: '192.168.1.106', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 7, name: 'Estacionamento', ip: '192.168.1.107', status: 'online', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p' },
+  { id: 8, name: 'Sala de Controle', ip: '192.168.1.108', status: 'online', location: 'Adm', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 9, name: 'Corredor Central', ip: '192.168.1.109', status: 'offline', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '1080p' },
 ]
 
 const CAMERA_DETECTIONS = {
@@ -77,39 +77,9 @@ const CAMERA_DETECTIONS = {
 // SLIDESHOW FRAMES — Frames para câmeras sem frameId
 // Troca a cada 5 segundos (câmera usa offset diferente)
 // ══════════════════════════════════════════════════
-const SLIDESHOW_FRAMES = [
-  'd7211594-f19e-4885-ab59-f713751f65e3',
-  'eae73fe4-5a71-49e5-a88a-d5753edef84c',
-  '13a146cd-2e48-4eb5-b8a5-486f920dc641',
-  'c5550068-5fc2-439c-bc27-fe7028b1e137',
-  '95cc3626-2407-4def-8f13-c86d3b90c062',
-  'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1',
-  'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
-  'f6e5d4c3-b2a1-4f3e-9d8c-7b6a5f4e3d2c',
-  '2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b',
-  '7d8e9f0a-1b2c-4d5e-9f0a-2b3c4d5e6f7a',
-  '3a4b5c6d-7e8f-4a5b-9c0d-1e2f3a4b5c6d',
-  '8b9c0d1e-2f3a-4b5c-0d1e-3f4a5b6c7d8e',
-  '4c5d6e7f-8a9b-4c5d-0e1f-4a5b6c7d8e9f',
-  '9d0e1f2a-3b4c-4d5e-1f2a-5b6c7d8e9f0a',
-  '5e6f7a8b-9c0d-4e5f-2a3b-6c7d8e9f0a1b',
-  '0f1a2b3c-4d5e-4f6a-3b4c-7d8e9f0a1b2c',
-  'a1b2c3d4-5e6f-4a7b-4c5d-8e9f0a1b2c3d',
-  'b2c3d4e5-6f7a-4b8c-5d6e-9f0a1b2c3d4e',
-  'c3d4e5f6-7a8b-4c9d-6e7f-0a1b2c3d4e5f',
-  'd4e5f6a7-8b9c-4d0e-7f8a-1b2c3d4e5f6a',
-  'e5f6a7b8-9c0d-4e1f-8a9b-2c3d4e5f6a7b',
-  'f6a7b8c9-0d1e-4f2a-9b0c-3d4e5f6a7b8c',
-  'a7b8c9d0-1e2f-4a3b-0c1d-4e5f6a7b8c9d',
-  'b8c9d0e1-2f3a-4b4c-1d2e-5f6a7b8c9d0e',
-  'c9d0e1f2-3a4b-4c5d-2e3f-6a7b8c9d0e1f',
-  'd0e1f2a3-4b5c-4d6e-3f4a-7b8c9d0e1f2a',
-  'e1f2a3b4-5c6d-4e7f-4a5b-8c9d0e1f2a3b',
-  'f2a3b4c5-6d7e-4f8a-5b6c-9d0e1f2a3b4c',
-  'a3b4c5d6-7e8f-4a9b-6c7d-0e1f2a3b4c5d',
-  'b4c5d6e7-8f9a-4b0c-7d8e-1f2a3b4c5d6e',
-  'c5d6e7f8-9a0b-4c1d-8e9f-2a3b4c5d6e7f',
-];
+// NOTA: Slideshow desabilitado - IDs hardcoded foram removidos
+// para evitar 404 ao tentar carregar frames que não existem no banco
+const SLIDESHOW_FRAMES = [];
 
 // ── Icons ──
 const Icons = {
