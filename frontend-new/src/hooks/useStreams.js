@@ -44,21 +44,31 @@ export function useStreams(pollingInterval = 5000) {
   }, []);
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      await fetchStreamStatus();
-      await fetchHealth();
-      setLoading(false);
+    let timeoutId;
+    let failCount = 0;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        await fetchStreamStatus();
+        await fetchHealth();
+        failCount = 0;
+        if (!cancelled) timeoutId = setTimeout(poll, pollingInterval);
+      } catch {
+        failCount++;
+        const backoff = Math.min(pollingInterval * Math.pow(2, failCount - 1), 60000);
+        if (!cancelled) timeoutId = setTimeout(poll, backoff);
+      }
     };
 
-    load();
+    // Initial load
+    setLoading(true);
+    poll().finally(() => {
+      if (!cancelled) setLoading(false);
+    });
 
-    const interval = setInterval(() => {
-      fetchStreamStatus();
-      fetchHealth();
-    }, pollingInterval);
-
-    return () => clearInterval(interval);
+    return () => { cancelled = true; clearTimeout(timeoutId); };
   }, [fetchStreamStatus, fetchHealth, pollingInterval]);
 
   const getCameraStatus = useCallback((cameraId) => {
