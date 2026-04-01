@@ -79,6 +79,13 @@ from cameras.health_checker import CameraHealthChecker
 camera_health_checker = CameraHealthChecker()
 camera_health_checker.start()
 
+# ============================================================================
+# Rules Engine Blueprint (FASE 3 - State Machine para processamento YOLO)
+# ============================================================================
+from rules.routes import rules_bp, sessions_bp
+app.register_blueprint(rules_bp, url_prefix='/api/rules')
+app.register_blueprint(sessions_bp, url_prefix='/api/sessions')
+
 
 # ============================================================================
 # Global Exception Handlers - Backend Never Crashes
@@ -196,16 +203,32 @@ yolo_processor_manager = YOLOProcessorManager()
 if model:
     yolo_processor_manager.set_model(model)
 
-# Detection callback for WebSocket broadcasting
+# Detection callback for WebSocket broadcasting + Rules Engine processing
 def on_detection_result(result: dict):
-    """Callback for YOLO detection results - broadcasts via WebSocket"""
+    """Callback for YOLO detection results - processes via Rules Engine + broadcasts via WebSocket"""
     try:
-        # Emit to camera-specific room
+        camera_id = result.get('camera_id')
+        detections = result.get('detections', [])
+
+        # NOVO: Processar detecções através da Rules Engine
+        if camera_id and detections:
+            try:
+                from rules.service import get_rules_engine
+                rules_engine = get_rules_engine()
+                actions = rules_engine.process_detections(str(camera_id), detections)
+
+                # Logar ações executadas
+                for action in actions:
+                    logger.info(f"✅ Rules action: {action.get('action_type')} for camera {camera_id}")
+            except Exception as rules_error:
+                logger.error(f"❌ Rules Engine error: {rules_error}")
+
+        # Emit to camera-specific room (mantido)
         room = f"camera_{result['camera_id']}"
         socketio.emit('detection', result, room=room)
         logger.debug(f"📡 Emitted detection to {room}: {len(result.get('detections', []))} objects")
     except Exception as e:
-        logger.error(f"❌ Error emitting detection: {e}")
+        logger.error(f"❌ Error in detection callback: {e}")
 
 # Register detection callback
 yolo_processor_manager.set_detection_callback(on_detection_result)
