@@ -55,6 +55,8 @@ supabase/
 storage/images/*
 storage/annotated/*
 storage/reports/*
+storage/models/*
+storage/datasets/*
 !storage/.gitkeep
 
 # Models
