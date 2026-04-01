@@ -3,6 +3,7 @@ import { useCameras } from "./hooks/useCameras";
 import { useStreams } from "./hooks/useStreams";
 import { useToast } from "./hooks/useToast";
 import CameraForm from "./components/CameraForm";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import Modal from "./components/Modal";
 import ToastContainer from "./components/Toast";
 import ImageUploadZone from "./components/ImageUploadZone.jsx";
@@ -145,53 +146,293 @@ const StatCard = ({ icon, label, value, sub, color, delay }) => (
   </div>
 );
 
-// ── Dashboard ──
-const DashboardPage = ({ cameras }) => (
-  <div>
-    <div style={{ marginBottom: 32 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>Dashboard</h1>
-      <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>Visão geral do sistema de monitoramento</p>
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
-      <StatCard icon={Icons.camera} label="Câmeras" value={cameras.length} sub={`${cameras.filter(c=>c.status==="online").length} online`} color="#3b82f6" delay={0} />
-      <StatCard icon={Icons.shield} label="Detecções Hoje" value="2.847" sub="+12% vs ontem" color="#22c55e" delay={0.05} />
-      <StatCard icon={Icons.alertTriangle} label="Alertas" value="23" sub="7 críticos" color="#f59e0b" delay={0.1} />
-      <StatCard icon={Icons.activity} label="Conformidade" value="94%" sub="Meta: 98%" color="#8b5cf6" delay={0.15} />
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 20 }}>
-      <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.2s both" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0 }}>Alertas Recentes</h2>
-          <span style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 500 }}>Ver todos</span>
-        </div>
-        {ALERTS.map((a, i) => (
-          <div key={a.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "11px 14px", borderRadius: 10, background: "var(--bg)", marginBottom: 8, animation: `fadeUp 0.4s ease ${0.25+i*0.05}s both` }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", marginTop: 6, flexShrink: 0, background: a.type==="critical"?"#ef4444":a.type==="warning"?"#f59e0b":"#22c55e" }} />
-            <div><div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>{a.message}</div><div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{a.camera} · {a.time}</div></div>
-          </div>
-        ))}
+// ── Dashboard (FASE 5 - Atualizado com dados reais) ──
+const DashboardPage = ({ cameras }) => {
+  const [kpis, setKpis] = useState(null);
+  const [productsPerHour, setProductsPerHour] = useState([]);
+  const [sessionsPerBay, setSessionsPerBay] = useState([]);
+  const [recentAlerts, setRecentAlerts] = useState([]);
+  const [recentValidated, setRecentValidated] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [period, setPeriod] = useState("today");
+  const { success, error: toastError } = useToast();
+
+  // Polling para dashboard data (30s com backoff)
+  useEffect(() => {
+    let mounted = true;
+    let failCount = 0;
+    let pollInterval = 30000; // 30s inicial
+
+    const fetchDashboardData = async () => {
+      try {
+        const token = localStorage.getItem("token") || "";
+        const headers = { "Authorization": `Bearer ${token}` };
+
+        // Buscar dados em paralelo
+        const [
+          kpisRes,
+          productsRes,
+          sessionsRes,
+          alertsRes,
+          validatedRes,
+        ] = await Promise.all([
+          fetch(`http://localhost:5001/api/dashboard/kpis?period=${period}`, { headers }),
+          fetch("http://localhost:5001/api/dashboard/chart/products-per-hour", { headers }),
+          fetch("http://localhost:5001/api/dashboard/chart/sessions-per-bay", { headers }),
+          fetch("http://localhost:5001/api/dashboard/alerts/recent?limit=5", { headers }),
+          fetch("http://localhost:5001/api/dashboard/sessions/recent-validated?limit=5", { headers }),
+        ]);
+
+        if (!kpisRes.ok) throw new Error(`KPIs: HTTP ${kpisRes.status}`);
+        if (!productsRes.ok) throw new Error(`Products: HTTP ${productsRes.status}`);
+        if (!sessionsRes.ok) throw new Error(`Sessions: HTTP ${sessionsRes.status}`);
+        if (!alertsRes.ok) throw new Error(`Alerts: HTTP ${alertsRes.status}`);
+        if (!validatedRes.ok) throw new Error(`Validated: HTTP ${validatedRes.status}`);
+
+        const kpisData = await kpisRes.json();
+        const productsData = await productsRes.json();
+        const sessionsData = await sessionsRes.json();
+        const alertsData = await alertsRes.json();
+        const validatedData = await validatedRes.json();
+
+        if (mounted) {
+          if (kpisData.success) setKpis(kpisData.kpis);
+          if (productsData.success) setProductsPerHour(productsData.data);
+          if (sessionsData.success) setSessionsPerBay(sessionsData.data);
+          if (alertsData.success) setRecentAlerts(alertsData.alerts);
+          if (validatedData.success) setRecentValidated(validatedData.sessions);
+          setError(null);
+          failCount = 0;
+          pollInterval = 30000;
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error("Erro ao buscar dados do dashboard:", err);
+          failCount++;
+          pollInterval = Math.min(30000 * Math.pow(2, failCount - 1), 60000);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, pollInterval);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [period]);
+
+  // Export Excel
+  const handleExportExcel = async () => {
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch("http://localhost:5001/api/dashboard/export/excel", {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      // Download file
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `EPI_Monitor_Relatorio_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      success("Relatório Excel exportado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao exportar Excel:", err);
+      toastError(err.message || "Erro ao exportar Excel");
+    }
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>
+          Dashboard
+        </h1>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>
+          Visão geral do sistema de monitoramento
+        </p>
       </div>
-      <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.25s both" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0 }}>Classes YOLO</h2>
-          <span style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer", fontWeight: 500 }}>Gerenciar</span>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60 }}>
+          <div style={{
+            width: 40, height: 40, margin: "0 auto 16px",
+            border: "3px solid var(--border)", borderTopColor: "var(--accent)",
+            borderRadius: "50%", animation: "spin 1s linear infinite"
+          }} />
+          <p style={{ color: "var(--muted)", fontSize: 14 }}>Carregando dashboard...</p>
         </div>
-        {CLASSES.map((c, i) => (
-          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, animation: `fadeUp 0.4s ease ${0.3+i*0.04}s both` }}>
-            <span style={{ fontSize: 18, width: 28, textAlign: "center" }}>{c.icon}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>{c.name}</span>
-                <span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "var(--mono)" }}>{c.count.toLocaleString()}</span>
-              </div>
-              <div style={{ height: 4, borderRadius: 2, background: "var(--bg)" }}><div style={{ height: "100%", borderRadius: 2, background: c.color, width: `${(c.count/1300)*100}%` }} /></div>
+      ) : kpis ? (
+        <>
+          {/* KPI Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 32 }}>
+            <StatCard icon={Icons.camera} label="Câmeras" value={cameras.length} sub={`${cameras.filter(c=>c.status==="online").length} online`} color="#3b82f6" delay={0} />
+            <StatCard icon={Icons.shield} label="Produtos Hoje" value={kpis.products_total.toLocaleString()} sub={`${kpis.sessions_total} sessões`} color="#22c55e" delay={0.05} />
+            <StatCard icon={Icons.alertTriangle} label="Pendentes" value={kpis.pending_validation} sub="Aguardando validação" color="#f59e0b" delay={0.1} />
+            <StatCard icon={Icons.activity} label="Precisão IA" value={`${kpis.accuracy_rate}%`} sub={`${kpis.avg_duration_minutes}min médio`} color="#8b5cf6" delay={0.15} />
+          </div>
+
+          {/* Period Selector + Export Button */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["today", "7days", "30days", "all"].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  style={{
+                    padding: "8px 16px", borderRadius: 8,
+                    background: period === p ? "var(--accent)" : "var(--bg)",
+                    color: period === p ? "#fff" : "var(--text)",
+                    border: period === p ? "none" : "1px solid var(--border)",
+                    fontSize: 13, fontWeight: period === p ? 600 : 500, cursor: "pointer",
+                    transition: "all 0.15s"
+                  }}
+                  onMouseEnter={e => { if (period !== p) e.currentTarget.style.borderColor = "var(--accent)"; }}
+                  onMouseLeave={e => { if (period !== p) e.currentTarget.style.borderColor = "var(--border)"; }}
+                >
+                  {p === "today" && "Hoje"}
+                  {p === "7days" && "7 dias"}
+                  {p === "30days" && "30 dias"}
+                  {p === "all" && "Tudo"}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleExportExcel}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "10px 18px", borderRadius: 8,
+                background: "#22c55e", color: "#fff",
+                border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                transition: "opacity 0.15s"
+              }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+            >
+              {Icons.activity} Exportar Excel
+            </button>
+          </div>
+
+          {/* Charts */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 20, marginBottom: 20 }}>
+            {/* Products per Hour Chart */}
+            <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.2s both" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px" }}>
+                Produtos por Hora
+              </h3>
+              {productsPerHour.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={productsPerHour}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="hour" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
+                    <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} dot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <p style={{ color: "var(--muted)", fontSize: 14, textAlign: "center", padding: 40 }}>
+                  Nenhum dado disponível
+                </p>
+              )}
+            </div>
+
+            {/* Sessions per Bay Chart */}
+            <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.25s both" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px" }}>
+                Sessões por Baia
+              </h3>
+              {sessionsPerBay.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={sessionsPerBay}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="bay_id" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                    <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 }} />
+                    <Bar dataKey="sessions" fill="#8b5cf6" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p style={{ color: "var(--muted)", fontSize: 14, textAlign: "center", padding: 40 }}>
+                  Nenhum dado disponível
+                </p>
+              )}
             </div>
           </div>
-        ))}
-      </div>
+
+          {/* Recent Validated Sessions */}
+          {recentValidated.length > 0 && (
+            <div style={{ background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)", padding: 24, animation: "fadeUp 0.5s ease 0.3s both" }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px" }}>
+                Últimas Validações
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {recentValidated.map((session, index) => (
+                  <div key={session.id} style={{
+                    padding: 14, borderRadius: 10,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 12,
+                    animation: `fadeUp 0.3s ease ${0.35 + index * 0.05}s both`
+                  }}>
+                    <span style={{ fontSize: 24 }}>✅</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 14, fontWeight: 500, color: "var(--text)",
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+                      }}>
+                        {session.truck_plate || "Placa não identificada"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        Baia {session.bay_id || session.camera_id || "?"} · IA: {session.ai_count}
+                        {session.operator_count && session.operator_count !== session.ai_count && (
+                          <span style={{ color: "#f59e0b", fontWeight: 500 }}>
+                            → Operador: {session.operator_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{
+          background: "#fef2f2", border: "1px solid #fecaca",
+          borderRadius: 12, padding: 24, textAlign: "center"
+        }}>
+          <p style={{ color: "#dc2626", fontSize: 14, fontWeight: 500, margin: "0 0 8px" }}>
+            Erro ao carregar dados
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              padding: "10px 20px", borderRadius: 8,
+              background: "#dc2626", color: "#fff",
+              border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer"
+            }}
+          >
+            Recarregar Página
+          </button>
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 // ── Cameras ──
 const CamerasPage = () => {
