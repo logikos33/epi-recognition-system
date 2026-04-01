@@ -2739,6 +2739,16 @@ const RulesPage = () => {
   const [customRules, setCustomRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showAddRuleModal, setShowAddRuleModal] = useState(false);
+  const [newRule, setNewRule] = useState({
+    name: '',
+    event_type: 'detection',
+    event_config: { class_name: 'produto' },
+    action_type: 'count_product',
+    action_config: {},
+    cooldown_seconds: 3,
+    min_confidence: 0.5
+  });
   const { success, error: toastError } = useToast();
 
   // Polling para regras (30s com backoff)
@@ -2812,6 +2822,53 @@ const RulesPage = () => {
     } catch (err) {
       console.error("Erro ao alternar regra:", err);
       toastError(err.message || "Erro ao alternar regra");
+    }
+  };
+
+  // Create custom rule
+  const handleCreateRule = async () => {
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const res = await fetch('http://localhost:5001/api/rules', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(newRule)
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        success('Regra criada com sucesso!');
+        setShowAddRuleModal(false);
+        setNewRule({
+          name: '',
+          event_type: 'detection',
+          event_config: { class_name: 'produto' },
+          action_type: 'count_product',
+          action_config: {},
+          cooldown_seconds: 3,
+          min_confidence: 0.5
+        });
+        // Refresh rules
+        const fetchRules = async () => {
+          const ruleRes = await fetch("http://localhost:5001/api/rules");
+          const ruleData = await ruleRes.json();
+          if (ruleData.success) {
+            const temps = ruleData.rules.filter(r => r.template_type !== null);
+            const customs = ruleData.rules.filter(r => r.template_type === null);
+            setTemplates(temps);
+            setCustomRules(customs);
+          }
+        };
+        fetchRules();
+      } else {
+        throw new Error(data.error || 'Erro ao criar regra');
+      }
+    } catch (err) {
+      console.error('Erro ao criar regra:', err);
+      toastError(err.message || 'Erro ao criar regra');
     }
   };
 
@@ -2981,15 +3038,17 @@ const RulesPage = () => {
               }}>
                 {Icons.sliders} Regras Customizadas
               </h2>
-              <button style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "8px 16px", borderRadius: 8,
-                background: "var(--accent)", color: "#fff",
-                border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer",
-                transition: "all 0.15s"
-              }}
-              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-              onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+              <button
+                onClick={() => setShowAddRuleModal(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 16px", borderRadius: 8,
+                  background: "var(--accent)", color: "#fff",
+                  border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer",
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
                 {Icons.plus} Adicionar
               </button>
             </div>
@@ -3105,6 +3164,86 @@ const RulesPage = () => {
             )}
           </div>
         </>
+      )}
+
+      {/* Add Rule Modal */}
+      {showAddRuleModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--card)', borderRadius: 16,
+            padding: 24, maxWidth: 500, width: '90%',
+            maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: 'var(--text)' }}>
+              Nova Regra Customizada
+            </h3>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                Nome
+              </label>
+              <input
+                type="text"
+                value={newRule.name}
+                onChange={e => setNewRule({...newRule, name: e.target.value})}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+                placeholder="Ex: Contar produtos da baia 1"
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                Classe YOLO
+              </label>
+              <select
+                value={newRule.event_config.class_name}
+                onChange={e => setNewRule({...newRule, event_config: {...newRule.event_config, class_name: e.target.value}})}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+              >
+                <option value="produto">Produto</option>
+                <option value="caminhao">Caminhão</option>
+                <option value="placa">Placa</option>
+                <option value="epi">EPI</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                Ação
+              </label>
+              <select
+                value={newRule.action_type}
+                onChange={e => setNewRule({...newRule, action_type: e.target.value})}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}
+              >
+                <option value="count_product">Contar Produto</option>
+                <option value="start_session">Iniciar Sessão</option>
+                <option value="end_session">Encerrar Sessão</option>
+                <option value="associate_plate">Associar Placa</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button
+                onClick={() => setShowAddRuleModal(false)}
+                style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateRule}
+                disabled={!newRule.name.trim()}
+                style={{ padding: '10px 20px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: !newRule.name.trim() ? 0.5 : 1 }}
+              >
+                Criar Regra
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
