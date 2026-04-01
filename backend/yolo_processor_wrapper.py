@@ -12,12 +12,16 @@ except ImportError:
         """Mock manager when YOLO is not available"""
         def __init__(self):
             self.model = None
-        
+
         def set_model(self, model):
             pass
-        
+
+        def set_detection_callback(self, callback):
+            """Set callback for detection results - mock version"""
+            pass
+
         def start_processing(self, *args, **kwargs):
             pass
-        
+
         def stop_processing(self, *args, **kwargs):
             pass
