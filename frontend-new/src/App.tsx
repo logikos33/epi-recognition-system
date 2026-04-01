@@ -3868,7 +3868,10 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    api.logout();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userName');
     setIsLoggedIn(false);
     setUserRole('operator');
     setUserName('Admin');
