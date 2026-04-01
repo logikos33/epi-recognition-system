@@ -271,7 +271,9 @@ class VideoProcessor:
         video_id: str,
         user_id: str,
         frames_per_second: int = 1,
-        max_frames: Optional[int] = None
+        max_frames: Optional[int] = None,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Extract frames from video for annotation using FFmpeg (optimized) or OpenCV (fallback).
@@ -282,6 +284,8 @@ class VideoProcessor:
             user_id: User UUID (for ownership verification)
             frames_per_second: Number of frames to extract per second
             max_frames: Maximum number of frames to extract (optional)
+            start_time: Start time in seconds (optional, for segment extraction)
+            end_time: End time in seconds (optional, for segment extraction)
 
         Returns:
             Dictionary with success status and extracted frames count
@@ -305,6 +309,46 @@ class VideoProcessor:
                     'error': f'Video file not found at {video_path}'
                 }
 
+            # Validate time range if provided
+            video_duration = video.get('duration_seconds', 0)
+            if start_time is not None and end_time is not None:
+                # Both provided - validate segment extraction
+                if start_time < 0 or end_time < 0:
+                    return {
+                        'success': False,
+                        'error': 'Start time and end time must be non-negative'
+                    }
+
+                if start_time >= end_time:
+                    return {
+                        'success': False,
+                        'error': 'Start time must be less than end time'
+                    }
+
+                segment_duration = end_time - start_time
+                if segment_duration < 60:
+                    return {
+                        'success': False,
+                        'error': f'Segment duration too short: {segment_duration}s (minimum: 60s)'
+                    }
+
+                if video_duration > 0 and end_time > video_duration:
+                    return {
+                        'success': False,
+                        'error': f'End time ({end_time}s) exceeds video duration ({video_duration}s)'
+                    }
+
+                logger.info(f"🎬 Extracting segment: {start_time}s - {end_time}s ({segment_duration}s total)")
+
+            elif start_time is not None or end_time is not None:
+                # Only one provided - invalid
+                return {
+                    'success': False,
+                    'error': 'Both start_time and end_time must be provided together'
+                }
+            else:
+                logger.info(f"🎬 Extracting full video {video_id}...")
+
             # Create frames base directory
             frames_base_dir = os.path.join(
                 os.path.dirname(video_path),
@@ -312,17 +356,17 @@ class VideoProcessor:
             )
             os.makedirs(frames_base_dir, exist_ok=True)
 
-            logger.info(f"🎬 Extracting frames from video {video_id}...")
-
             # Check if FFmpeg is available
             if shutil.which('ffmpeg'):
                 return self._extract_frames_ffmpeg(
-                    video_path, frames_base_dir, video_id, db, user_id, max_frames
+                    video_path, frames_base_dir, video_id, db, user_id, max_frames,
+                    start_time, end_time
                 )
             else:
                 logger.warning("FFmpeg not found, falling back to OpenCV (slower)")
                 return self._extract_frames_opencv(
-                    video_path, frames_base_dir, video_id, db, user_id, max_frames
+                    video_path, frames_base_dir, video_id, db, user_id, max_frames,
+                    start_time, end_time
                 )
 
         except Exception as e:
@@ -340,7 +384,9 @@ class VideoProcessor:
         video_id: str,
         db: Session,
         user_id: str,
-        max_frames: Optional[int]
+        max_frames: Optional[int],
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Extract frames using FFmpeg with parallel chunk processing (10-15x faster).
@@ -352,6 +398,8 @@ class VideoProcessor:
             db: Database session
             user_id: User UUID
             max_frames: Maximum frames to extract
+            start_time: Start time in seconds (optional)
+            end_time: End time in seconds (optional)
 
         Returns:
             Dictionary with success status and extracted frames count
@@ -375,64 +423,95 @@ class VideoProcessor:
 
             logger.info(f"   - Duration: {duration_sec:.2f}s, FPS: {fps:.2f}")
 
-            # Calculate chunks (60 seconds each)
-            chunk_duration = 60
-            total_chunks = int(duration_sec / chunk_duration) + (1 if duration_sec % chunk_duration > 0 else 0)
-
-            # Limit by max_frames
-            if max_frames:
-                total_chunks = min(total_chunks, int(max_frames / 60) + 1)
-
-            logger.info(f"   - Extracting {total_chunks} chunks in parallel...")
-
             total_frames_extracted = 0
-            max_workers = min(4, total_chunks)
 
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {}
+            # If start_time and end_time provided, extract single segment
+            if start_time is not None and end_time is not None:
+                segment_duration = end_time - start_time
+                logger.info(f"   - Extracting segment: {start_time}s - {end_time}s ({segment_duration}s)")
 
-                for chunk in range(total_chunks):
-                    chunk_start = chunk * chunk_duration
-                    chunk_dir = os.path.join(output_base_dir, f"chunk_{chunk:02d}")
+                chunk_dir = os.path.join(output_base_dir, "segment")
+                frames_count = self._extract_chunk_ffmpeg(
+                    video_path, chunk_dir, 0, start_time, segment_duration
+                )
 
-                    future = executor.submit(
-                        self._extract_chunk_ffmpeg,
-                        video_path, chunk_dir, chunk, chunk_start, chunk_duration
-                    )
-                    futures[future] = chunk
+                # Save to database
+                saved = self._save_frames_to_db(chunk_dir, video_id, db, 0)
+                total_frames_extracted = saved
 
-                for future in as_completed(futures):
-                    chunk_num = futures[future]
-                    try:
-                        frames_count = future.result()
+                logger.info(f"   - Segment extraction complete: {saved} frames")
 
-                        # Save to database
-                        chunk_dir = os.path.join(output_base_dir, f"chunk_{chunk_num:02d}")
-                        saved = self._save_frames_to_db(chunk_dir, video_id, db, chunk_num)
-                        total_frames_extracted += saved
+                # Mark as completed
+                try:
+                    db.execute(text("""
+                        UPDATE training_videos
+                        SET status = 'completed',
+                            processed_chunks = 1,
+                            total_chunks = 1
+                        WHERE id = :video_id
+                    """), {'video_id': video_id})
+                    db.commit()
+                except Exception as e:
+                    logger.warning(f"Could not update status to completed: {e}")
 
-                        logger.info(f"   Chunk {chunk_num:02d}: {saved} frames")
+            else:
+                # Full video extraction - Calculate chunks (60 seconds each)
+                chunk_duration = 60
+                total_chunks = int(duration_sec / chunk_duration) + (1 if duration_sec % chunk_duration > 0 else 0)
 
-                        # Update progress
+                # Limit by max_frames
+                if max_frames:
+                    total_chunks = min(total_chunks, int(max_frames / 60) + 1)
+
+                logger.info(f"   - Extracting {total_chunks} chunks in parallel...")
+
+                max_workers = min(4, total_chunks)
+
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {}
+
+                    for chunk in range(total_chunks):
+                        chunk_start = chunk * chunk_duration
+                        chunk_dir = os.path.join(output_base_dir, f"chunk_{chunk:02d}")
+
+                        future = executor.submit(
+                            self._extract_chunk_ffmpeg,
+                            video_path, chunk_dir, chunk, chunk_start, chunk_duration
+                        )
+                        futures[future] = chunk
+
+                    for future in as_completed(futures):
+                        chunk_num = futures[future]
                         try:
-                            db.execute(text("""
-                                UPDATE training_videos
-                                SET processed_chunks = processed_chunks + 1,
-                                    status = 'extracting'
-                                WHERE id = :video_id
-                            """), {'video_id': video_id})
-                            db.commit()
+                            frames_count = future.result()
+
+                            # Save to database
+                            chunk_dir = os.path.join(output_base_dir, f"chunk_{chunk_num:02d}")
+                            saved = self._save_frames_to_db(chunk_dir, video_id, db, chunk_num)
+                            total_frames_extracted += saved
+
+                            logger.info(f"   Chunk {chunk_num:02d}: {saved} frames")
+
+                            # Update progress
+                            try:
+                                db.execute(text("""
+                                    UPDATE training_videos
+                                    SET processed_chunks = processed_chunks + 1,
+                                        status = 'extracting'
+                                    WHERE id = :video_id
+                                """), {'video_id': video_id})
+                                db.commit()
+                            except Exception as e:
+                                logger.warning(f"Could not update progress: {e}")
+
                         except Exception as e:
-                            logger.warning(f"Could not update progress: {e}")
+                            logger.error(f"   Chunk {chunk_num} failed: {e}")
+                            continue
 
-                    except Exception as e:
-                        logger.error(f"   Chunk {chunk_num} failed: {e}")
-                        continue
-
-            # Mark as completed
-            try:
-                db.execute(text("""
-                    UPDATE training_videos
+                # Mark as completed
+                try:
+                    db.execute(text("""
+                        UPDATE training_videos
                     SET status = 'completed',
                         processed_chunks = total_chunks
                     WHERE id = :video_id
@@ -468,7 +547,9 @@ class VideoProcessor:
         video_id: str,
         db: Session,
         user_id: str,
-        max_frames: Optional[int]
+        max_frames: Optional[int],
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Extract frames using OpenCV (fallback, slower but works without FFmpeg).
@@ -480,6 +561,8 @@ class VideoProcessor:
             db: Database session
             user_id: User UUID
             max_frames: Maximum frames to extract
+            start_time: Start time in seconds (optional)
+            end_time: End time in seconds (optional)
 
         Returns:
             Dictionary with success status and extracted frames count
@@ -507,10 +590,28 @@ class VideoProcessor:
 
         logger.info(f"   - Using OpenCV (slower), Interval: every {interval} frames")
 
+        # If segment extraction, jump to start_time
+        start_frame = 0
+        end_frame = total_frames
+
+        if start_time is not None and end_time is not None:
+            start_frame = int(start_time * fps)
+            end_frame = int(end_time * fps)
+            logger.info(f"   - Segment extraction: frame {start_frame} to {end_frame}")
+
+            # Jump to start frame
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            frame_number = start_frame
+
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
+
+            # Check if we've reached end_frame for segment extraction
+            if start_time is not None and end_time is not None:
+                if frame_number >= end_frame:
+                    break
 
             if max_frames and extracted_count >= max_frames:
                 break

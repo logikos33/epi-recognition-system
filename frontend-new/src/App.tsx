@@ -8,6 +8,7 @@ import ToastContainer from "./components/Toast";
 import ImageUploadZone from "./components/ImageUploadZone.jsx";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
+import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 
 // ══════════════════════════════════════════════════
 // DEMO DATA — Câmeras e Detecções (Mock para demonstração)
@@ -565,6 +566,12 @@ const TrainingPage = () => {
   // State para upload de imagens
   const [imageUploadModalOpen, setImageUploadModalOpen] = useState(false);
 
+  // State para timeline selector (vídeos > 10min)
+  const [timelineModal, setTimelineModal] = useState({
+    open: false,
+    video: null
+  });
+
   useEffect(() => {
     loadVideos();
   }, []);
@@ -660,6 +667,85 @@ const TrainingPage = () => {
     } finally {
       setRenamingVideoId(null);
       setRenameValue('');
+    }
+  };
+
+  const handleExtractFrames = (video) => {
+    // Para vídeos > 10min (600s), mostrar timeline selector
+    const duration = video.duration_seconds || 0;
+    if (duration > 600) {
+      setTimelineModal({
+        open: true,
+        video: video
+      });
+    } else {
+      // Para vídeos curtos, extrair direto
+      extractVideoFrames(video.id);
+    }
+  };
+
+  const extractVideoFrames = async (videoId, startTime = null, endTime = null) => {
+    try {
+      const token = localStorage.getItem('token');
+
+      const body = {};
+      if (startTime !== null && endTime !== null) {
+        body.start_time = startTime;
+        body.end_time = endTime;
+      }
+
+      const res = await fetch(`/api/training/videos/${videoId}/extract`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        // Atualizar status do vídeo para 'extracting'
+        setVideos(prev => prev.map(v => {
+          if (v.id === videoId) {
+            return { ...v, status: 'extracting' };
+          }
+          return v;
+        }));
+
+        // Fechar modal se estiver aberto
+        if (timelineModal.open) {
+          setTimelineModal({ open: false, video: null });
+        }
+
+        // Poll para atualizar progresso
+        const pollInterval = setInterval(async () => {
+          try {
+            const token = localStorage.getItem('token');
+            const statusRes = await fetch(`/api/training/videos`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const statusData = await statusRes.json();
+
+            if (statusData.success && statusData.videos) {
+              const updatedVideo = statusData.videos.find(v => v.id === videoId);
+              if (updatedVideo && updatedVideo.status !== 'extracting') {
+                clearInterval(pollInterval);
+                setVideos(statusData.videos);
+              }
+            }
+          } catch (e) {
+            clearInterval(pollInterval);
+          }
+        }, 2000);
+
+      } else {
+        alert('Erro ao extrair frames: ' + (data.error || 'Erro desconhecido'));
+      }
+    } catch (e) {
+      console.error('Extract error:', e);
+      alert('Erro ao extrair frames');
     }
   };
 
@@ -940,6 +1026,25 @@ const TrainingPage = () => {
         />
       </Modal>
 
+      {/* Timeline Selector Modal (para vídeos > 10min) */}
+      {timelineModal.open && timelineModal.video && (
+        <VideoTimelineSelector
+          video={{
+            id: timelineModal.video.id,
+            filename: timelineModal.video.name || timelineModal.video.id?.slice(0, 8),
+            duration_seconds: timelineModal.video.duration_seconds || 0,
+            storage_path: timelineModal.video.storage_path
+          }}
+          onExtract={(startTime, endTime) => {
+            extractVideoFrames(timelineModal.video.id, startTime, endTime);
+          }}
+          onExtractFull={() => {
+            extractVideoFrames(timelineModal.video.id);
+          }}
+          onClose={() => setTimelineModal({ open: false, video: null })}
+        />
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 80, color: 'var(--muted)' }}>
           Carregando vídeos...
@@ -1062,7 +1167,7 @@ const TrainingPage = () => {
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {video.annotated_frames || 0}/{video.frame_count || 0} anotados
+                  {video.frame_count || 0} frames • {Math.round((video.duration_seconds || 0) / 60)}min
                 </span>
                 <span style={{
                   padding: '4px 10px',
@@ -1075,6 +1180,39 @@ const TrainingPage = () => {
                   {video.status === 'completed' ? '✓ Completo' : 'Processando'}
                 </span>
               </div>
+
+              {/* Botão Extrair Frames (apenas se não estiver completado) */}
+              {video.status !== 'completed' && video.status !== 'extracting' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleExtractFrames(video);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    background: 'linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.9) 100%)',
+                    border: 'none',
+                    borderRadius: 8,
+                    color: '#fff',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    marginBottom: 8
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, rgba(37,99,235,1) 0%, rgba(59,130,246,1) 100%)';
+                    e.target.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.9) 100%)';
+                    e.target.style.transform = '';
+                  }}
+                >
+                  🎞️ Extrair Frames
+                </button>
+              )}
 
               {/* BOTÃO ANOTAR — visível e claro */}
               <button

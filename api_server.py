@@ -1433,6 +1433,15 @@ def extract_video_frames(video_id: str):
 
     This endpoint is for re-extraction or manual extraction.
     Normally extraction starts automatically after upload.
+
+    Request body (optional):
+    {
+        "start_time": 120,  # Start time in seconds (optional)
+        "end_time": 480     # End time in seconds (optional)
+    }
+
+    If start_time and end_time are provided, extracts only that segment.
+    Otherwise, extracts the full video.
     """
     try:
         auth_header = request.headers.get('Authorization')
@@ -1445,6 +1454,31 @@ def extract_video_frames(video_id: str):
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
         user_id = payload['user_id']
+
+        # Get optional time range parameters
+        data = request.get_json() or {}
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+
+        # Validate time range parameters
+        if start_time is not None and end_time is not None:
+            if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
+                return jsonify({'success': False, 'error': 'start_time and end_time must be numbers'}), 400
+
+            if start_time < 0 or end_time < 0:
+                return jsonify({'success': False, 'error': 'start_time and end_time must be non-negative'}), 400
+
+            if start_time >= end_time:
+                return jsonify({'success': False, 'error': 'start_time must be less than end_time'}), 400
+
+            segment_duration = end_time - start_time
+            if segment_duration < 60:
+                return jsonify({'success': False, 'error': f'Segment duration too short: {segment_duration}s (minimum: 60s)'}), 400
+
+        elif start_time is not None or end_time is not None:
+            # Only one provided
+            return jsonify({'success': False, 'error': 'Both start_time and end_time must be provided together'}), 400
+
         db = get_db_session()
 
         # Check video ownership and current status
@@ -1480,14 +1514,16 @@ def extract_video_frames(video_id: str):
         db.commit()
 
         # Start extraction in background
-        def extract_background(video_id, user_id):
+        def extract_background(video_id, user_id, start_time, end_time):
             try:
                 with get_db_context() as db_local:
                     processor = VideoProcessor()
                     result = processor.extract_frames(
                         db=db_local,
                         video_id=video_id,
-                        user_id=user_id
+                        user_id=user_id,
+                        start_time=start_time,
+                        end_time=end_time
                     )
 
                     if result.get('success'):
@@ -1499,7 +1535,7 @@ def extract_video_frames(video_id: str):
 
         thread = threading.Thread(
             target=extract_background,
-            args=(video_id, user_id),
+            args=(video_id, user_id, start_time, end_time),
             daemon=True
         )
         thread.start()
