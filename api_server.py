@@ -45,7 +45,7 @@ from backend.ip_camera_service import IPCameraService  # For IP cameras
 from backend.fueling_session_service import FuelingSessionService
 from backend.ocr_service import OCRService
 from backend.stream_manager import StreamManager
-from backend.yolo_processor import YOLOProcessorManager
+from backend.yolo_processor_wrapper import YOLOProcessorManager
 from training.training_optimizer import TrainingResourceManager
 
 # Configure logging
