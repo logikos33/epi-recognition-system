@@ -3817,6 +3817,8 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
+  const [userRole, setUserRole] = useState(localStorage.getItem('userRole') || 'operator');
+  const [userName, setUserName] = useState(JSON.parse(localStorage.getItem('user') || '{}')?.full_name || 'Admin');
   const [loginEmail, setLoginEmail] = useState('admin@empresa.com');
   const [loginPassword, setLoginPassword] = useState('admin123');
   const [loginError, setLoginError] = useState('');
@@ -3847,7 +3849,10 @@ export default function App() {
       if (data.success && data.token) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('userRole', data.user?.role || 'operator');
         setIsLoggedIn(true);
+        setUserRole(data.user?.role || 'operator');
+        setUserName(data.user?.full_name || data.user?.email || 'Admin');
         setShowLoginModal(false);
         setLoginError('');
         success(`Bem-vindo, ${data.user.full_name || data.user.email}!`);
@@ -3864,6 +3869,8 @@ export default function App() {
   const handleLogout = () => {
     api.logout();
     setIsLoggedIn(false);
+    setUserRole('operator');
+    setUserName('Admin');
     setShowLoginModal(false);
   };
 
@@ -3963,7 +3970,15 @@ export default function App() {
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ width: 30, height: 30, borderRadius: 7, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.35)" }}>{Icons.user}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.7)" }}>Admin</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.7)" }}>{userName}</div>
+                    <span style={{
+                      fontSize: 9, padding: "2px 6px", borderRadius: 4,
+                      background: userRole === 'admin' ? "rgba(37,99,235,0.2)" : "rgba(34,197,94,0.2)",
+                      color: userRole === 'admin' ? "#60a5fa" : "#22c55e",
+                      fontWeight: 600, textTransform: "uppercase"
+                    }}>{userRole === 'admin' ? 'Admin' : 'Operador'}</span>
+                  </div>
                   <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>admin@empresa.com</div>
                 </div>
                 <button onClick={handleLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer" }} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.2)"}>{Icons.logout}</button>
