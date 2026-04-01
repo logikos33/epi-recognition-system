@@ -618,20 +618,8 @@ def get_stream_status(camera_id):
 
 @app.route('/api/streams/status', methods=['GET'])
 def get_all_streams_status():
-    """Get status of all active streams and detections."""
-    # Verify JWT token
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Authorization required'}), 401
-
-    token = auth_header.split(' ')[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Invalid token'}), 401
-
+    """Get status of all active streams and detections.
+    NOTE: Public endpoint - no auth required for health monitoring."""
     # Get all stream statuses
     stream_statuses = stream_manager.get_all_streams_status() if stream_manager else {}
 
@@ -659,20 +647,8 @@ def get_streams_health():
         - Uptime in seconds
         - Restart count
         - Last health check timestamp
+    NOTE: Public endpoint - no auth required for health monitoring.
     """
-    # Verify JWT token
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Authorization required'}), 401
-
-    token = auth_header.split(' ')[1]
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token expired'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Invalid token'}), 401
-
     # Get health report from stream manager
     if stream_manager:
         health_report = stream_manager.get_stream_health_report()
