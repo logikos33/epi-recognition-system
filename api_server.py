@@ -412,10 +412,11 @@ def login():
         token = jwt.encode({
             'user_id': user['id'],
             'email': user['email'],
+            'role': user.get('role', 'operator'),
             'exp': datetime.datetime.now(datetime.timezone.utc) + timedelta(days=7)
         }, SECRET_KEY, algorithm='HS256')
 
-        logger.info(f"✅ User logged in: {email}")
+        logger.info(f"✅ User logged in: {email} (role: {user.get('role', 'operator')})")
 
         return jsonify({
             'success': True,
@@ -423,7 +424,8 @@ def login():
                 'id': user['id'],
                 'email': user['email'],
                 'full_name': user.get('full_name'),
-                'company_name': user.get('company_name')
+                'company_name': user.get('company_name'),
+                'role': user.get('role', 'operator')
             },
             'token': token
         }), 200
@@ -3043,15 +3045,30 @@ def list_all_videos():
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Query videos directly by user_id (simplified - no project_id required)
-        videos = db.execute(text("""
-            SELECT id, project_id, filename, storage_path, duration_seconds,
-                   frame_count, fps, uploaded_at, selected_start, selected_end,
-                   total_chunks, processed_chunks, status
-            FROM training_videos
-            WHERE user_id = :user_id
-            ORDER BY uploaded_at DESC
-        """), {'user_id': user_id}).fetchall()
+        # Check if user is admin
+        user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
+        user_role = user[0] if user else 'operator'
+
+        # Admin sees all videos, operator sees only their own
+        if user_role == 'admin':
+            # Admin: all videos from all users
+            videos = db.execute(text("""
+                SELECT id, project_id, filename, storage_path, duration_seconds,
+                       frame_count, fps, uploaded_at, selected_start, selected_end,
+                       total_chunks, processed_chunks, status, user_id
+                FROM training_videos
+                ORDER BY uploaded_at DESC
+            """)).fetchall()
+        else:
+            # Operator: only their own videos
+            videos = db.execute(text("""
+                SELECT id, project_id, filename, storage_path, duration_seconds,
+                       frame_count, fps, uploaded_at, selected_start, selected_end,
+                       total_chunks, processed_chunks, status, user_id
+                FROM training_videos
+                WHERE user_id = :user_id
+                ORDER BY uploaded_at DESC
+            """), {'user_id': user_id}).fetchall()
 
         videos_with_status = []
         for video in videos:
@@ -3068,7 +3085,8 @@ def list_all_videos():
                 'selected_end': video[9],
                 'total_chunks': video[10],
                 'processed_chunks': video[11] or 0,
-                'status': video[12] or 'pending'
+                'status': video[12] or 'pending',
+                'user_id': str(video[13]) if len(video) > 13 else None
             }
             videos_with_status.append(video_data)
 
