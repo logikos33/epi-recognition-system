@@ -43,7 +43,7 @@ from backend.training_db import TrainingProjectDB
 from backend.camera_service import CameraService  # For fueling monitoring cameras (bays)
 from backend.ip_camera_service import IPCameraService  # For IP cameras
 from backend.fueling_session_service import FuelingSessionService
-from backend.ocr_service import OCRService
+from backend.ocr_service_wrapper import OCRService
 from backend.stream_manager import StreamManager
 from backend.yolo_processor_wrapper import YOLOProcessorManager
 from training.training_optimizer import TrainingResourceManager
