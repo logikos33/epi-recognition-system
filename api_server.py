@@ -67,6 +67,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# ============================================================================
+# Camera System Blueprint (Feature 1)
+# ============================================================================
+from cameras.routes import cameras_bp
+app.register_blueprint(cameras_bp, url_prefix='/api/cameras')
+
+# Iniciar health checker de câmeras (background thread)
+from cameras.health_checker import CameraHealthChecker
+camera_health_checker = CameraHealthChecker()
+camera_health_checker.start()
+
 
 # ============================================================================
 # Global Exception Handlers - Backend Never Crashes
@@ -116,6 +127,20 @@ def handle_thread_exception(args):
 
 
 threading.excepthook = handle_thread_exception
+
+
+def _backend_heartbeat():
+    """Loga a cada 60s que o backend está vivo. Útil para diagnóstico."""
+    import time as _time
+    while True:
+        logger.info(
+            f"[HEARTBEAT] Backend vivo | "
+            f"threads={threading.active_count()}"
+        )
+        _time.sleep(60)
+
+_hb = threading.Thread(target=_backend_heartbeat, daemon=True, name="heartbeat")
+_hb.start()
 
 
 # ============================================================================
