@@ -3815,6 +3815,12 @@ export default function App() {
   const [page, setPage] = useState("monitoring");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
+  const [loginEmail, setLoginEmail] = useState('admin@empresa.com');
+  const [loginPassword, setLoginPassword] = useState('admin123');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
 
   // Camera management state
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
@@ -3826,6 +3832,40 @@ export default function App() {
   const { success, error } = useToast();
 
   useEffect(() => { const c = () => setIsMobile(window.innerWidth < 768); c(); window.addEventListener("resize", c); return () => window.removeEventListener("resize", c); }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      const response = await fetch('http://localhost:5001/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+      const data = await response.json();
+      if (data.success && data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setIsLoggedIn(true);
+        setShowLoginModal(false);
+        setLoginError('');
+        success(`Bem-vindo, ${data.user.full_name || data.user.email}!`);
+      } else {
+        setLoginError(data.error || 'Falha no login');
+      }
+    } catch (err) {
+      setLoginError('Erro ao conectar. Tente novamente.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setIsLoggedIn(false);
+    setShowLoginModal(false);
+  };
 
   const handleCreateCamera = () => {
     setEditingCamera(null);
@@ -3919,14 +3959,31 @@ export default function App() {
             })}
           </nav>
           <div style={{ padding: "12px 12px 14px", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 30, height: 30, borderRadius: 7, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.35)" }}>{Icons.user}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.7)" }}>Admin</div>
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>admin@empresa.com</div>
+            {isLoggedIn ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 7, background: "rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.35)" }}>{Icons.user}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.7)" }}>Admin</div>
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>admin@empresa.com</div>
+                </div>
+                <button onClick={handleLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer" }} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.2)"}>{Icons.logout}</button>
               </div>
-              <button onClick={api.logout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer" }} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.2)"}>{Icons.logout}</button>
-            </div>
+            ) : (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px", borderRadius: 7, background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)",
+                  fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s"
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}
+              >
+                <div style={{ width: 30, height: 30, borderRadius: 7, background: "rgba(37,99,235,0.2)", display: "flex", alignItems: "center", justifyContent: "center", color: "#2563eb" }}>{Icons.user}</div>
+                <span>Fazer Login</span>
+              </button>
+            )}
           </div>
         </aside>
 
@@ -3968,6 +4025,78 @@ export default function App() {
         camera={editingCamera}
         onSave={handleSaveCamera}
       />
+
+      {/* Login Modal */}
+      {showLoginModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: 'var(--card)', borderRadius: 16,
+            padding: 24, maxWidth: 400, width: '90%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20, color: 'var(--text)', margin: 0, paddingBottom: 16 }}>
+              Login
+            </h2>
+
+            <form onSubmit={handleLogin}>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={e => setLoginEmail(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
+                  placeholder="admin@empresa.com"
+                />
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--text)' }}>
+                  Senha
+                </label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={e => setLoginPassword(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }}
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {loginError && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#ef444410', color: '#ef4444', fontSize: 13, marginBottom: 16, border: '1px solid #ef444420' }}>
+                  {loginError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowLoginModal(false); setLoginError(''); }}
+                  style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loginLoading}
+                  style={{ padding: '10px 20px', borderRadius: 8, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', opacity: loginLoading ? 0.6 : 1 }}
+                >
+                  {loginLoading ? 'Entrando...' : 'Entrar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notifications */}
       <ToastContainer />
