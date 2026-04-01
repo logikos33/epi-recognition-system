@@ -8,6 +8,7 @@ import ToastContainer from "./components/Toast";
 import ImageUploadZone from "./components/ImageUploadZone.jsx";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
+import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 
 // ══════════════════════════════════════════════════
 // DEMO DATA — Câmeras e Detecções (Mock para demonstração)
@@ -15,15 +16,15 @@ import AnnotationInterface from "./components/AnnotationInterface.jsx";
 // ══════════════════════════════════════════════════
 
 const DEMO_CAMERAS = [
-  { id: 1, name: 'Doca 01 — Carga', ip: '192.168.1.101', status: 'online', location: 'Galpão A', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: 'd7211594-f19e-4885-ab59-f713751f65e3' },
-  { id: 2, name: 'Doca 02 — Descarga', ip: '192.168.1.102', status: 'online', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '4K', frameId: 'eae73fe4-5a71-49e5-a88a-d5753edef84c' },
-  { id: 3, name: 'Pátio Externo', ip: '192.168.1.103', status: 'offline', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: null },
-  { id: 4, name: 'Doca 03 — Lateral', ip: '192.168.1.104', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '13a146cd-2e48-4eb5-b8a5-486f920dc641' },
-  { id: 5, name: 'Portaria — Entrada', ip: '192.168.1.105', status: 'online', location: 'Portaria', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: 'c5550068-5fc2-439c-bc27-fe7028b1e137' },
-  { id: 6, name: 'Doca 04 — Fundo', ip: '192.168.1.106', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: '95cc3626-2407-4def-8f13-c86d3b90c062' },
-  { id: 7, name: 'Estacionamento', ip: '192.168.1.107', status: 'online', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p', frameId: 'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1' },
-  { id: 8, name: 'Sala de Controle', ip: '192.168.1.108', status: 'online', location: 'Adm', model: 'Intelbras VIP 3230', resolution: '1080p', frameId: null },
-  { id: 9, name: 'Corredor Central', ip: '192.168.1.109', status: 'offline', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '1080p', frameId: null },
+  { id: 1, name: 'Doca 01 — Carga', ip: '192.168.1.101', status: 'online', location: 'Galpão A', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 2, name: 'Doca 02 — Descarga', ip: '192.168.1.102', status: 'online', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '4K' },
+  { id: 3, name: 'Pátio Externo', ip: '192.168.1.103', status: 'offline', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p' },
+  { id: 4, name: 'Doca 03 — Lateral', ip: '192.168.1.104', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 5, name: 'Portaria — Entrada', ip: '192.168.1.105', status: 'online', location: 'Portaria', model: 'Hikvision DS-2CD', resolution: '1080p' },
+  { id: 6, name: 'Doca 04 — Fundo', ip: '192.168.1.106', status: 'online', location: 'Galpão B', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 7, name: 'Estacionamento', ip: '192.168.1.107', status: 'online', location: 'Externo', model: 'Intelbras VIP 1230', resolution: '720p' },
+  { id: 8, name: 'Sala de Controle', ip: '192.168.1.108', status: 'online', location: 'Adm', model: 'Intelbras VIP 3230', resolution: '1080p' },
+  { id: 9, name: 'Corredor Central', ip: '192.168.1.109', status: 'offline', location: 'Galpão A', model: 'Hikvision DS-2CD', resolution: '1080p' },
 ]
 
 const CAMERA_DETECTIONS = {
@@ -76,39 +77,9 @@ const CAMERA_DETECTIONS = {
 // SLIDESHOW FRAMES — Frames para câmeras sem frameId
 // Troca a cada 5 segundos (câmera usa offset diferente)
 // ══════════════════════════════════════════════════
-const SLIDESHOW_FRAMES = [
-  'd7211594-f19e-4885-ab59-f713751f65e3',
-  'eae73fe4-5a71-49e5-a88a-d5753edef84c',
-  '13a146cd-2e48-4eb5-b8a5-486f920dc641',
-  'c5550068-5fc2-439c-bc27-fe7028b1e137',
-  '95cc3626-2407-4def-8f13-c86d3b90c062',
-  'bc1e76f6-6d22-49dc-bbf9-d8447cf7dff1',
-  'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
-  'f6e5d4c3-b2a1-4f3e-9d8c-7b6a5f4e3d2c',
-  '2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b',
-  '7d8e9f0a-1b2c-4d5e-9f0a-2b3c4d5e6f7a',
-  '3a4b5c6d-7e8f-4a5b-9c0d-1e2f3a4b5c6d',
-  '8b9c0d1e-2f3a-4b5c-0d1e-3f4a5b6c7d8e',
-  '4c5d6e7f-8a9b-4c5d-0e1f-4a5b6c7d8e9f',
-  '9d0e1f2a-3b4c-4d5e-1f2a-5b6c7d8e9f0a',
-  '5e6f7a8b-9c0d-4e5f-2a3b-6c7d8e9f0a1b',
-  '0f1a2b3c-4d5e-4f6a-3b4c-7d8e9f0a1b2c',
-  'a1b2c3d4-5e6f-4a7b-4c5d-8e9f0a1b2c3d',
-  'b2c3d4e5-6f7a-4b8c-5d6e-9f0a1b2c3d4e',
-  'c3d4e5f6-7a8b-4c9d-6e7f-0a1b2c3d4e5f',
-  'd4e5f6a7-8b9c-4d0e-7f8a-1b2c3d4e5f6a',
-  'e5f6a7b8-9c0d-4e1f-8a9b-2c3d4e5f6a7b',
-  'f6a7b8c9-0d1e-4f2a-9b0c-3d4e5f6a7b8c',
-  'a7b8c9d0-1e2f-4a3b-0c1d-4e5f6a7b8c9d',
-  'b8c9d0e1-2f3a-4b4c-1d2e-5f6a7b8c9d0e',
-  'c9d0e1f2-3a4b-4c5d-2e3f-6a7b8c9d0e1f',
-  'd0e1f2a3-4b5c-4d6e-3f4a-7b8c9d0e1f2a',
-  'e1f2a3b4-5c6d-4e7f-4a5b-8c9d0e1f2a3b',
-  'f2a3b4c5-6d7e-4f8a-5b6c-9d0e1f2a3b4c',
-  'a3b4c5d6-7e8f-4a9b-6c7d-0e1f2a3b4c5d',
-  'b4c5d6e7-8f9a-4b0c-7d8e-1f2a3b4c5d6e',
-  'c5d6e7f8-9a0b-4c1d-8e9f-2a3b4c5d6e7f',
-];
+// NOTA: Slideshow desabilitado - IDs hardcoded foram removidos
+// para evitar 404 ao tentar carregar frames que não existem no banco
+const SLIDESHOW_FRAMES = [];
 
 // ── Icons ──
 const Icons = {
@@ -565,6 +536,12 @@ const TrainingPage = () => {
   // State para upload de imagens
   const [imageUploadModalOpen, setImageUploadModalOpen] = useState(false);
 
+  // State para timeline selector (vídeos > 10min)
+  const [timelineModal, setTimelineModal] = useState({
+    open: false,
+    video: null
+  });
+
   useEffect(() => {
     loadVideos();
   }, []);
@@ -660,6 +637,85 @@ const TrainingPage = () => {
     } finally {
       setRenamingVideoId(null);
       setRenameValue('');
+    }
+  };
+
+  const handleExtractFrames = (video) => {
+    // Para vídeos > 10min (600s), mostrar timeline selector
+    const duration = video.duration_seconds || 0;
+    if (duration > 600) {
+      setTimelineModal({
+        open: true,
+        video: video
+      });
+    } else {
+      // Para vídeos curtos, extrair direto
+      extractVideoFrames(video.id);
+    }
+  };
+
+  const extractVideoFrames = async (videoId, startTime = null, endTime = null) => {
+    try {
+      const token = localStorage.getItem('token');
+
+      const body = {};
+      if (startTime !== null && endTime !== null) {
+        body.start_time = startTime;
+        body.end_time = endTime;
+      }
+
+      const res = await fetch(`/api/training/videos/${videoId}/extract`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        // Atualizar status do vídeo para 'extracting'
+        setVideos(prev => prev.map(v => {
+          if (v.id === videoId) {
+            return { ...v, status: 'extracting' };
+          }
+          return v;
+        }));
+
+        // Fechar modal se estiver aberto
+        if (timelineModal.open) {
+          setTimelineModal({ open: false, video: null });
+        }
+
+        // Poll para atualizar progresso
+        const pollInterval = setInterval(async () => {
+          try {
+            const token = localStorage.getItem('token');
+            const statusRes = await fetch(`/api/training/videos`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const statusData = await statusRes.json();
+
+            if (statusData.success && statusData.videos) {
+              const updatedVideo = statusData.videos.find(v => v.id === videoId);
+              if (updatedVideo && updatedVideo.status !== 'extracting') {
+                clearInterval(pollInterval);
+                setVideos(statusData.videos);
+              }
+            }
+          } catch (e) {
+            clearInterval(pollInterval);
+          }
+        }, 2000);
+
+      } else {
+        alert('Erro ao extrair frames: ' + (data.error || 'Erro desconhecido'));
+      }
+    } catch (e) {
+      console.error('Extract error:', e);
+      alert('Erro ao extrair frames');
     }
   };
 
@@ -940,6 +996,25 @@ const TrainingPage = () => {
         />
       </Modal>
 
+      {/* Timeline Selector Modal (para vídeos > 10min) */}
+      {timelineModal.open && timelineModal.video && (
+        <VideoTimelineSelector
+          video={{
+            id: timelineModal.video.id,
+            filename: timelineModal.video.name || timelineModal.video.id?.slice(0, 8),
+            duration_seconds: timelineModal.video.duration_seconds || 0,
+            storage_path: timelineModal.video.storage_path
+          }}
+          onExtract={(startTime, endTime) => {
+            extractVideoFrames(timelineModal.video.id, startTime, endTime);
+          }}
+          onExtractFull={() => {
+            extractVideoFrames(timelineModal.video.id);
+          }}
+          onClose={() => setTimelineModal({ open: false, video: null })}
+        />
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 80, color: 'var(--muted)' }}>
           Carregando vídeos...
@@ -1062,7 +1137,7 @@ const TrainingPage = () => {
 
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {video.annotated_frames || 0}/{video.frame_count || 0} anotados
+                  {video.frame_count || 0} frames • {Math.round((video.duration_seconds || 0) / 60)}min
                 </span>
                 <span style={{
                   padding: '4px 10px',
@@ -1075,6 +1150,39 @@ const TrainingPage = () => {
                   {video.status === 'completed' ? '✓ Completo' : 'Processando'}
                 </span>
               </div>
+
+              {/* Botão Extrair Frames (apenas se não estiver completado) */}
+              {video.status !== 'completed' && video.status !== 'extracting' && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleExtractFrames(video);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    background: 'linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.9) 100%)',
+                    border: 'none',
+                    borderRadius: 8,
+                    color: '#fff',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    marginBottom: 8
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, rgba(37,99,235,1) 0%, rgba(59,130,246,1) 100%)';
+                    e.target.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.9) 100%)';
+                    e.target.style.transform = '';
+                  }}
+                >
+                  🎞️ Extrair Frames
+                </button>
+              )}
 
               {/* BOTÃO ANOTAR — visível e claro */}
               <button

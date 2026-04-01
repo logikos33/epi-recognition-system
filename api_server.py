@@ -22,6 +22,8 @@ import sys
 import logging
 import shutil
 import subprocess
+import traceback
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add backend directory to path for imports
@@ -46,15 +48,74 @@ from backend.stream_manager import StreamManager
 from backend.yolo_processor import YOLOProcessorManager
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+os.makedirs('logs', exist_ok=True)
+
+# Configurar logging persistente
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        handlers=[
+            logging.FileHandler('logs/api_server.log'),
+            logging.StreamHandler(sys.stdout)
+        ],
+        force=False  # Não sobrescrever handlers existentes
+    )
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
+
+
+# ============================================================================
+# Global Exception Handlers - Backend Never Crashes
+# ============================================================================
+
+# Handler global para exceções não tratadas - backend retorna JSON, nunca crasha
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e):
+    """
+    Captura TODAS as exceções não tratadas no Flask.
+    Backend sempre retorna JSON com erro, nunca cai.
+    """
+    logger.error(
+        f"[UNHANDLED] {request.method} {request.path} → "
+        f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+    )
+    return jsonify({
+        'error': 'Erro interno do servidor',
+        'type': type(e).__name__,
+        'timestamp': datetime.datetime.now().isoformat()
+    }), 500
+
+
+@app.errorhandler(404)
+def handle_not_found(e):
+    """Endpoint não encontrado - retorna JSON amigável."""
+    return jsonify({'error': 'Endpoint não encontrado', 'path': request.path}), 404
+
+
+@app.errorhandler(405)
+def handle_method_not_allowed(e):
+    """Método HTTP não permitido - retorna JSON amigável."""
+    return jsonify({'error': 'Método não permitido', 'path': request.path}), 405
+
+
+# Capturar exceções em threads de background (treinamento, health checker, etc.)
+def handle_thread_exception(args):
+    """
+    Captura crashes em threads de background.
+    Thread crasha mas o processo principal continua vivo.
+    """
+    logger.error(
+        f"[THREAD CRASH] Thread '{args.thread.name}': "
+        f"{args.exc_type.__name__}: {args.exc_value}\n"
+        f"{''.join(traceback.format_tb(args.exc_traceback))}"
+    )
+
+
+threading.excepthook = handle_thread_exception
 
 
 # ============================================================================
@@ -1433,6 +1494,15 @@ def extract_video_frames(video_id: str):
 
     This endpoint is for re-extraction or manual extraction.
     Normally extraction starts automatically after upload.
+
+    Request body (optional):
+    {
+        "start_time": 120,  # Start time in seconds (optional)
+        "end_time": 480     # End time in seconds (optional)
+    }
+
+    If start_time and end_time are provided, extracts only that segment.
+    Otherwise, extracts the full video.
     """
     try:
         auth_header = request.headers.get('Authorization')
@@ -1445,6 +1515,31 @@ def extract_video_frames(video_id: str):
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
 
         user_id = payload['user_id']
+
+        # Get optional time range parameters
+        data = request.get_json() or {}
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+
+        # Validate time range parameters
+        if start_time is not None and end_time is not None:
+            if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
+                return jsonify({'success': False, 'error': 'start_time and end_time must be numbers'}), 400
+
+            if start_time < 0 or end_time < 0:
+                return jsonify({'success': False, 'error': 'start_time and end_time must be non-negative'}), 400
+
+            if start_time >= end_time:
+                return jsonify({'success': False, 'error': 'start_time must be less than end_time'}), 400
+
+            segment_duration = end_time - start_time
+            if segment_duration < 60:
+                return jsonify({'success': False, 'error': f'Segment duration too short: {segment_duration}s (minimum: 60s)'}), 400
+
+        elif start_time is not None or end_time is not None:
+            # Only one provided
+            return jsonify({'success': False, 'error': 'Both start_time and end_time must be provided together'}), 400
+
         db = get_db_session()
 
         # Check video ownership and current status
@@ -1480,14 +1575,16 @@ def extract_video_frames(video_id: str):
         db.commit()
 
         # Start extraction in background
-        def extract_background(video_id, user_id):
+        def extract_background(video_id, user_id, start_time, end_time):
             try:
                 with get_db_context() as db_local:
                     processor = VideoProcessor()
                     result = processor.extract_frames(
                         db=db_local,
                         video_id=video_id,
-                        user_id=user_id
+                        user_id=user_id,
+                        start_time=start_time,
+                        end_time=end_time
                     )
 
                     if result.get('success'):
@@ -1499,7 +1596,7 @@ def extract_video_frames(video_id: str):
 
         thread = threading.Thread(
             target=extract_background,
-            args=(video_id, user_id),
+            args=(video_id, user_id, start_time, end_time),
             daemon=True
         )
         thread.start()
@@ -1560,7 +1657,26 @@ def list_video_frames(video_id: str):
 
 @app.route('/api/training/frames/<frame_id>/image', methods=['GET'])
 def serve_frame_image(frame_id: str):
-    """Serve frame image file."""
+    """Serve frame image file.
+
+    GET /api/training/frames/{frame_id}/image
+    Returns JPEG image from training frame.
+    """
+    # Validar formato do UUID antes de consultar o banco
+    import re
+    uuid_pattern = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        re.IGNORECASE
+    )
+
+    if not uuid_pattern.match(frame_id):
+        logger.warning(f"Invalid UUID format: {frame_id}")
+        return jsonify({
+            'success': False,
+            'error': 'Invalid frame ID format',
+            'details': 'Frame ID must be a valid UUID'
+        }), 400
+
     try:
         db = get_db_session()
         query = text("""
@@ -1570,19 +1686,35 @@ def serve_frame_image(frame_id: str):
         row = result.fetchone()
 
         if not row:
-            return jsonify({'success': False, 'error': 'Frame not found'}), 404
+            logger.warning(f"Frame not found in database: {frame_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Frame not found'
+            }), 404
 
         frame_path = row[0]
 
         if not os.path.exists(frame_path):
-            logger.error(f"❌ Frame image file not found: {frame_path}")
-            return jsonify({'success': False, 'error': 'Frame image file not found on disk'}), 404
+            logger.error(f"❌ Frame image file not found: {frame_path} (id={frame_id})")
+            return jsonify({
+                'success': False,
+                'error': 'Frame image file not found on disk'
+            }), 404
 
-        return send_from_directory(os.path.dirname(frame_path), os.path.basename(frame_path))
+        # Serve imagem com cache de 5 minutos
+        from flask import send_file
+        return send_file(
+            frame_path,
+            mimetype='image/jpeg',
+            max_age=300
+        )
 
     except Exception as e:
-        logger.error(f"❌ Serve frame image error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        logger.error(f"❌ Serve frame image error for {frame_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error'
+        }), 500
 
 
 @app.route('/api/training/frames/<frame_id>/annotations', methods=['GET'])
