@@ -3043,40 +3043,33 @@ def list_all_videos():
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Get user's default project (or first project)
-        project = db.execute(text("""
-            SELECT id FROM training_projects
+        # Query videos directly by user_id (simplified - no project_id required)
+        videos = db.execute(text("""
+            SELECT id, project_id, filename, storage_path, duration_seconds,
+                   frame_count, fps, uploaded_at, selected_start, selected_end,
+                   total_chunks, processed_chunks, status
+            FROM training_videos
             WHERE user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 1
-        """), {'user_id': user_id}).fetchone()
+            ORDER BY uploaded_at DESC
+        """), {'user_id': user_id}).fetchall()
 
-        if not project:
-            # No project exists, return empty list
-            return jsonify({'success': True, 'videos': []})
-
-        project_id = str(project[0])
-
-        # Use existing endpoint logic
-        from backend.video_db import VideoService
-        video_service = VideoService()
-        videos = video_service.list_project_videos(db, project_id, user_id)
-
-        # Add status information
         videos_with_status = []
         for video in videos:
-            video_data = dict(video)
-            status_row = db.execute(text("""
-                SELECT status, processed_chunks, total_chunks, duration_seconds
-                FROM training_videos WHERE id = :video_id
-            """), {'video_id': video['id']}).fetchone()
-
-            if status_row:
-                video_data['status'] = status_row[0]
-                video_data['processed_chunks'] = status_row[1] or 0
-                video_data['total_chunks'] = status_row[2] or 0
-                video_data['duration_seconds'] = status_row[3]
-
+            video_data = {
+                'id': str(video[0]),
+                'project_id': str(video[1]) if video[1] else None,
+                'filename': video[2],
+                'storage_path': video[3],
+                'duration_seconds': float(video[4]) if video[4] else None,
+                'frame_count': video[5],
+                'fps': float(video[6]) if video[6] else None,
+                'uploaded_at': video[7].isoformat() if video[7] else None,
+                'selected_start': video[8],
+                'selected_end': video[9],
+                'total_chunks': video[10],
+                'processed_chunks': video[11] or 0,
+                'status': video[12] or 'pending'
+            }
             videos_with_status.append(video_data)
 
         return jsonify({'success': True, 'videos': videos_with_status})
@@ -3105,32 +3098,60 @@ def upload_video_alias():
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Get or create default project
-        project = db.execute(text("""
-            SELECT id FROM training_projects
-            WHERE user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 1
-        """), {'user_id': user_id}).fetchone()
+        # Generate a UUID for the video (no project_id needed)
+        import uuid
+        video_id = str(uuid.uuid4())
 
-        if not project:
-            # Create default project
-            from backend.training_db import TrainingProjectDB
-            project_db = TrainingProjectDB()
-            project = project_db.create_project(
-                db=db,
-                user_id=user_id,
-                name='Default Project',
-                description='Automatically created project'
-            )
-            if not project:
-                return jsonify({'success': False, 'error': 'Failed to create project'}), 500
-            project_id = project['id']
-        else:
-            project_id = str(project[0])
+        # Check if file was provided
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
 
-        # Delegate to existing endpoint
-        return upload_training_video(project_id)
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+        # Save file
+        from pathlib import Path
+        upload_dir = Path('storage/training_videos')
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_filename = f"{video_id}_{file.filename}"
+        file_path = upload_dir / safe_filename
+        file.save(str(file_path))
+
+        # Get video metadata
+        import cv2
+        cap = cv2.VideoCapture(str(file_path))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration_seconds = frame_count / fps if fps and fps > 0 else None
+        cap.release()
+
+        # Insert into database (project_id is optional, set to NULL)
+        db.execute(text("""
+            INSERT INTO training_videos
+            (id, project_id, user_id, filename, storage_path, duration_seconds,
+             frame_count, fps, uploaded_at, status)
+            VALUES (:id, :project_id, :user_id, :filename, :storage_path,
+                    :duration_seconds, :frame_count, :fps, NOW(), 'pending')
+        """), {
+            'id': video_id,
+            'project_id': None,  # No project required
+            'user_id': user_id,
+            'filename': file.filename,
+            'storage_path': str(file_path),
+            'duration_seconds': duration_seconds,
+            'frame_count': frame_count,
+            'fps': fps
+        })
+        db.commit()
+
+        return jsonify({
+            'success': True,
+            'video_id': video_id,
+            'filename': file.filename,
+            'message': 'Video uploaded successfully'
+        })
 
     except Exception as e:
         logger.error(f"❌ Upload video alias error: {e}")
@@ -3155,11 +3176,10 @@ def delete_video_alias(video_id: str):
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Verify ownership
+        # Verify ownership (user_id on video directly)
         check = db.execute(text("""
-            SELECT v.id FROM training_videos v
-            JOIN training_projects p ON p.id = v.project_id
-            WHERE v.id = :video_id AND p.user_id = :user_id
+            SELECT id FROM training_videos
+            WHERE id = :video_id AND user_id = :user_id
         """), {'video_id': video_id, 'user_id': user_id}).fetchone()
 
         if not check:
