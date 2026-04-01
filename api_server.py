@@ -22,6 +22,8 @@ import sys
 import logging
 import shutil
 import subprocess
+import traceback
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add backend directory to path for imports
@@ -46,15 +48,74 @@ from backend.stream_manager import StreamManager
 from backend.yolo_processor import YOLOProcessorManager
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+os.makedirs('logs', exist_ok=True)
+
+# Configurar logging persistente
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        handlers=[
+            logging.FileHandler('logs/api_server.log'),
+            logging.StreamHandler(sys.stdout)
+        ],
+        force=False  # Não sobrescrever handlers existentes
+    )
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
+
+
+# ============================================================================
+# Global Exception Handlers - Backend Never Crashes
+# ============================================================================
+
+# Handler global para exceções não tratadas - backend retorna JSON, nunca crasha
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e):
+    """
+    Captura TODAS as exceções não tratadas no Flask.
+    Backend sempre retorna JSON com erro, nunca cai.
+    """
+    logger.error(
+        f"[UNHANDLED] {request.method} {request.path} → "
+        f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+    )
+    return jsonify({
+        'error': 'Erro interno do servidor',
+        'type': type(e).__name__,
+        'timestamp': datetime.datetime.now().isoformat()
+    }), 500
+
+
+@app.errorhandler(404)
+def handle_not_found(e):
+    """Endpoint não encontrado - retorna JSON amigável."""
+    return jsonify({'error': 'Endpoint não encontrado', 'path': request.path}), 404
+
+
+@app.errorhandler(405)
+def handle_method_not_allowed(e):
+    """Método HTTP não permitido - retorna JSON amigável."""
+    return jsonify({'error': 'Método não permitido', 'path': request.path}), 405
+
+
+# Capturar exceções em threads de background (treinamento, health checker, etc.)
+def handle_thread_exception(args):
+    """
+    Captura crashes em threads de background.
+    Thread crasha mas o processo principal continua vivo.
+    """
+    logger.error(
+        f"[THREAD CRASH] Thread '{args.thread.name}': "
+        f"{args.exc_type.__name__}: {args.exc_value}\n"
+        f"{''.join(traceback.format_tb(args.exc_traceback))}"
+    )
+
+
+threading.excepthook = handle_thread_exception
 
 
 # ============================================================================
