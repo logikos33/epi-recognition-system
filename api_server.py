@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=os.environ.get('CORS_ORIGINS', '*').split(','))
 
 # ============================================================================
 # Camera System Blueprint (Feature 1)
@@ -299,6 +299,19 @@ def verify_token(token: str) -> dict:
 #     leave_room(room)
 #     logger.info(f"📹 Client {request.sid} unsubscribed from camera {camera_id}")
 #     emit('unsubscribed', {'camera_id': camera_id, 'room': room})
+
+
+@app.after_request
+def add_security_headers(response):
+    """Headers de segurança HTTP para produção."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    if os.environ.get('FLASK_ENV') == 'production':
+        response.headers['Strict-Transport-Security'] = \
+            'max-age=31536000; includeSubDomains'
+    return response
 
 
 # ============================================================================
@@ -3346,6 +3359,28 @@ def init_database_tables():
             pass
     except Exception as e:
         logger.error(f"❌ Erro na inicialização do banco: {e}")
+
+
+# ============================================================================
+# SERVIR FRONTEND REACT EM PRODUÇÃO
+# ============================================================================
+import os as _os
+from flask import send_from_directory as _sfd
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
+    """Serve React frontend build em produção Railway."""
+    dist_dir = _os.path.join(
+        _os.path.dirname(_os.path.abspath(__file__)),
+        'frontend-new', 'dist'
+    )
+    if path and _os.path.exists(_os.path.join(dist_dir, path)):
+        return _sfd(dist_dir, path)
+    index = _os.path.join(dist_dir, 'index.html')
+    if _os.path.exists(index):
+        return _sfd(dist_dir, 'index.html')
+    return jsonify({'error': 'Frontend não buildado. Executar npm run build'}), 404
 
 
 if __name__ == '__main__':

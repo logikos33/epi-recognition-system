@@ -87,3 +87,27 @@ htmlcov/
 *.swp
 .worktrees/
 uploads/
+
+# Railway e produção
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.local
+storage/training_videos/*
+storage/training_frames/*
+storage/streams/*
+storage/training/*
+storage/models/active/*.pt
+!storage/.gitkeep
+!storage/training_videos/.gitkeep
+!storage/training_frames/.gitkeep
+!storage/streams/.gitkeep
+!storage/training/.gitkeep
+!storage/models/.gitkeep
+logs/*.log
+frontend-new/node_modules/
+*.tmp
+*.bak
