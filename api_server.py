@@ -2178,6 +2178,8 @@ def get_dataset_stats():
     - Total bounding boxes
     - Class distribution
     - Train/val split info
+
+    Note: Admins see all data, operators see only their own data.
     """
     try:
         auth_header = request.headers.get('Authorization')
@@ -2192,40 +2194,51 @@ def get_dataset_stats():
         user_id = payload['user_id']
 
         with get_db_context() as db:
+            # Check if user is admin
+            user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
+            user_role = user[0] if user else 'operator'
+
+            # Build WHERE clause based on role
+            # Admin: no filter (see all data)
+            # Operator: filter by user_id
+            if user_role == 'admin':
+                where_clause = ""
+                params = {}
+            else:
+                where_clause = "WHERE tv.user_id = :user_id"
+                params = {'user_id': user_id}
+
             # Get total annotated frames
-            result = db.execute(text("""
+            result = db.execute(text(f"""
                 SELECT COUNT(DISTINCT fa.frame_id)
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN training_projects tp ON tp.id = tv.project_id
-                WHERE tp.user_id = :user_id
-            """), {'user_id': user_id})
+                {where_clause}
+            """), params)
             total_frames = result.scalar() or 0
 
             # Get total bounding boxes
-            result = db.execute(text("""
+            result = db.execute(text(f"""
                 SELECT COUNT(*)
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN training_projects tp ON tp.id = tv.project_id
-                WHERE tp.user_id = :user_id
-            """), {'user_id': user_id})
+                {where_clause}
+            """), params)
             total_boxes = result.scalar() or 0
 
             # Get class distribution
-            result = db.execute(text("""
+            result = db.execute(text(f"""
                 SELECT yc.name, COUNT(*) as count
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN training_projects tp ON tp.id = tv.project_id
                 JOIN yolo_classes yc ON yc.id = fa.class_id
-                WHERE tp.user_id = :user_id
+                {where_clause}
                 GROUP BY yc.name
                 ORDER BY count DESC
-            """), {'user_id': user_id})
+            """), params)
             class_distribution = {row[0]: row[1] for row in result}
 
             return jsonify({
