@@ -67,6 +67,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# ============================================================================
+# Camera System Blueprint (Feature 1)
+# ============================================================================
+from cameras.routes import cameras_bp
+app.register_blueprint(cameras_bp, url_prefix='/api/cameras')
+
+# Iniciar health checker de câmeras (background thread)
+from cameras.health_checker import CameraHealthChecker
+camera_health_checker = CameraHealthChecker()
+camera_health_checker.start()
+
 
 # ============================================================================
 # Global Exception Handlers - Backend Never Crashes
