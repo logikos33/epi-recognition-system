@@ -3391,6 +3391,29 @@ def serve_frontend(path):
     return jsonify({'error': 'Frontend não buildado. Executar npm run build'}), 404
 
 
+# ============================================================================
+# WORKERS HEALTH — Microserviços (Redis)
+# ============================================================================
+@app.route('/api/workers/health', methods=['GET'])
+def get_workers_health():
+    """Retornar status de todos os workers ativos via Redis."""
+    try:
+        from services.api_worker_proxy import get_workers_health
+        workers = get_workers_health()
+        return jsonify({
+            'workers': workers,
+            'total': len(workers),
+            'mode': 'distributed' if workers else 'local'
+        })
+    except Exception as e:
+        return jsonify({
+            'workers': [],
+            'total': 0,
+            'mode': 'local',
+            'error': str(e)
+        }), 200
+
+
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 Starting EPI Recognition System API Server")
