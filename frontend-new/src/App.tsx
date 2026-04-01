@@ -2837,6 +2837,556 @@ const RulesPage = () => {
   );
 };
 
+// ── Validation (FASE 4) ──
+const ValidationPage = () => {
+  const [pendingSessions, setPendingSessions] = useState([]);
+  const [validatedSessions, setValidatedSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [editingSession, setEditingSession] = useState(null);
+  const [operatorCount, setOperatorCount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [rejectConfirm, setRejectConfirm] = useState(null);
+  const { success, error: toastError } = useToast();
+
+  // Polling para sessões pendentes (10s com backoff)
+  useEffect(() => {
+    let mounted = true;
+    let failCount = 0;
+    let pollInterval = 10000; // 10s inicial
+
+    const fetchSessions = async () => {
+      try {
+        // Fetch pending sessions (com autenticação)
+        const token = localStorage.getItem("token") || "";
+        const headers = { "Authorization": `Bearer ${token}` };
+
+        const [pendingRes, validatedRes] = await Promise.all([
+          fetch("http://localhost:5001/api/sessions/pending", { headers }),
+          fetch("http://localhost:5001/api/sessions/history?limit=20&status=validated", { headers }),
+        ]);
+
+        if (!pendingRes.ok || !validatedRes.ok) throw new Error("HTTP error");
+
+        const pendingData = await pendingRes.json();
+        const validatedData = await validatedRes.json();
+
+        if (mounted) {
+          if (pendingData.success) setPendingSessions(pendingData.sessions || []);
+          if (validatedData.success) setValidatedSessions(validatedData.sessions || []);
+          setError(null);
+          failCount = 0;
+          pollInterval = 10000;
+        }
+      } catch (err) {
+        if (mounted) {
+          console.error("Erro ao buscar sessões:", err);
+          failCount++;
+          pollInterval = Math.min(10000 * Math.pow(2, failCount - 1), 60000);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    fetchSessions();
+    const interval = setInterval(fetchSessions, pollInterval);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Validate session
+  const handleValidate = async (sessionId, count, notesText) => {
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`http://localhost:5001/api/sessions/${sessionId}/validate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          validated_by: "operador",
+          operator_count: count,
+          notes: notesText,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (data.success) {
+        // Remover da lista de pendentes
+        setPendingSessions(prev => prev.filter(s => s.id !== sessionId));
+        // Adicionar ao histórico (local update otimista)
+        const session = pendingSessions.find(s => s.id === sessionId);
+        if (session) {
+          setValidatedSessions(prev => [
+            { ...session, operator_count: count, validation_notes: notesText, status: "validated", validated_at: new Date().toISOString() },
+            ...prev,
+          ]);
+        }
+        success("Sessão validada com sucesso!");
+        setEditingSession(null);
+        setOperatorCount("");
+        setNotes("");
+      } else {
+        throw new Error(data.error || "Erro ao validar sessão");
+      }
+    } catch (err) {
+      console.error("Erro ao validar sessão:", err);
+      toastError(err.message || "Erro ao validar sessão");
+    }
+  };
+
+  // Reject session
+  const handleReject = async (sessionId, notesText) => {
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`http://localhost:5001/api/sessions/${sessionId}/reject`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          validated_by: "operador",
+          notes: notesText,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      if (data.success) {
+        setPendingSessions(prev => prev.filter(s => s.id !== sessionId));
+        success("Sessão rejeitada.");
+        setRejectConfirm(null);
+        setNotes("");
+      } else {
+        throw new Error(data.error || "Erro ao rejeitar sessão");
+      }
+    } catch (err) {
+      console.error("Erro ao rejeitar sessão:", err);
+      toastError(err.message || "Erro ao rejeitar sessão");
+    }
+  };
+
+  // Format duration
+  const formatDuration = (seconds) => {
+    if (!seconds) return "-";
+    const mins = Math.floor(seconds / 60);
+    return `${mins} min`;
+  };
+
+  // Format time range
+  const formatTimeRange = (startedAt, endedAt) => {
+    if (!startedAt) return "-";
+    const start = new Date(startedAt);
+    const end = endedAt ? new Date(endedAt) : new Date();
+    const startFmt = start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const endFmt = end.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return `${startFmt} → ${endFmt}`;
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, color: "var(--text)", margin: 0 }}>
+          Validações
+        </h1>
+        <p style={{ color: "var(--muted)", margin: "4px 0 0", fontSize: 14 }}>
+          Valide ou corrija a contagem de produtos feita pela IA
+        </p>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60 }}>
+          <div style={{
+            width: 40, height: 40, margin: "0 auto 16px",
+            border: "3px solid var(--border)", borderTopColor: "var(--accent)",
+            borderRadius: "50%", animation: "spin 1s linear infinite"
+          }} />
+          <p style={{ color: "var(--muted)", fontSize: 14 }}>Carregando sessões...</p>
+        </div>
+      ) : error ? (
+        <div style={{
+          background: "#fef2f2", border: "1px solid #fecaca",
+          borderRadius: 12, padding: 24, textAlign: "center"
+        }}>
+          <p style={{ color: "#dc2626", fontSize: 14, fontWeight: 500, margin: "0 0 8px" }}>
+            Erro ao carregar sessões
+          </p>
+          <p style={{ color: "#991b1b", fontSize: 13, margin: 0 }}>{error}</p>
+        </div>
+      ) : (
+        <>
+          {/* Pending Sessions */}
+          <div style={{
+            background: "var(--card)", borderRadius: 16,
+            border: "1px solid var(--border)", padding: 24, marginBottom: 24
+          }}>
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              marginBottom: 20
+            }}>
+              <h2 style={{
+                fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0,
+                display: "flex", alignItems: "center", gap: 8
+              }}>
+                {Icons.activity} Validações Pendentes
+                {pendingSessions.length > 0 && (
+                  <span style={{
+                    fontSize: 12, fontWeight: 600, color: "#fff",
+                    padding: "2px 10px", borderRadius: 12,
+                    background: "var(--accent)"
+                  }}>
+                    {pendingSessions.length} aguardando
+                  </span>
+                )}
+              </h2>
+            </div>
+
+            {pendingSessions.length === 0 ? (
+              <div style={{
+                padding: 40, textAlign: "center",
+                background: "var(--bg)", borderRadius: 12
+              }}>
+                <span style={{ fontSize: 40 }}>✅</span>
+                <p style={{ color: "var(--muted)", fontSize: 14, margin: "8px 0 0" }}>
+                  Nenhuma sessão pendente de validação
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {pendingSessions.map((session, index) => {
+                  const isEditing = editingSession === session.id;
+                  const currentCount = operatorCount !== "" ? parseInt(operatorCount) : session.ai_count;
+
+                  return (
+                    <div key={session.id} style={{
+                      padding: 20, borderRadius: 12,
+                      background: "var(--bg)", border: "1px solid var(--border)",
+                      animation: `fadeUp 0.4s ease ${0.1 + index * 0.05}s both`
+                    }}>
+                      {/* Session Header */}
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 12, marginBottom: 16
+                      }}>
+                        <span style={{ fontSize: 32 }}>🚛</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{
+                            fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 4
+                          }}>
+                            {session.truck_plate || "Placa não identificada"}
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                            Baia {session.bay_id || session.camera_id || "?"} ·{" "}
+                            {formatTimeRange(session.started_at, session.ended_at)} ·{" "}
+                            {formatDuration(session.duration_seconds)}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 12, color: "var(--muted)" }}>IA contou:</div>
+                          <div style={{
+                            fontSize: 24, fontWeight: 700, color: "var(--text)"
+                          }}>
+                            {session.ai_count || 0}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Camera Info */}
+                      <div style={{
+                        fontSize: 12, color: "var(--muted)",
+                        marginBottom: 16, padding: "8px 12px",
+                        background: "rgba(0,0,0,0.03)", borderRadius: 6
+                      }}>
+                        Câmera: {session.camera_id || "Não identificada"}
+                      </div>
+
+                      {/* Editing Mode */}
+                      {isEditing ? (
+                        <>
+                          {/* Edit Count */}
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{
+                              fontSize: 13, fontWeight: 500, color: "var(--text)",
+                              display: "block", marginBottom: 8
+                            }}>
+                              Contagem correta:
+                            </label>
+                            <input
+                              type="number"
+                              value={operatorCount}
+                              onChange={(e) => setOperatorCount(e.target.value)}
+                              style={{
+                                width: "100%", padding: "10px 14px", borderRadius: 8,
+                                border: "1px solid var(--border)", fontSize: 14,
+                                background: "var(--card)", color: "var(--text)"
+                              }}
+                              placeholder={session.ai_count.toString()}
+                            />
+                          </div>
+
+                          {/* Notes */}
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{
+                              fontSize: 13, fontWeight: 500, color: "var(--text)",
+                              display: "block", marginBottom: 8
+                            }}>
+                              Observações (opcional):
+                            </label>
+                            <input
+                              type="text"
+                              value={notes}
+                              onChange={(e) => setNotes(e.target.value)}
+                              style={{
+                                width: "100%", padding: "10px 14px", borderRadius: 8,
+                                border: "1px solid var(--border)", fontSize: 14,
+                                background: "var(--card)", color: "var(--text)"
+                              }}
+                              placeholder="Correção, motivo, etc."
+                            />
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div style={{ display: "flex", gap: 12 }}>
+                            <button
+                              onClick={() => handleValidate(session.id, currentCount, notes)}
+                              style={{
+                                flex: 1, padding: "10px 16px", borderRadius: 8,
+                                background: "#22c55e", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s"
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              ✅ Salvar Correção
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingSession(null);
+                                setOperatorCount("");
+                                setNotes("");
+                              }}
+                              style={{
+                                padding: "10px 16px", borderRadius: 8,
+                                background: "var(--bg)", color: "var(--text)",
+                                border: "1px solid var(--border)", fontSize: 14,
+                                fontWeight: 500, cursor: "pointer"
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Default View */}
+                          <div style={{
+                            display: "flex", gap: 12, alignItems: "stretch",
+                            flexWrap: "wrap"
+                          }}>
+                            <button
+                              onClick={() => handleValidate(session.id, session.ai_count, "")}
+                              style={{
+                                flex: 1, minWidth: 140, padding: "10px 16px", borderRadius: 8,
+                                background: "#22c55e", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s",
+                                display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              {Icons.check} Validar
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingSession(session.id);
+                                setOperatorCount("");
+                                setNotes("");
+                              }}
+                              style={{
+                                flex: 1, minWidth: 160, padding: "10px 16px", borderRadius: 8,
+                                background: "#f59e0b", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s",
+                                display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              {Icons.edit} Corrigir e Validar
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRejectConfirm(session.id);
+                                setNotes("");
+                              }}
+                              style={{
+                                flex: 1, minWidth: 120, padding: "10px 16px", borderRadius: 8,
+                                background: "#ef4444", color: "#fff",
+                                border: "none", fontSize: 14, fontWeight: 600,
+                                cursor: "pointer", transition: "opacity 0.15s",
+                                display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                            >
+                              {Icons.trash} Rejeitar
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Validated Sessions History */}
+          {validatedSessions.length > 0 && (
+            <div style={{
+              background: "var(--card)", borderRadius: 16,
+              border: "1px solid var(--border)", padding: 24
+            }}>
+              <h2 style={{
+                fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 20px",
+                display: "flex", alignItems: "center", gap: 8
+              }}>
+                {Icons.shield} Histórico de Validações
+                <span style={{
+                  fontSize: 12, fontWeight: 400, color: "var(--muted)"
+                }}>
+                  (últimas {validatedSessions.length})
+                </span>
+              </h2>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {validatedSessions.map((session, index) => (
+                  <div key={session.id} style={{
+                    padding: 14, borderRadius: 10,
+                    background: "var(--bg)", border: "1px solid var(--border)",
+                    display: "flex", alignItems: "center", gap: 12,
+                    animation: `fadeUp 0.3s ease ${0.2 + index * 0.03}s both`
+                  }}>
+                    <span style={{ fontSize: 24 }}>✅</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 14, fontWeight: 500, color: "var(--text)",
+                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+                      }}>
+                        {session.truck_plate || "Placa não identificada"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        Baia {session.bay_id || session.camera_id || "?"} ·{" "}
+                        IA: {session.ai_count || 0}
+                        {session.operator_count !== null && session.operator_count !== session.ai_count && (
+                          <span style={{ color: "#f59e0b", fontWeight: 500 }}>
+                            → Operador: {session.operator_count}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{
+                      fontSize: 12, color: "var(--muted)", textAlign: "right"
+                    }}>
+                      {session.validated_at
+                        ? new Date(session.validated_at).toLocaleDateString("pt-BR")
+                        : "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Reject Confirmation Modal */}
+          {rejectConfirm && (
+            <div style={{
+              position: "fixed", inset: 0, zIndex: 100,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+              animation: "fadeUp 0.2s ease both"
+            }}>
+              <div style={{
+                background: "var(--card)", borderRadius: 16, border: "1px solid var(--border)",
+                padding: 24, maxWidth: 420, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
+              }}>
+                <h3 style={{
+                  fontSize: 18, fontWeight: 700, color: "var(--text)", margin: "0 0 12px"
+                }}>
+                  Rejeitar Validação
+                </h3>
+                <p style={{
+                  fontSize: 14, color: "var(--muted)", lineHeight: 1.5, margin: "0 0 20px"
+                }}>
+                  Tem certeza que deseja rejeitar esta sessão? Esta ação não pode ser desfeita.
+                </p>
+
+                {/* Notes for rejection */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{
+                    fontSize: 13, fontWeight: 500, color: "var(--text)",
+                    display: "block", marginBottom: 8
+                  }}>
+                    Motivo (opcional):
+                  </label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    style={{
+                      width: "100%", padding: "10px 14px", borderRadius: 8,
+                      border: "1px solid var(--border)", fontSize: 14,
+                      background: "var(--bg)", color: "var(--text)"
+                    }}
+                    placeholder="Por que está rejeitando?"
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => {
+                      setRejectConfirm(null);
+                      setNotes("");
+                    }}
+                    style={{
+                      padding: "10px 20px", borderRadius: 8,
+                      background: "var(--bg)", color: "var(--text)",
+                      border: "1px solid var(--border)", fontSize: 14, fontWeight: 500, cursor: "pointer"
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => handleReject(rejectConfirm, notes)}
+                    style={{
+                      padding: "10px 20px", borderRadius: 8,
+                      background: "#ef4444", color: "#fff",
+                      border: "none", fontSize: 14, fontWeight: 600, cursor: "pointer"
+                    }}
+                  >
+                    Rejeitar Sessão
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── Nav ──
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: Icons.dashboard },
@@ -2845,6 +3395,7 @@ const NAV = [
   { id: "classes", label: "Classes", icon: Icons.classes },
   { id: "training", label: "Treinamento", icon: Icons.training },
   { id: "rules", label: "Regras", icon: Icons.sliders },
+  { id: "validations", label: "Validações", icon: Icons.shield },
 ];
 
 // ── App ──
@@ -2990,6 +3541,7 @@ export default function App() {
             {page === "classes" && <ClassesPage />}
             {page === "training" && <TrainingPage />}
             {page === "rules" && <RulesPage />}
+            {page === "validations" && <ValidationPage />}
           </main>
         </div>
       </div>
