@@ -9,6 +9,7 @@ import ToastContainer from "./components/Toast";
 import ImageUploadZone from "./components/ImageUploadZone.jsx";
 import { api } from "./services/api";
 import { CameraWizard } from "./components/CameraWizard";
+import { CameraEditModal } from "./components/CameraEditModal";
 
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
@@ -441,6 +442,7 @@ const CamerasPage = () => {
   const [search, setSearch] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [showWizard, setShowWizard] = useState(false);
+  const [editCamera, setEditCamera] = useState(null);
 
   const filteredCameras = DEMO_CAMERAS.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -658,6 +660,7 @@ const CamerasPage = () => {
                   {/* Action Buttons */}
                   <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                     <button
+                      onClick={() => setEditCamera(cam)}
                       style={{
                         flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                         padding: "9px 12px", borderRadius: 8,
@@ -740,6 +743,20 @@ const CamerasPage = () => {
           onClose={() => setShowWizard(false)}
           onSaved={() => {
             setShowWizard(false);
+            // Camera list would refresh here with real API
+            window.location.reload();
+          }}
+        />
+      )}
+
+      {/* Camera Edit Modal */}
+      {editCamera && (
+        <CameraEditModal
+          camera={editCamera}
+          isConfigMode={false}
+          onClose={() => setEditCamera(null)}
+          onSave={() => {
+            setEditCamera(null);
             // Camera list would refresh here with real API
             window.location.reload();
           }}
