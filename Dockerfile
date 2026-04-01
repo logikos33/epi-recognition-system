@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Cache bust - force Railway to rebuild fresh (2026-04-01 15:10)
-ARG CACHE_BUST=20260401-1510
+ARG CACHE_BUST=20260401-2203
 
 # Instalar dependências do sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
