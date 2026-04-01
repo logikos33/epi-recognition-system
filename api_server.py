@@ -1657,7 +1657,26 @@ def list_video_frames(video_id: str):
 
 @app.route('/api/training/frames/<frame_id>/image', methods=['GET'])
 def serve_frame_image(frame_id: str):
-    """Serve frame image file."""
+    """Serve frame image file.
+
+    GET /api/training/frames/{frame_id}/image
+    Returns JPEG image from training frame.
+    """
+    # Validar formato do UUID antes de consultar o banco
+    import re
+    uuid_pattern = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        re.IGNORECASE
+    )
+
+    if not uuid_pattern.match(frame_id):
+        logger.warning(f"Invalid UUID format: {frame_id}")
+        return jsonify({
+            'success': False,
+            'error': 'Invalid frame ID format',
+            'details': 'Frame ID must be a valid UUID'
+        }), 400
+
     try:
         db = get_db_session()
         query = text("""
@@ -1667,19 +1686,35 @@ def serve_frame_image(frame_id: str):
         row = result.fetchone()
 
         if not row:
-            return jsonify({'success': False, 'error': 'Frame not found'}), 404
+            logger.warning(f"Frame not found in database: {frame_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Frame not found'
+            }), 404
 
         frame_path = row[0]
 
         if not os.path.exists(frame_path):
-            logger.error(f"❌ Frame image file not found: {frame_path}")
-            return jsonify({'success': False, 'error': 'Frame image file not found on disk'}), 404
+            logger.error(f"❌ Frame image file not found: {frame_path} (id={frame_id})")
+            return jsonify({
+                'success': False,
+                'error': 'Frame image file not found on disk'
+            }), 404
 
-        return send_from_directory(os.path.dirname(frame_path), os.path.basename(frame_path))
+        # Serve imagem com cache de 5 minutos
+        from flask import send_file
+        return send_file(
+            frame_path,
+            mimetype='image/jpeg',
+            max_age=300
+        )
 
     except Exception as e:
-        logger.error(f"❌ Serve frame image error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        logger.error(f"❌ Serve frame image error for {frame_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error'
+        }), 500
 
 
 @app.route('/api/training/frames/<frame_id>/annotations', methods=['GET'])
