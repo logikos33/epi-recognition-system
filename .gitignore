@@ -111,3 +111,7 @@ logs/*.log
 frontend-new/node_modules/
 *.tmp
 *.bak
+uploads/
+runs/
+frontend/
+# Adicionados antes do deploy Railway - arquivos grandes
