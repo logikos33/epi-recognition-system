@@ -1,23 +1,22 @@
-# EPI Monitor V2 — API Service nixpacks
-# Build target: ~3 minutos (backend + frontend)
+# EPI Monitor V2 — API Service + Frontend
+# Build target: ~4 minutos (backend + frontend)
 
 [phases.setup]
-nixPkgs = ["python311", "nodejs-20"]
+nixPkgs = ["python311"]
 
 [phases.install]
 cmds = [
   "pip install --upgrade pip --quiet",
-  "pip install -r requirements.txt --quiet",
-  "cd frontend-new && npm install --quiet"
+  "pip install -r requirements.txt --quiet"
 ]
 
 [phases.build]
 cmds = [
+  "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
+  "apt-get install -y nodejs --quiet",
+  "cd frontend-new && npm install --quiet",
   "cd frontend-new && VITE_API_URL=https://epi-recognition-system-production.up.railway.app npm run build"
 ]
-
-[variables]
-NODE_ENV = "production"
 
 [start]
 cmd = "python3 railway_start.py"
