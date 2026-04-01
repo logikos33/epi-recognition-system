@@ -84,3 +84,4 @@ htmlcov/
 *.bak
 *.swp
 .worktrees/
+uploads/

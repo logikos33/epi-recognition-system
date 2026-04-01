@@ -37,7 +37,7 @@ ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS contagens_deteccao (
   id              SERIAL PRIMARY KEY,
-  camera_id       INTEGER REFERENCES cameras(id) ON DELETE CASCADE,
+  camera_id       INTEGER REFERENCES ip_cameras(id) ON DELETE CASCADE,
   classe_id       INTEGER REFERENCES classes_yolo(id) ON DELETE CASCADE,
   quantidade      INTEGER DEFAULT 0,
   valor_total     DECIMAL(10,2) GENERATED ALWAYS AS

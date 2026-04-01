@@ -2,13 +2,14 @@
 API Server for EPI Recognition System
 With Authentication, Database, YOLO Detection, HLS Streaming, and WebSocket Support
 """
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g
 from flask_cors import CORS
 # from flask_socketio import SocketIO, emit, join_room, leave_room  # TODO: Implement WebSocket support
 from werkzeug.utils import secure_filename
 import base64
 import numpy as np
 import os
+import json
 from cv2 import imdecode, IMREAD_COLOR
 from ultralytics import YOLO
 import bcrypt
@@ -19,12 +20,15 @@ import uuid
 import re
 import sys
 import logging
+import shutil
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add backend directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 
 # Import database modules
-from backend.database import get_db, init_db, SessionLocal
+from backend.database import get_db, get_db_context, init_db, SessionLocal
 from backend.auth_db import (
     create_user, get_user_by_email, get_user_by_id,
     verify_user_credentials, update_last_login, verify_session
@@ -51,6 +55,32 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)
+
+
+# ============================================================================
+# Database Session Management with Flask Teardown
+# ============================================================================
+
+def get_db_session():
+    """Retorna sessão do banco, armazenada no contexto do request.
+    Fecha automaticamente no final do request via teardown."""
+    if 'db' not in g:
+        g.db = SessionLocal()
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exception=None):
+    """Fecha a sessão do banco no final de cada request."""
+    db = g.pop('db', None)
+    if db is not None:
+        try:
+            if exception:
+                db.rollback()
+            db.close()
+        except Exception:
+            pass
+
 
 # Initialize Flask-SocketIO
 # socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=False)  # TODO: Implement WebSocket support
@@ -192,7 +222,7 @@ def register():
             return jsonify({'error': 'Invalid email format'}), 400
 
         # Create user
-        db = next(get_db())
+        db = get_db_session()
         user = create_user(
             db,
             email=email,
@@ -253,7 +283,7 @@ def login():
         password = data['password']
 
         # Verify credentials
-        db = next(get_db())
+        db = get_db_session()
         user = verify_user_credentials(db, email, password)
 
         if not user:
@@ -318,7 +348,7 @@ def serve_hls_file(camera_id, filename):
         return jsonify({'error': 'Invalid token'}), 401
 
     # Verify camera ownership
-    db = next(get_db())
+    db = get_db_session()
     try:
         camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not camera:
@@ -368,7 +398,7 @@ def start_stream(camera_id):
         return jsonify({'error': 'Invalid token'}), 401
 
     # Get camera details
-    db = next(get_db())
+    db = get_db_session()
     try:
         camera = IPCameraService.get_camera_by_id(db, camera_id)
         if not camera:
@@ -564,7 +594,7 @@ def list_cameras():
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # List cameras for user
         cameras = IPCameraService.list_cameras_by_user(db, payload['user_id'])
@@ -629,7 +659,7 @@ def create_camera():
                 return jsonify({'success': False, 'error': f'{field} is required'}), 400
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Create camera
         camera = IPCameraService.create_camera(
@@ -688,7 +718,7 @@ def get_camera(camera_id):
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Get camera
         camera = IPCameraService.get_camera_by_id(db, camera_id)
@@ -749,7 +779,7 @@ def update_camera(camera_id):
             return jsonify({'success': False, 'error': 'Request body is required'}), 400
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Verify camera exists and user owns it
         existing_camera = IPCameraService.get_camera_by_id(db, camera_id)
@@ -816,7 +846,7 @@ def delete_camera(camera_id):
             return jsonify({'success': False, 'error': 'Invalid or expired token'}), 401
 
         # Get database session
-        db = next(get_db())
+        db = get_db_session()
 
         # Verify camera exists and user owns it
         existing_camera = IPCameraService.get_camera_by_id(db, camera_id)
@@ -998,12 +1028,2194 @@ def websocket_test():
 
 
 # ============================================================================
+
+# ============================================================================
+# Training Video Upload & Processing Endpoints
+# ============================================================================
+
+import threading
+import os
+
+from backend.video_processor import VideoProcessor
+
+
+@app.route('/api/training/projects/<project_id>/videos', methods=['POST'])
+def upload_training_video(project_id: str):
+    """
+    Upload a video to a training project and automatically start frame extraction.
+
+    Request: multipart/form-data with 'video' file
+    Response: JSON with video_id and status
+    """
+    try:
+        # Verify authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Verify project ownership
+        db = get_db_session()
+        project_check = db.execute(text("""
+            SELECT id FROM training_projects WHERE id = :project_id AND user_id = :user_id
+        """), {'project_id': project_id, 'user_id': user_id}).fetchone()
+
+        if not project_check:
+            return jsonify({'success': False, 'error': 'Project not found'}), 404
+
+        # Check if file exists
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'error': 'No video file provided'}), 400
+
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+        # Validate file
+        if not file.filename.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+            return jsonify({'success': False, 'error': 'Invalid file format. Use MP4, AVI, MOV or MKV'}), 400
+
+        # Save temp file
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+            file.save(tmp_file.name)
+            tmp_path = tmp_file.name
+
+        # Process video (extract metadata, save to DB)
+        processor = VideoProcessor()
+        result = processor.process_video(
+            db=db,
+            project_id=project_id,
+            user_id=user_id,
+            video_path=tmp_path,
+            filename=file.filename
+        )
+
+        if not result.get('success'):
+            os.unlink(tmp_path)  # Clean up on error
+            return jsonify(result), 500
+
+        video_id = result['video']['id']
+        storage_path = result['video']['storage_path']  # Get permanent path
+        logger.info(f"✅ Video uploaded: {file.filename} -> {video_id}")
+        logger.info(f"✅ Video stored at: {storage_path}")
+
+        # Clean up temp file (after video was copied to storage)
+        os.unlink(tmp_path)
+
+        # Start auto-extraction in background thread
+        def auto_extract_background(video_id, video_path, user_id):
+            """
+            Thread de extração com error handling completo e logging detalhado.
+
+            Args:
+                video_id: ID do vídeo no banco
+                video_path: Caminho absoluto do arquivo de vídeo
+                user_id: ID do usuário para verificação
+            """
+            import traceback
+            logger.info(f"[EXTRACT] ========================================")
+            logger.info(f"[EXTRACT] Iniciando extração do vídeo {video_id}")
+            logger.info(f"[EXTRACT] Path: {video_path}")
+
+            # Criar NOVA conexão com banco (thread safety)
+            from backend.database import SessionLocal
+            db_local = SessionLocal()
+
+            try:
+                # 1. Verificar se arquivo existe
+                if not os.path.exists(video_path):
+                    logger.error(f"[EXTRACT] ❌ Arquivo NÃO encontrado: {video_path}")
+                    db_local.execute(text("""
+                        UPDATE training_videos SET status = 'failed' WHERE id = :video_id
+                    """), {'video_id': video_id})
+                    db_local.commit()
+                    return
+
+                logger.info(f"[EXTRACT] ✅ Arquivo encontrado ({os.path.getsize(video_path)/1024/1024:.1f} MB)")
+
+                # 2. Verificar duplicidade com FOR UPDATE (lock)
+                result = db_local.execute(text("""
+                    SELECT status, duration_seconds, selected_start, selected_end
+                    FROM training_videos WHERE id = :video_id FOR UPDATE
+                """), {'video_id': video_id})
+
+                video_data = result.fetchone()
+                if not video_data:
+                    logger.error(f"[EXTRACT] ❌ Vídeo {video_id} não encontrado no banco")
+                    return
+
+                current_status = video_data[0]
+                if current_status in ('extracting', 'completed'):
+                    logger.info(f"[EXTRACT] ⚠️  Vídeo já está '{current_status}', ignorando")
+                    return
+
+                # 3. Marcar como extraindo
+                logger.info(f"[EXTRACT] Atualizando status para 'extracting'")
+                db_local.execute(text("""
+                    UPDATE training_videos
+                    SET status = 'extracting', processed_chunks = 0
+                    WHERE id = :video_id
+                """), {'video_id': video_id})
+                db_local.commit()
+
+                # 4. Calcular duração e chunks
+                duration = video_data[1] or 60
+                start = video_data[2] or 0
+                end = video_data[3] or min(duration, 600)
+                segment_duration = end - start
+                total_chunks = max(1, int(segment_duration / 60) + (1 if segment_duration % 60 > 0 else 0))
+
+                db_local.execute(text("""
+                    UPDATE training_videos SET total_chunks = :total WHERE id = :video_id
+                """), {'total': total_chunks, 'video_id': video_id})
+                db_local.commit()
+
+                logger.info(f"[EXTRACT] Duração: {segment_duration}s ({start}s → {end}s)")
+                logger.info(f"[EXTRACT] Chunks: {total_chunks}")
+
+                # 5. Criar diretório de output
+                output_base = os.path.join(
+                    os.path.dirname(video_path),
+                    f"frames_{video_id}"
+                )
+                os.makedirs(output_base, exist_ok=True)
+                logger.info(f"[EXTRACT] Output: {output_base}")
+
+                # 6. Extrair com FFmpeg (paralelo)
+                if not shutil.which('ffmpeg'):
+                    logger.error("[EXTRACT] ❌ FFmpeg NÃO encontrado!")
+                    raise Exception("FFmpeg not found")
+
+                logger.info("[EXTRACT] ✅ FFmpeg encontrado, iniciando extração paralela")
+                total_frames = 0
+                max_workers = min(4, total_chunks)
+
+                def extract_one_chunk(chunk_num, chunk_start, chunk_duration):
+                    """Extrai um chunk usando FFmpeg"""
+                    chunk_dir = os.path.join(output_base, f"chunk_{chunk_num:02d}")
+                    os.makedirs(chunk_dir, exist_ok=True)
+
+                    cmd = [
+                        'ffmpeg', '-y',
+                        '-ss', str(chunk_start),
+                        '-i', os.path.abspath(video_path),  # PATH ABSOLUTO!
+                        '-t', str(min(chunk_duration, 60)),
+                        '-vf', 'fps=1,scale=960:-1',
+                        '-q:v', '8',
+                        os.path.join(chunk_dir, f'frame_{chunk_num:02d}_%05d.jpg')
+                    ]
+
+                    result = subprocess.run(cmd, capture_output=True, timeout=180)
+                    if result.returncode != 0:
+                        error_msg = result.stderr.decode()[:300] if result.stderr else 'Unknown error'
+                        logger.error(f"[EXTRACT] ❌ FFmpeg erro chunk {chunk_num}: {error_msg}")
+                        return 0
+
+                    frames = [f for f in os.listdir(chunk_dir) if f.endswith('.jpg')]
+                    return len(frames)
+
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {}
+                    for chunk in range(total_chunks):
+                        chunk_start = start + (chunk * 60)
+                        remaining = segment_duration - (chunk * 60)
+                        chunk_dur = min(60, remaining)
+
+                        future = executor.submit(extract_one_chunk, chunk, chunk_start, chunk_dur)
+                        futures[future] = chunk
+
+                    for future in as_completed(futures):
+                        chunk_num = futures[future]
+                        try:
+                            frames_count = future.result()
+                            total_frames += frames_count
+
+                            # Atualizar progresso
+                            db_local.execute(text("""
+                                UPDATE training_videos
+                                SET processed_chunks = processed_chunks + 1
+                                WHERE id = :video_id
+                            """), {'video_id': video_id})
+                            db_local.commit()
+
+                            logger.info(f"[EXTRACT] Chunk {chunk_num:02d}/{total_chunks}: {frames_count} frames")
+
+                        except Exception as e:
+                            logger.error(f"[EXTRACT] ❌ Chunk {chunk_num} falhou: {e}")
+
+                logger.info(f"[EXTRACT] ✅ Extração completa: {total_frames} frames extraídos")
+
+                # 7. Registrar frames no banco
+                logger.info(f"[EXTRACT] Registrando frames no banco...")
+                frame_num = 0
+                chunk_dirs = sorted([d for d in os.listdir(output_base) if d.startswith('chunk_')])
+
+                for chunk_dir_name in chunk_dirs:
+                    chunk_path = os.path.join(output_base, chunk_dir_name)
+                    if not os.path.isdir(chunk_path):
+                        continue
+
+                    chunk_num = int(chunk_dir_name.replace('chunk_', ''))
+                    frame_files = sorted([f for f in os.listdir(chunk_path) if f.endswith('.jpg')])
+
+                    for frame_file in frame_files:
+                        frame_path = os.path.join(chunk_path, frame_file)
+                        frame_id = str(uuid.uuid4())
+
+                        db_local.execute(text("""
+                            INSERT INTO training_frames (id, video_id, frame_number, storage_path, is_annotated, created_at)
+                            VALUES (:id, :video_id, :frame_number, :path, FALSE, NOW())
+                        """), {
+                            'id': frame_id,
+                            'video_id': video_id,
+                            'frame_number': frame_num,
+                            'path': frame_path
+                        })
+
+                        frame_num += 1
+
+                        # Commit a cada 100 frames
+                        if frame_num % 100 == 0:
+                            db_local.commit()
+                            logger.info(f"[EXTRACT] Registrados {frame_num}/{total_frames} frames...")
+
+                db_local.commit()
+                logger.info(f"[EXTRACT] ✅ {frame_num} frames registrados no banco")
+
+                # 8. Marcar como concluído
+                db_local.execute(text("""
+                    UPDATE training_videos
+                    SET status = 'completed', frame_count = :total
+                    WHERE id = :video_id
+                """), {'total': frame_num, 'video_id': video_id})
+                db_local.commit()
+
+                logger.info(f"[EXTRACT] ========================================")
+                logger.info(f"[EXTRACT] ✅ SUCESSO! {frame_num} frames extraídos e registrados")
+                logger.info(f"[EXTRACT] ========================================")
+
+            except Exception as e:
+                logger.error(f"[EXTRACT] ========================================")
+                logger.error(f"[EXTRACT] ❌ ERRO FATAL: {e}")
+                logger.error(f"[EXTRACT] Traceback:")
+                logger.error(traceback.format_exc())
+                logger.error(f"[EXTRACT] ========================================")
+
+                # Marcar como failed
+                try:
+                    db_local.execute(text("""
+                        UPDATE training_videos SET status = 'failed' WHERE id = :video_id
+                    """), {'video_id': video_id})
+                    db_local.commit()
+                    logger.info(f"[EXTRACT] Status atualizado para 'failed'")
+                except Exception as db_err:
+                    logger.error(f"[EXTRACT] Erro ao atualizar status: {db_err}")
+
+            finally:
+                db_local.close()
+                logger.info(f"[EXTRACT] Conexão com banco fechada")
+
+        # Start background thread (non-blocking)
+        logger.info(f"[UPLOAD] Iniciando thread de extração para {video_id}")
+        thread = threading.Thread(
+            target=auto_extract_background,
+            args=(video_id, storage_path, user_id),  # Pass storage_path, not tmp_path!
+            daemon=True
+        )
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'video_id': video_id,
+            'message': 'Video uploaded successfully. Frame extraction started in background.'
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Upload video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/projects/<project_id>/videos', methods=['GET'])
+def list_training_videos(project_id: str):
+    """List all videos for a training project."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        from backend.video_db import VideoService
+        video_service = VideoService()
+
+        db = get_db_session()
+        videos = video_service.list_project_videos(db, project_id, payload['user_id'])
+
+        # Add status information
+        videos_with_status = []
+        for video in videos:
+            video_data = dict(video)
+            # Get status from database
+            status_row = db.execute(text("""
+                SELECT status, processed_chunks, total_chunks, duration_seconds
+                FROM training_videos WHERE id = :video_id
+            """), {'video_id': video['id']}).fetchone()
+
+            if status_row:
+                video_data['status'] = status_row[0]
+                video_data['processed_chunks'] = status_row[1] or 0
+                video_data['total_chunks'] = status_row[2] or 0
+                video_data['duration_seconds'] = status_row[3]
+
+            videos_with_status.append(video_data)
+
+        return jsonify({'success': True, 'videos': videos_with_status})
+
+    except Exception as e:
+        logger.error(f"❌ List videos error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>', methods=['GET'])
+def get_training_video(video_id: str):
+    """Get a single training video by ID."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        from backend.video_db import VideoService
+        video_service = VideoService()
+
+        db = get_db_session()
+        video = video_service.get_video(db, video_id, payload['user_id'])
+
+        if not video:
+            return jsonify({'success': False, 'error': 'Video not found'}), 404
+
+        # Add status information
+        status_row = db.execute(text("""
+            SELECT status, processed_chunks, total_chunks
+            FROM training_videos WHERE id = :video_id
+        """), {'video_id': video_id}).fetchone()
+
+        if status_row:
+            video['status'] = status_row[0]
+            video['processed_chunks'] = status_row[1] or 0
+            video['total_chunks'] = status_row[2] or 0
+
+        return jsonify({'success': True, 'video': video})
+
+    except Exception as e:
+        logger.error(f"❌ Get video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>/extract', methods=['POST'])
+def extract_video_frames(video_id: str):
+    """
+    Manually start frame extraction for a video.
+
+    This endpoint is for re-extraction or manual extraction.
+    Normally extraction starts automatically after upload.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+        db = get_db_session()
+
+        # Check video ownership and current status
+        video_row = db.execute(text("""
+            SELECT status FROM training_videos v
+            JOIN training_projects p ON p.id = v.project_id
+            WHERE v.id = :video_id AND p.user_id = :user_id
+            FOR UPDATE
+        """), {'video_id': video_id, 'user_id': user_id}).fetchone()
+
+        if not video_row:
+            return jsonify({'success': False, 'error': 'Video not found'}), 404
+
+        current_status = video_row[0]
+        if current_status == 'extracting':
+            return jsonify({
+                'success': False,
+                'error': 'Video is already extracting',
+                'status': current_status
+            }), 400
+
+        if current_status == 'completed':
+            return jsonify({
+                'success': False,
+                'error': 'Video has already been extracted',
+                'status': current_status
+            }), 400
+
+        # Mark as extracting
+        db.execute(text("""
+            UPDATE training_videos SET status = 'extracting' WHERE id = :video_id
+        """), {'video_id': video_id})
+        db.commit()
+
+        # Start extraction in background
+        def extract_background(video_id, user_id):
+            try:
+                with get_db_context() as db_local:
+                    processor = VideoProcessor()
+                    result = processor.extract_frames(
+                        db=db_local,
+                        video_id=video_id,
+                        user_id=user_id
+                    )
+
+                    if result.get('success'):
+                        logger.info(f"✅ Manual extraction complete: {video_id}")
+                    else:
+                        logger.error(f"❌ Manual extraction failed: {video_id}")
+            except Exception as e:
+                logger.error(f"❌ Manual extraction error: {e}")
+
+        thread = threading.Thread(
+            target=extract_background,
+            args=(video_id, user_id),
+            daemon=True
+        )
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'message': 'Frame extraction started'
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Extract frames error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>/frames', methods=['GET'])
+def list_video_frames(video_id: str):
+    """List all frames extracted from a video."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = get_db_session()
+        query = text("""
+            SELECT id, frame_number, storage_path,
+                   is_annotated, created_at
+            FROM training_frames
+            WHERE video_id = :video_id
+            ORDER BY frame_number ASC
+        """)
+
+        result = db.execute(query, {'video_id': video_id})
+        rows = result.fetchall()
+
+        frames = [
+            {
+                'id': str(row[0]),
+                'frame_number': row[1],
+                'storage_path': row[2],
+                'is_annotated': row[3],
+                'created_at': row[4].isoformat() if row[4] else None,
+                'image_url': f"/api/training/frames/{str(row[0])}/image"
+            }
+            for row in rows
+        ]
+
+        return jsonify({'success': True, 'frames': frames})
+
+    except Exception as e:
+        logger.error(f"❌ List frames error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/image', methods=['GET'])
+def serve_frame_image(frame_id: str):
+    """Serve frame image file."""
+    try:
+        db = get_db_session()
+        query = text("""
+            SELECT storage_path FROM training_frames WHERE id = :frame_id
+        """)
+        result = db.execute(query, {'frame_id': frame_id})
+        row = result.fetchone()
+
+        if not row:
+            return jsonify({'success': False, 'error': 'Frame not found'}), 404
+
+        frame_path = row[0]
+
+        if not os.path.exists(frame_path):
+            logger.error(f"❌ Frame image file not found: {frame_path}")
+            return jsonify({'success': False, 'error': 'Frame image file not found on disk'}), 404
+
+        return send_from_directory(os.path.dirname(frame_path), os.path.basename(frame_path))
+
+    except Exception as e:
+        logger.error(f"❌ Serve frame image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/annotations', methods=['GET'])
+def get_frame_annotations(frame_id: str):
+    """Get annotations for a specific frame."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        db = get_db_session()
+        query = text("""
+            SELECT id, class_id, bbox_x, bbox_y, bbox_width, bbox_height, created_at
+            FROM frame_annotations
+            WHERE frame_id = :frame_id
+            ORDER BY created_at ASC
+        """)
+
+        result = db.execute(query, {'frame_id': frame_id})
+        rows = result.fetchall()
+
+        annotations = [
+            {
+                'id': str(row[0]),
+                'class_id': row[1],
+                'x_center': float(row[2]),
+                'y_center': float(row[3]),
+                'width': float(row[4]),
+                'height': float(row[5]),
+                'created_at': row[6].isoformat() if row[6] else None
+            }
+            for row in rows
+        ]
+
+        return jsonify({'success': True, 'annotations': annotations})
+
+    except Exception as e:
+        logger.error(f"❌ Get annotations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/annotations', methods=['POST'])
+def save_frame_annotations(frame_id: str):
+    """Save annotations for a specific frame."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        data = request.get_json()
+        annotations = data.get('annotations', [])
+
+        db = get_db_session()
+
+        # Delete existing annotations
+        db.execute(text("""
+            DELETE FROM frame_annotations WHERE frame_id = :frame_id
+        """), {'frame_id': frame_id})
+
+        # Se não tem annotations, marcar como não anotado
+        if len(annotations) == 0:
+            db.execute(text("""
+                UPDATE training_frames
+                SET is_annotated = FALSE
+                WHERE id = :frame_id
+            """), {'frame_id': frame_id})
+            db.commit()
+            return jsonify({'success': True, 'saved': 0})
+
+        # Insert new annotations
+        for ann in annotations:
+            annotation_id = str(uuid.uuid4())
+            db.execute(text("""
+                INSERT INTO frame_annotations (id, frame_id, class_id, bbox_x, bbox_y, bbox_width, bbox_height, created_by, created_at)
+                VALUES (:id, :frame_id, :class_id, :bbox_x, :bbox_y, :bbox_width, :bbox_height, :created_by, NOW())
+            """), {
+                'id': annotation_id,
+                'frame_id': frame_id,
+                'class_id': ann.get('class_id'),
+                'bbox_x': ann.get('x_center'),
+                'bbox_y': ann.get('y_center'),
+                'bbox_width': ann.get('width'),
+                'bbox_height': ann.get('height'),
+                'created_by': payload['user_id']
+            })
+
+        # Update frame annotation status
+        db.execute(text("""
+            UPDATE training_frames
+            SET is_annotated = TRUE
+            WHERE id = :frame_id
+        """), {'frame_id': frame_id})
+
+        db.commit()
+
+        return jsonify({'success': True, 'saved': len(annotations)})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Save annotations error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# Training Images API (Direct Image Upload)
+# ============================================================================
+
+@app.route('/api/training/images/upload', methods=['POST'])
+def upload_training_images():
+    """
+    Upload one or more training images directly (without video).
+
+    Images can be annotated like frames extracted from videos.
+    Supports JPG, PNG formats (max 10MB per image).
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Check if files are present
+        if 'images' not in request.files:
+            return jsonify({'success': False, 'error': 'No files provided'}), 400
+
+        files = request.files.getlist('images')
+        if not files or files[0].filename == '':
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+
+        # Validate file count
+        if len(files) > 100:
+            return jsonify({'success': False, 'error': 'Maximum 100 images per upload'}), 400
+
+        # Create storage directory
+        storage_dir = 'storage/training_images'
+        os.makedirs(storage_dir, exist_ok=True)
+
+        uploaded_images = []
+
+        with get_db_context() as db:
+            for file in files:
+                # Validate file extension
+                filename = secure_filename(file.filename)
+                if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    logger.warning(f"Skipping invalid file: {filename}")
+                    continue
+
+                # Validate file size (10MB max)
+                file.seek(0, os.SEEK_END)
+                file_size = file.tell()
+                file.seek(0)
+
+                if file_size > 10 * 1024 * 1024:  # 10MB
+                    logger.warning(f"Skipping oversized file: {filename} ({file_size} bytes)")
+                    continue
+
+                # Generate unique filename
+                image_id = str(uuid.uuid4())
+                ext = os.path.splitext(filename)[1]
+                saved_filename = f"{image_id}{ext}"
+                save_path = os.path.join(storage_dir, saved_filename)
+
+                # Save file
+                file.save(save_path)
+
+                # Insert into database
+                db.execute(text("""
+                    INSERT INTO imagens_treinamento
+                    (caminho, conjunto, validada)
+                    VALUES (:caminho, 'train', false)
+                    RETURNING id
+                """), {
+                    'caminho': save_path
+                })
+
+                row = db.execute(text("SELECT lastval()")).fetchone()
+                db_id = row[0]
+
+                uploaded_images.append({
+                    'id': str(db_id),
+                    'filename': saved_filename,
+                    'original_name': filename,
+                    'size': file_size,
+                    'path': save_path
+                })
+
+        return jsonify({
+            'success': True,
+            'uploaded_count': len(uploaded_images),
+            'images': uploaded_images
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Upload training images error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images', methods=['GET'])
+def list_training_images():
+    """List all uploaded training images for the current user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT id, caminho, validada, conjunto, criado_em
+                FROM imagens_treinamento
+                ORDER BY criado_em DESC
+                LIMIT 500
+            """))
+
+            rows = result.fetchall()
+
+            images = []
+            for row in rows:
+                # Check if file exists
+                file_path = row[1]
+                exists = os.path.exists(file_path)
+
+                images.append({
+                    'id': str(row[0]),
+                    'path': file_path,
+                    'is_validated': row[2],
+                    'split': row[3],
+                    'created_at': row[4].isoformat() if row[4] else None,
+                    'exists': exists,
+                    'image_url': f"/api/training/images/{str(row[0])}/image" if exists else None
+                })
+
+            return jsonify({
+                'success': True,
+                'count': len(images),
+                'images': images
+            })
+
+    except Exception as e:
+        logger.error(f"❌ List training images error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images/<int:image_id>', methods=['DELETE'])
+def delete_training_image(image_id: int):
+    """Delete a training image and its file."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        with get_db_context() as db:
+            # Get image path
+            result = db.execute(text("""
+                SELECT caminho FROM imagens_treinamento
+                WHERE id = :image_id
+            """), {'image_id': image_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Image not found'}), 404
+
+            file_path = row[0]
+
+            # Delete from database
+            db.execute(text("""
+                DELETE FROM imagens_treinamento
+                WHERE id = :image_id
+            """), {'image_id': image_id})
+
+            # Delete file from disk
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"✅ Deleted image file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"⚠️  Could not delete file: {e}")
+
+            return jsonify({'success': True, 'message': 'Image deleted'})
+
+    except Exception as e:
+        logger.error(f"❌ Delete training image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/images/<int:image_id>/image', methods=['GET'])
+def serve_training_image(image_id: int):
+    """Serve a training image file."""
+    try:
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT caminho FROM imagens_treinamento
+                WHERE id = :image_id
+            """), {'image_id': image_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Image not found'}), 404
+
+            image_path = row[0]
+
+            if not os.path.exists(image_path):
+                logger.error(f"❌ Training image file not found: {image_path}")
+                return jsonify({'success': False, 'error': 'Image file not found on disk'}), 404
+
+            return send_from_directory(
+                os.path.dirname(image_path),
+                os.path.basename(image_path)
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Serve training image error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# Training Control API
+# ============================================================================
+
+# Global tracking for active training threads
+active_training_threads = {}  # job_id -> thread
+
+
+def init_training_tables():
+    """Initialize training_jobs and trained_models tables if they don't exist."""
+    try:
+        with get_db_context() as db:
+            # Create training_jobs table
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS training_jobs (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name VARCHAR(255) NOT NULL,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    preset VARCHAR(20) NOT NULL,
+                    model_size VARCHAR(10) NOT NULL,
+                    epochs INTEGER NOT NULL,
+                    dataset_yaml_path VARCHAR(500),
+                    model_output_path VARCHAR(500),
+                    progress INTEGER DEFAULT 0,
+                    current_epoch INTEGER DEFAULT 0,
+                    metrics JSONB,
+                    error_message TEXT,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+
+            # Create trained_models table
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS trained_models (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    job_id UUID REFERENCES training_jobs(id) ON DELETE SET NULL,
+                    name VARCHAR(255) NOT NULL,
+                    model_path VARCHAR(500) NOT NULL,
+                    model_size VARCHAR(10) NOT NULL,
+                    is_active BOOLEAN DEFAULT FALSE,
+                    metrics JSONB,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+
+            # Create indexes
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_training_jobs_user_id ON training_jobs(user_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_training_jobs_status ON training_jobs(status)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_training_jobs_created_at ON training_jobs(created_at DESC)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_trained_models_user_id ON trained_models(user_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_trained_models_is_active ON trained_models(is_active)
+                WHERE is_active = TRUE
+            """))
+            db.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_trained_models_user_active
+                ON trained_models(user_id) WHERE is_active = TRUE
+            """))
+
+        logger.info("✅ Training tables initialized")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize training tables: {e}")
+        return False
+
+
+@app.route('/api/training/dataset/stats', methods=['GET'])
+def get_dataset_stats():
+    """
+    Get dataset statistics for training.
+
+    Returns:
+    - Total annotated frames
+    - Total bounding boxes
+    - Class distribution
+    - Train/val split info
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            # Get total annotated frames
+            result = db.execute(text("""
+                SELECT COUNT(DISTINCT fa.frame_id)
+                FROM frame_annotations fa
+                JOIN training_frames tf ON tf.id = fa.frame_id
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                WHERE tp.user_id = :user_id
+            """), {'user_id': user_id})
+            total_frames = result.scalar() or 0
+
+            # Get total bounding boxes
+            result = db.execute(text("""
+                SELECT COUNT(*)
+                FROM frame_annotations fa
+                JOIN training_frames tf ON tf.id = fa.frame_id
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                WHERE tp.user_id = :user_id
+            """), {'user_id': user_id})
+            total_boxes = result.scalar() or 0
+
+            # Get class distribution
+            result = db.execute(text("""
+                SELECT yc.name, COUNT(*) as count
+                FROM frame_annotations fa
+                JOIN training_frames tf ON tf.id = fa.frame_id
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                JOIN yolo_classes yc ON yc.id = fa.class_id
+                WHERE tp.user_id = :user_id
+                GROUP BY yc.name
+                ORDER BY count DESC
+            """), {'user_id': user_id})
+            class_distribution = {row[0]: row[1] for row in result}
+
+            return jsonify({
+                'success': True,
+                'stats': {
+                    'total_frames': total_frames,
+                    'total_boxes': total_boxes,
+                    'class_distribution': class_distribution,
+                    'train_split': int(total_frames * 0.8),
+                    'val_split': int(total_frames * 0.2)
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get dataset stats error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/dataset/export', methods=['POST'])
+def export_dataset():
+    """
+    Export dataset in YOLO format.
+
+    Creates:
+    - images/train/, images/val/
+    - labels/train/, labels/val/
+    - data.yaml
+
+    Returns path to exported dataset.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Initialize tables if needed
+        init_training_tables()
+
+        from datetime import datetime
+
+        # Create dataset directory with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        dataset_base = 'storage/datasets'
+        dataset_path = os.path.join(dataset_base, timestamp)
+
+        images_train = os.path.join(dataset_path, 'images', 'train')
+        images_val = os.path.join(dataset_path, 'images', 'val')
+        labels_train = os.path.join(dataset_path, 'labels', 'train')
+        labels_val = os.path.join(dataset_path, 'labels', 'val')
+
+        for dir_path in [images_train, images_val, labels_train, labels_val]:
+            os.makedirs(dir_path, exist_ok=True)
+
+        with get_db_context() as db:
+            # Get all annotated frames with splits
+            result = db.execute(text("""
+                SELECT
+                    tf.id as frame_id,
+                    tf.storage_path as image_path,
+                    ROW_NUMBER() OVER (ORDER BY tf.id) as row_num
+                FROM training_frames tf
+                JOIN training_videos tv ON tv.id = tf.video_id
+                JOIN training_projects tp ON tp.id = tv.project_id
+                WHERE tp.user_id = :user_id
+                AND EXISTS (
+                    SELECT 1 FROM frame_annotations fa
+                    WHERE fa.frame_id = tf.id
+                )
+                ORDER BY tf.id
+            """), {'user_id': user_id})
+
+            frames = result.fetchall()
+
+            if not frames:
+                return jsonify({'success': False, 'error': 'No annotated frames found'}), 400
+
+            total_frames = len(frames)
+            train_count = int(total_frames * 0.8)
+
+            # CRITICAL FIX: Get YOLO classes and create ID mapping BEFORE export
+            # YOLO requires 0-based sequential indices (0, 1, 2...)
+            # Database has arbitrary IDs (possibly starting from 1, 2, 5, etc.)
+            classes_result = db.execute(text("""
+                SELECT id, name FROM yolo_classes ORDER BY id ASC
+            """))
+            classes = classes_result.fetchall()
+
+            # Create mapping: database_id -> yolo_index (0, 1, 2...)
+            class_id_to_yolo_index = {}
+            yolo_index_to_class_info = {}  # For data.yaml
+            for yolo_index, (db_id, class_name) in enumerate(classes):
+                class_id_to_yolo_index[db_id] = yolo_index
+                yolo_index_to_class_info[yolo_index] = class_name
+
+            num_classes = len(classes)
+            logger.info(f"✅ Class mapping: {len(class_id_to_yolo_index)} classes → YOLO indices 0-{num_classes-1}")
+
+            # Copy frames and export annotations
+            for frame in frames:
+                frame_id = str(frame[0])
+                image_path = frame[1]
+                row_num = frame[2]
+
+                # Determine split
+                is_train = row_num <= train_count
+                split_name = 'train' if is_train else 'val'
+
+                # Copy image
+                if os.path.exists(image_path):
+                    image_filename = f"{frame_id}.jpg"
+                    dest_image = os.path.join(
+                        images_train if is_train else images_val,
+                        image_filename
+                    )
+                    shutil.copy(image_path, dest_image)
+
+                # Export annotations
+                annotations_result = db.execute(text("""
+                    SELECT
+                        yc.id as class_id,
+                        fa.bbox_x,
+                        fa.bbox_y,
+                        fa.bbox_width,
+                        fa.bbox_height
+                    FROM frame_annotations fa
+                    JOIN yolo_classes yc ON yc.id = fa.class_id
+                    WHERE fa.frame_id = :frame_id
+                """), {'frame_id': frame_id})
+
+                annotations = annotations_result.fetchall()
+
+                label_filename = f"{frame_id}.txt"
+                label_path = os.path.join(
+                    labels_train if is_train else labels_val,
+                    label_filename
+                )
+
+                with open(label_path, 'w') as f:
+                    for ann in annotations:
+                        db_class_id = ann[0]
+                        x_center = ann[1]
+                        y_center = ann[2]
+                        width = ann[3]
+                        height = ann[4]
+
+                        # CRITICAL: Map database class_id to YOLO 0-based index
+                        yolo_class_index = class_id_to_yolo_index.get(db_class_id, db_class_id)
+
+                        f.write(f"{yolo_class_index} {x_center} {y_center} {width} {height}\n")
+
+            # Create data.yaml with 0-based indices
+            data_yaml_path = os.path.join(dataset_path, 'data.yaml')
+            with open(data_yaml_path, 'w') as f:
+                f.write(f"path: {dataset_path}\n")
+                f.write(f"train: images/train\n")
+                f.write(f"val: images/val\n\n")
+                f.write(f"nc: {num_classes}\n\n")  # Number of classes
+                f.write(f"names:\n")
+                # Write 0-based indices with class names
+                for yolo_index in range(num_classes):
+                    class_name = yolo_index_to_class_info[yolo_index]
+                    f.write(f"  {yolo_index}: {class_name}\n")
+
+        return jsonify({
+            'success': True,
+            'dataset_path': dataset_path,
+            'yaml_path': data_yaml_path,
+            'stats': {
+                'total_frames': total_frames,
+                'train_frames': train_count,
+                'val_frames': total_frames - train_count
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Export dataset error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/start', methods=['POST'])
+def start_training():
+    """
+    Start a new YOLO training job.
+
+    Expects:
+    - name: Training job name
+    - preset: fast, balanced, or quality
+    - dataset_yaml_path: Path to data.yaml
+
+    Returns job_id immediately, training runs in background.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        # Initialize tables if needed
+        init_training_tables()
+
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        preset = data.get('preset', 'balanced')
+        dataset_yaml_path = data.get('dataset_yaml_path', '').strip()
+
+        # Validate
+        if not name:
+            return jsonify({'success': False, 'error': 'Name is required'}), 400
+
+        if preset not in ['fast', 'balanced', 'quality']:
+            return jsonify({'success': False, 'error': 'Invalid preset'}), 400
+
+        if not dataset_yaml_path or not os.path.exists(dataset_yaml_path):
+            return jsonify({'success': False, 'error': 'Dataset not found'}), 400
+
+        # Map preset to model size and epochs
+        preset_config = {
+            'fast': {'model_size': 'n', 'epochs': 50},
+            'balanced': {'model_size': 's', 'epochs': 100},
+            'quality': {'model_size': 'm', 'epochs': 150}
+        }
+        config = preset_config[preset]
+
+        # Create job record
+        with get_db_context() as db:
+            result = db.execute(text("""
+                INSERT INTO training_jobs
+                (user_id, name, status, preset, model_size, epochs, dataset_yaml_path)
+                VALUES (:user_id, :name, 'pending', :preset, :model_size, :epochs, :dataset_path)
+                RETURNING id
+            """), {
+                'user_id': user_id,
+                'name': name,
+                'preset': preset,
+                'model_size': config['model_size'],
+                'epochs': config['epochs'],
+                'dataset_path': dataset_yaml_path
+            })
+
+            job_id = str(result.scalar())
+
+        # Start training in background thread
+        def train_in_background(job_id, user_id, config, dataset_path):
+            try:
+                import threading
+                from ultralytics import YOLO
+
+                # Update status to running
+                with get_db_context() as db:
+                    db.execute(text("""
+                        UPDATE training_jobs
+                        SET status = 'running', started_at = NOW()
+                        WHERE id = :job_id
+                    """), {'job_id': job_id})
+
+                # Initialize model
+                model_name = f"yolov8{config['model_size']}.pt"
+                model = YOLO(model_name)
+
+                # Create output directory
+                output_dir = f"storage/models/{job_id}"
+                os.makedirs(output_dir, exist_ok=True)
+
+                # Define progress callback
+                def on_train_epoch_end(trainer):
+                    """Called at the end of each epoch to update progress."""
+                    try:
+                        current_epoch = trainer.epoch + 1
+                        total_epochs = trainer.epochs
+                        progress = int((current_epoch / total_epochs) * 100)
+
+                        # Get metrics from validator
+                        metrics = {}
+                        if hasattr(trainer, 'validator') and trainer.validator:
+                            val_metrics = trainer.validator.metrics
+                            # Access metrics as attributes, not with .get()
+                            metrics = {
+                                'mAP50': float(getattr(val_metrics, 'metrics/mAP50(B)', 0)),
+                                'mAP95': float(getattr(val_metrics, 'metrics/mAP95(B)', 0)),
+                                'precision': float(getattr(val_metrics, 'metrics/precision(B)', 0)),
+                                'recall': float(getattr(val_metrics, 'metrics/recall(B)', 0))
+                            }
+
+                        # Update progress in database
+                        with get_db_context() as db:
+                            db.execute(text("""
+                                UPDATE training_jobs
+                                SET progress = :progress,
+                                    current_epoch = :current_epoch,
+                                    metrics = :metrics
+                                WHERE id = :job_id
+                            """), {
+                                'job_id': job_id,
+                                'progress': progress,
+                                'current_epoch': current_epoch,
+                                'metrics': json.dumps(metrics)
+                            })
+
+                        logger.info(f"📊 Training {job_id}: Epoch {current_epoch}/{total_epochs} ({progress}%)")
+
+                    except Exception as e:
+                        logger.error(f"❌ Error updating progress for {job_id}: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+                # Add callback to trainer
+                model.add_callback("on_train_epoch_end", on_train_epoch_end)
+
+                # Train model
+                logger.info(f"🚀 Starting training {job_id}: {config['epochs']} epochs, {config['model_size']} model")
+                results = model.train(
+                    data=dataset_path,
+                    epochs=config['epochs'],
+                    project=output_dir,
+                    name='train',
+                    exist_ok=True,
+                    verbose=False  # Reduce log output
+                )
+
+                # Extract final metrics
+                final_metrics = {}
+                if hasattr(results, 'results_dict'):
+                    res_dict = results.results_dict
+                    final_metrics = {
+                        'mAP50': float(res_dict.get('metrics/mAP50(B)', 0)),
+                        'mAP95': float(res_dict.get('metrics/mAP95(B)', 0)),
+                        'precision': float(res_dict.get('metrics/precision(B)', 0)),
+                        'recall': float(res_dict.get('metrics/recall(B)', 0))
+                    }
+                else:
+                    # Fallback: get from trainer
+                    final_metrics = {
+                        'mAP50': 0.0,
+                        'mAP95': 0.0,
+                        'precision': 0.0,
+                        'recall': 0.0
+                    }
+
+                # Save trained model
+                best_model_path = os.path.join(output_dir, 'train', 'weights', 'best.pt')
+
+                # Update job as completed
+                with get_db_context() as db:
+                    db.execute(text("""
+                        UPDATE training_jobs
+                        SET status = 'completed',
+                            progress = 100,
+                            completed_at = NOW(),
+                            model_output_path = :model_path,
+                            metrics = :metrics::jsonb
+                        WHERE id = :job_id
+                    """), {
+                        'job_id': job_id,
+                        'model_path': best_model_path,
+                        'metrics': json.dumps(final_metrics)
+                    })
+
+                # Create trained model record
+                db.execute(text("""
+                    INSERT INTO trained_models
+                    (user_id, job_id, name, model_path, model_size, metrics)
+                    VALUES (:user_id, :job_id, :name, :model_path, :model_size, :metrics::jsonb)
+                """), {
+                    'user_id': user_id,
+                    'job_id': job_id,
+                    'name': name,
+                    'model_path': best_model_path,
+                    'model_size': config['model_size'],
+                    'metrics': json.dumps(final_metrics)
+                })
+
+                logger.info(f"✅ Training complete: {job_id}")
+                logger.info(f"📊 Final metrics: mAP50={final_metrics['mAP50']:.3f}, mAP95={final_metrics['mAP95']:.3f}")
+
+            except Exception as e:
+                logger.error(f"❌ Training error for {job_id}: {e}")
+                import traceback
+                traceback.print_exc()
+
+                with get_db_context() as db:
+                    db.execute(text("""
+                        UPDATE training_jobs
+                        SET status = 'failed',
+                            error_message = :error,
+                            completed_at = NOW()
+                        WHERE id = :job_id
+                    """), {'job_id': job_id, 'error': str(e)})
+
+            finally:
+                # Clean up thread tracking
+                if job_id in active_training_threads:
+                    del active_training_threads[job_id]
+
+        # Start background thread
+        thread = threading.Thread(
+            target=train_in_background,
+            args=(job_id, user_id, config, dataset_yaml_path),
+            daemon=True
+        )
+        thread.start()
+        active_training_threads[job_id] = thread
+
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'status': 'pending'
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Start training error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/status/<job_id>', methods=['GET'])
+def get_training_status(job_id: str):
+    """Get current status of a training job."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT
+                    id, name, status, preset, model_size, epochs,
+                    progress, current_epoch, metrics, error_message,
+                    started_at, completed_at, created_at
+                FROM training_jobs
+                WHERE id = :job_id AND user_id = :user_id
+            """), {'job_id': job_id, 'user_id': user_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+            return jsonify({
+                'success': True,
+                'job': {
+                    'id': str(row[0]),
+                    'name': row[1],
+                    'status': row[2],
+                    'preset': row[3],
+                    'model_size': row[4],
+                    'epochs': row[5],
+                    'progress': row[6] or 0,
+                    'current_epoch': row[7] or 0,
+                    'metrics': row[8],
+                    'error_message': row[9],
+                    'started_at': row[10].isoformat() if row[10] else None,
+                    'completed_at': row[11].isoformat() if row[11] else None,
+                    'created_at': row[12].isoformat() if row[12] else None
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get training status error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/stop/<job_id>', methods=['POST'])
+def stop_training(job_id: str):
+    """Stop a running training job."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            # Check job status
+            result = db.execute(text("""
+                SELECT status FROM training_jobs
+                WHERE id = :job_id AND user_id = :user_id
+            """), {'job_id': job_id, 'user_id': user_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+            status = row[0]
+
+            if status not in ['pending', 'running']:
+                return jsonify({'success': False, 'error': f'Cannot stop job with status: {status}'}), 400
+
+            # Update status
+            db.execute(text("""
+                UPDATE training_jobs
+                SET status = 'stopped', completed_at = NOW()
+                WHERE id = :job_id
+            """), {'job_id': job_id})
+
+            # Note: Background thread will check status and stop naturally
+            # For immediate termination, we would need threading.Event flags
+
+        return jsonify({'success': True, 'message': 'Job stopped'})
+
+    except Exception as e:
+        logger.error(f"❌ Stop training error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/history', methods=['GET'])
+def get_training_history():
+    """Get training history for current user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT
+                    j.id, j.name, j.status, j.preset, j.model_size,
+                    j.epochs, j.progress, j.metrics, j.error_message,
+                    j.started_at, j.completed_at, j.created_at,
+                    m.id as model_id, m.is_active
+                FROM training_jobs j
+                LEFT JOIN trained_models m ON m.job_id = j.id
+                WHERE j.user_id = :user_id
+                ORDER BY j.created_at DESC
+                LIMIT 50
+            """), {'user_id': user_id})
+
+            jobs = []
+            for row in result:
+                jobs.append({
+                    'id': str(row[0]),
+                    'name': row[1],
+                    'status': row[2],
+                    'preset': row[3],
+                    'model_size': row[4],
+                    'epochs': row[5],
+                    'progress': row[6] or 0,
+                    'metrics': row[7],
+                    'error_message': row[8],
+                    'started_at': row[9].isoformat() if row[9] else None,
+                    'completed_at': row[10].isoformat() if row[10] else None,
+                    'created_at': row[11].isoformat() if row[11] else None,
+                    'model_id': str(row[12]) if row[12] else None,
+                    'is_active': row[13] if row[13] else False
+                })
+
+            return jsonify({
+                'success': True,
+                'jobs': jobs
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get training history error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/models/<model_id>/activate', methods=['POST'])
+def activate_model(model_id: str):
+    """
+    Activate a trained model.
+
+    Deactivates all other models for the user and activates this one.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            # Verify model ownership
+            result = db.execute(text("""
+                SELECT id FROM trained_models
+                WHERE id = :model_id AND user_id = :user_id
+            """), {'model_id': model_id, 'user_id': user_id})
+
+            if not result.fetchone():
+                return jsonify({'success': False, 'error': 'Model not found'}), 404
+
+            # Deactivate all user's models
+            db.execute(text("""
+                UPDATE trained_models
+                SET is_active = FALSE
+                WHERE user_id = :user_id
+            """), {'user_id': user_id})
+
+            # Activate this model
+            db.execute(text("""
+                UPDATE trained_models
+                SET is_active = TRUE
+                WHERE id = :model_id
+            """), {'model_id': model_id})
+
+        return jsonify({'success': True, 'message': 'Model activated'})
+
+    except Exception as e:
+        logger.error(f"❌ Activate model error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/models/active', methods=['GET'])
+def get_active_model():
+    """Get the currently active model for the user."""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+
+        with get_db_context() as db:
+            result = db.execute(text("""
+                SELECT
+                    m.id, m.name, m.model_path, m.model_size, m.metrics, m.created_at,
+                    j.name as job_name, j.preset
+                FROM trained_models m
+                LEFT JOIN training_jobs j ON j.id = m.job_id
+                WHERE m.user_id = :user_id AND m.is_active = TRUE
+                LIMIT 1
+            """), {'user_id': user_id})
+
+            row = result.fetchone()
+
+            if not row:
+                return jsonify({'success': True, 'model': None})
+
+            return jsonify({
+                'success': True,
+                'model': {
+                    'id': str(row[0]),
+                    'name': row[1],
+                    'model_path': row[2],
+                    'model_size': row[3],
+                    'metrics': row[4],
+                    'created_at': row[5].isoformat() if row[5] else None,
+                    'job_name': row[6],
+                    'preset': row[7]
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Get active model error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# Admin API (Temporary - for table creation)
+# ============================================================================
+
+@app.route('/api/admin/init-training-tables', methods=['POST'])
+def admin_init_training_tables():
+    """
+    TEMPORARY endpoint to manually create training_jobs and trained_models tables.
+    Should be removed after first deployment.
+    """
+    try:
+        # Check admin (simple token check for now)
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        with get_db_context() as db:
+            # Drop existing tables if they exist (with wrong schema)
+            db.execute(text("DROP TABLE IF EXISTS trained_models CASCADE"))
+            db.execute(text("DROP TABLE IF EXISTS training_jobs CASCADE"))
+            logger.info("✅ Dropped old training tables (if existed)")
+
+        # Create fresh tables
+        result = init_training_tables()
+
+        if result:
+            return jsonify({
+                'success': True,
+                'message': 'Training tables created successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to create training tables'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"❌ Init training tables error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# YOLO Classes API
+# ============================================================================
+
+@app.route('/api/classes', methods=['GET'])
+def list_classes():
+    """Lista classes YOLO para anotação"""
+    db = get_db_session()
+
+    # Criar tabela yolo_classes se não existir
+    try:
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS yolo_classes (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE,
+                color VARCHAR(7) NOT NULL DEFAULT '#22c55e',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Tabela yolo_classes pode já existir: {e}")
+
+    result = db.execute(text(
+        "SELECT id, name, color FROM yolo_classes ORDER BY id"
+    )).fetchall()
+
+    # Se vazio, inserir defaults
+    if len(result) == 0:
+        defaults = [
+            ('Produto', '#22c55e'), ('Caminhão', '#f59e0b'),
+            ('Placa', '#3b82f6'), ('Capacete', '#8b5cf6'),
+            ('Colete', '#ec4899'), ('Sem EPI', '#ef4444'),
+        ]
+        for name, color in defaults:
+            db.execute(text(
+                "INSERT INTO yolo_classes (name, color) VALUES (:name, :color)"
+            ), {"name": name, "color": color})
+        db.commit()
+        result = db.execute(text(
+            "SELECT id, name, color FROM yolo_classes ORDER BY id"
+        )).fetchall()
+
+    classes = [{"id": r[0], "name": r[1], "color": r[2]} for r in result]
+    return jsonify({"success": True, "classes": classes})
+
+
+@app.route('/api/classes', methods=['POST'])
+def create_class():
+    """Cria nova classe YOLO"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"success": False, "error": "Missing token"}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({"success": False, "error": "Invalid token"}), 401
+
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        color = data.get('color', '#22c55e')
+
+        if not name:
+            return jsonify({"success": False, "error": "Nome obrigatório"}), 400
+
+        db = get_db_session()
+        db.execute(text(
+            "INSERT INTO yolo_classes (name, color) VALUES (:name, :color)"
+        ), {"name": name, "color": color})
+        db.commit()
+
+        row = db.execute(text(
+            "SELECT id, name, color FROM yolo_classes WHERE name = :name"
+        ), {"name": name}).fetchone()
+
+        return jsonify({
+            "success": True,
+            "class": {"id": row[0], "name": row[1], "color": row[2]}
+        })
+    except Exception as e:
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            return jsonify({"success": False, "error": "Classe já existe"}), 409
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/training/frames/<frame_id>/predict', methods=['POST'])
+def predict_frame(frame_id):
+    """Roda YOLO no frame para pré-detectar objetos"""
+    try:
+        db = get_db_session()
+        frame = db.execute(text(
+            "SELECT storage_path FROM training_frames WHERE id = :id"
+        ), {"id": frame_id}).fetchone()
+
+        if not frame:
+            return jsonify({"success": False, "error": "Frame not found"}), 404
+
+        image_path = frame[0]
+        if not os.path.exists(image_path):
+            return jsonify({"success": True, "annotations": [],
+                          "message": "Frame file not found on disk"}), 200
+
+        # Tentar rodar YOLO se disponível
+        try:
+            from ultralytics import YOLO
+
+            # Tentar usar modelo customizado, se não existir usar o base
+            model_path = "models/best.pt"
+            if not os.path.exists(model_path):
+                model_path = "models/yolov8n.pt"
+
+            if os.path.exists(model_path):
+                model = YOLO(model_path)
+                results = model(image_path)
+                annotations = []
+                for r in results:
+                    for box in r.boxes:
+                        annotations.append({
+                            "class_id": int(box.cls),
+                            "x_center": float(box.xywhn[0][0]),
+                            "y_center": float(box.xywhn[0][1]),
+                            "width": float(box.xywhn[0][2]),
+                            "height": float(box.xywhn[0][3]),
+                            "confidence": float(box.conf),
+                        })
+                return jsonify({"success": True, "annotations": annotations})
+            else:
+                return jsonify({"success": True, "annotations": [],
+                              "message": "No model available yet"})
+        except ImportError:
+            return jsonify({"success": True, "annotations": [],
+                          "message": "YOLO not installed"})
+    except Exception as e:
+        logger.error(f"❌ Predict error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ============================================================================
+# Training API Aliases (Simplified Routes without project_id)
+# ============================================================================
+
+@app.route('/api/training/videos', methods=['GET'])
+def list_all_videos():
+    """
+    List all training videos for the current user.
+    Simplified route that doesn't require project_id.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+        db = get_db_session()
+
+        # Get user's default project (or first project)
+        project = db.execute(text("""
+            SELECT id FROM training_projects
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        """), {'user_id': user_id}).fetchone()
+
+        if not project:
+            # No project exists, return empty list
+            return jsonify({'success': True, 'videos': []})
+
+        project_id = str(project[0])
+
+        # Use existing endpoint logic
+        from backend.video_db import VideoService
+        video_service = VideoService()
+        videos = video_service.list_project_videos(db, project_id, user_id)
+
+        # Add status information
+        videos_with_status = []
+        for video in videos:
+            video_data = dict(video)
+            status_row = db.execute(text("""
+                SELECT status, processed_chunks, total_chunks, duration_seconds
+                FROM training_videos WHERE id = :video_id
+            """), {'video_id': video['id']}).fetchone()
+
+            if status_row:
+                video_data['status'] = status_row[0]
+                video_data['processed_chunks'] = status_row[1] or 0
+                video_data['total_chunks'] = status_row[2] or 0
+                video_data['duration_seconds'] = status_row[3]
+
+            videos_with_status.append(video_data)
+
+        return jsonify({'success': True, 'videos': videos_with_status})
+
+    except Exception as e:
+        logger.error(f"❌ List all videos error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/upload', methods=['POST'])
+def upload_video_alias():
+    """
+    Upload a training video without requiring project_id.
+    Creates or uses user's default project.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+        db = get_db_session()
+
+        # Get or create default project
+        project = db.execute(text("""
+            SELECT id FROM training_projects
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        """), {'user_id': user_id}).fetchone()
+
+        if not project:
+            # Create default project
+            from backend.training_db import TrainingProjectDB
+            project_db = TrainingProjectDB()
+            project = project_db.create_project(
+                db=db,
+                user_id=user_id,
+                name='Default Project',
+                description='Automatically created project'
+            )
+            if not project:
+                return jsonify({'success': False, 'error': 'Failed to create project'}), 500
+            project_id = project['id']
+        else:
+            project_id = str(project[0])
+
+        # Delegate to existing endpoint
+        return upload_training_video(project_id)
+
+    except Exception as e:
+        logger.error(f"❌ Upload video alias error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>', methods=['DELETE'])
+def delete_video_alias(video_id: str):
+    """
+    Delete a training video.
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+        db = get_db_session()
+
+        # Verify ownership
+        check = db.execute(text("""
+            SELECT v.id FROM training_videos v
+            JOIN training_projects p ON p.id = v.project_id
+            WHERE v.id = :video_id AND p.user_id = :user_id
+        """), {'video_id': video_id, 'user_id': user_id}).fetchone()
+
+        if not check:
+            return jsonify({'success': False, 'error': 'Video not found'}), 404
+
+        # Delete frames and annotations (cascade)
+        db.execute(text("""
+            DELETE FROM frame_annotations WHERE frame_id IN (
+                SELECT id FROM training_frames WHERE video_id = :video_id
+            )
+        """), {'video_id': video_id})
+
+        db.execute(text("""
+            DELETE FROM training_frames WHERE video_id = :video_id
+        """), {'video_id': video_id})
+
+        db.execute(text("""
+            DELETE FROM training_videos WHERE id = :video_id
+        """), {'video_id': video_id})
+
+        db.commit()
+
+        logger.info(f"✅ Video deleted: {video_id}")
+
+        return jsonify({'success': True, 'message': 'Video deleted'})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Delete video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/training/videos/<video_id>', methods=['PATCH'])
+def update_video(video_id: str):
+    """
+    Update a training video (e.g., rename).
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'success': False, 'error': 'Missing token'}), 401
+
+        token = auth_header.split(' ')[1]
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload['user_id']
+        data = request.get_json()
+        name = data.get('name')
+
+        if not name:
+            return jsonify({'success': False, 'error': 'name is required'}), 400
+
+        db = get_db_session()
+
+        # Verify ownership
+        check = db.execute(text("""
+            SELECT v.id FROM training_videos v
+            JOIN training_projects p ON p.id = v.project_id
+            WHERE v.id = :video_id AND p.user_id = :user_id
+        """), {'video_id': video_id, 'user_id': user_id}).fetchone()
+
+        if not check:
+            return jsonify({'success': False, 'error': 'Video not found'}), 404
+
+        # Update name
+        db.execute(text("""
+            UPDATE training_videos SET name = :name WHERE id = :video_id
+        """), {'name': name, 'video_id': video_id})
+
+        db.commit()
+
+        logger.info(f"✅ Video renamed: {video_id} -> {name}")
+
+        return jsonify({'success': True, 'message': 'Video updated'})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Update video error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # Application Entry Point
 # ============================================================================
+
+# Initialize database tables on startup
+def init_database_tables():
+    """Create necessary tables if they don't exist"""
+    try:
+        db = get_db_session()
+        try:
+            # Create frame_annotations table
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS frame_annotations (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    frame_id UUID NOT NULL,
+                    class_id INTEGER NOT NULL,
+                    bbox_x FLOAT NOT NULL,
+                    bbox_y FLOAT NOT NULL,
+                    bbox_width FLOAT NOT NULL,
+                    bbox_height FLOAT NOT NULL,
+                    created_by UUID NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+
+                    CONSTRAINT fk_frame_annotations_frame
+                        FOREIGN KEY (frame_id)
+                        REFERENCES training_frames(id)
+                        ON DELETE CASCADE,
+
+                    CONSTRAINT fk_frame_annotations_user
+                        FOREIGN KEY (created_by)
+                        REFERENCES users(id)
+                        ON DELETE CASCADE
+                )
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_frame_annotations_frame_id ON frame_annotations(frame_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_frame_annotations_class_id ON frame_annotations(class_id)
+            """))
+            db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_frame_annotations_created_by ON frame_annotations(created_by)
+            """))
+            db.commit()
+            logger.info("✅ Tabela frame_annotations verificada/criada")
+        except Exception as e:
+            logger.warning(f"Erro ao criar frame_annotations: {e}")
+            db.rollback()
+        finally:
+            # Connection fechada automaticamente pelo teardown
+            pass
+    except Exception as e:
+        logger.error(f"❌ Erro na inicialização do banco: {e}")
+
 
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 Starting EPI Recognition System API Server")
+
+    # Initialize database tables
+    init_database_tables()
+
+    # Initialize training tables
+    init_training_tables()
+
+    logger.info("=" * 60)
     logger.info("=" * 60)
     logger.info(f"📡 WebSocket support: ENABLED")
     logger.info(f"📹 HLS streaming: ENABLED")
