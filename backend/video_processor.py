@@ -512,13 +512,13 @@ class VideoProcessor:
                 try:
                     db.execute(text("""
                         UPDATE training_videos
-                    SET status = 'completed',
-                        processed_chunks = total_chunks
-                    WHERE id = :video_id
-                """), {'video_id': video_id})
-                db.commit()
-            except Exception as e:
-                logger.warning(f"Could not update status to completed: {e}")
+                        SET status = 'completed',
+                            processed_chunks = total_chunks
+                        WHERE id = :video_id
+                    """), {'video_id': video_id})
+                    db.commit()
+                except Exception as e:
+                    logger.warning(f"Could not update status to completed: {e}")
 
             logger.info(f"✅ FFmpeg extraction complete: {total_frames_extracted} frames")
 
