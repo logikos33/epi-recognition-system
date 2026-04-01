@@ -3367,6 +3367,14 @@ def init_database_tables():
 import os as _os
 from flask import send_from_directory as _sfd
 
+
+# Correção Railway: postgres:// → postgresql://
+import os as _os_db
+_db_url = _os_db.environ.get('DATABASE_URL', '')
+if _db_url.startswith('postgres://'):
+    _os_db.environ['DATABASE_URL'] = _db_url.replace('postgres://', 'postgresql://', 1)
+
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
