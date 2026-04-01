@@ -129,6 +129,20 @@ def handle_thread_exception(args):
 threading.excepthook = handle_thread_exception
 
 
+def _backend_heartbeat():
+    """Loga a cada 60s que o backend está vivo. Útil para diagnóstico."""
+    import time as _time
+    while True:
+        logger.info(
+            f"[HEARTBEAT] Backend vivo | "
+            f"threads={threading.active_count()}"
+        )
+        _time.sleep(60)
+
+_hb = threading.Thread(target=_backend_heartbeat, daemon=True, name="heartbeat")
+_hb.start()
+
+
 # ============================================================================
 # Database Session Management with Flask Teardown
 # ============================================================================
