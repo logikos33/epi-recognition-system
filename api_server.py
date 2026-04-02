@@ -3050,13 +3050,25 @@ def list_all_videos():
     """
     try:
         auth_header = request.headers.get('Authorization')
+
+        # DEBUG LOG
+        print(f"[DEBUG /api/training/videos]")
+        print(f"  Auth header: {auth_header[:50] if auth_header else 'None'}...")
+        print(f"  Headers: {dict(request.headers)}")
+
         if not auth_header or not auth_header.startswith('Bearer '):
+            print(f"  ❌ Missing or invalid Authorization header")
             return jsonify({'success': False, 'error': 'Missing token'}), 401
 
         token = auth_header.split(' ')[1]
+        print(f"  Token (first 30): {token[:30]}...")
+
         payload = verify_token(token)
         if not payload:
+            print(f"  ❌ verify_token() returned None")
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        print(f"  ✅ Token válido! User ID: {payload.get('user_id')}")
 
         user_id = payload['user_id']
         db = get_db_session()
