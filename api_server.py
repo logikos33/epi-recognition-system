@@ -2233,13 +2233,13 @@ def get_dataset_stats():
 
             # Get class distribution
             result = db.execute(text(f"""
-                SELECT yc.name, COUNT(*) as count
+                SELECT yc.nome, COUNT(*) as count
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN yolo_classes yc ON yc.id = fa.class_id
+                JOIN classes_yolo yc ON yc.id = fa.class_id
                 {where_clause}
-                GROUP BY yc.name
+                GROUP BY yc.nome
                 ORDER BY count DESC
             """), params)
             class_distribution = {row[0]: row[1] for row in result}
@@ -2332,7 +2332,7 @@ def export_dataset():
             # YOLO requires 0-based sequential indices (0, 1, 2...)
             # Database has arbitrary IDs (possibly starting from 1, 2, 5, etc.)
             classes_result = db.execute(text("""
-                SELECT id, name FROM yolo_classes ORDER BY id ASC
+                SELECT id, nome FROM classes_yolo ORDER BY id ASC
             """))
             classes = classes_result.fetchall()
 
@@ -2374,7 +2374,7 @@ def export_dataset():
                         fa.bbox_width,
                         fa.bbox_height
                     FROM frame_annotations fa
-                    JOIN yolo_classes yc ON yc.id = fa.class_id
+                    JOIN classes_yolo yc ON yc.id = fa.class_id
                     WHERE fa.frame_id = :frame_id
                 """), {'frame_id': frame_id})
 
@@ -2908,10 +2908,10 @@ def list_classes():
     """Lista classes YOLO para anotação"""
     db = get_db_session()
 
-    # Criar tabela yolo_classes se não existir
+    # Criar tabela classes_yolo se não existir
     try:
         db.execute(text("""
-            CREATE TABLE IF NOT EXISTS yolo_classes (
+            CREATE TABLE IF NOT EXISTS classes_yolo (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL UNIQUE,
                 color VARCHAR(7) NOT NULL DEFAULT '#22c55e',
@@ -2920,10 +2920,10 @@ def list_classes():
         """))
         db.commit()
     except Exception as e:
-        logger.warning(f"Tabela yolo_classes pode já existir: {e}")
+        logger.warning(f"Tabela classes_yolo pode já existir: {e}")
 
     result = db.execute(text(
-        "SELECT id, name, color FROM yolo_classes ORDER BY id"
+        "SELECT id, nome, cor_hex FROM classes_yolo ORDER BY id"
     )).fetchall()
 
     # Se vazio, inserir defaults
@@ -2933,13 +2933,13 @@ def list_classes():
             ('Placa', '#3b82f6'), ('Capacete', '#8b5cf6'),
             ('Colete', '#ec4899'), ('Sem EPI', '#ef4444'),
         ]
-        for name, color in defaults:
+        for nome, cor_hex in defaults:
             db.execute(text(
-                "INSERT INTO yolo_classes (name, color) VALUES (:name, :color)"
-            ), {"name": name, "color": color})
+                "INSERT INTO classes_yolo (nome, cor_hex) VALUES (:nome, :cor_hex)"
+            ), {"nome": nome, "cor_hex": cor_hex})
         db.commit()
         result = db.execute(text(
-            "SELECT id, name, color FROM yolo_classes ORDER BY id"
+            "SELECT id, nome, cor_hex FROM classes_yolo ORDER BY id"
         )).fetchall()
 
     classes = [{"id": r[0], "name": r[1], "color": r[2]} for r in result]
@@ -2960,21 +2960,21 @@ def create_class():
             return jsonify({"success": False, "error": "Invalid token"}), 401
 
         data = request.get_json()
-        name = data.get('name', '').strip()
-        color = data.get('color', '#22c55e')
+        nome = data.get('name', '').strip()
+        cor_hex = data.get('color', '#22c55e')
 
-        if not name:
+        if not nome:
             return jsonify({"success": False, "error": "Nome obrigatório"}), 400
 
         db = get_db_session()
         db.execute(text(
-            "INSERT INTO yolo_classes (name, color) VALUES (:name, :color)"
-        ), {"name": name, "color": color})
+            "INSERT INTO classes_yolo (nome, cor_hex) VALUES (:nome, :cor_hex)"
+        ), {"nome": nome, "cor_hex": cor_hex})
         db.commit()
 
         row = db.execute(text(
-            "SELECT id, name, color FROM yolo_classes WHERE name = :name"
-        ), {"name": name}).fetchone()
+            "SELECT id, nome, cor_hex FROM classes_yolo WHERE nome = :nome"
+        ), {"nome": nome}).fetchone()
 
         return jsonify({
             "success": True,
@@ -3356,7 +3356,7 @@ def serve_frontend(path):
     """Serve React frontend build em produção Railway."""
     dist_dir = _os.path.join(
         _os.path.dirname(_os.path.abspath(__file__)),
-        'frontend-new', 'dist'
+        'static'
     )
     if path and _os.path.exists(_os.path.join(dist_dir, path)):
         return _sfd(dist_dir, path)
