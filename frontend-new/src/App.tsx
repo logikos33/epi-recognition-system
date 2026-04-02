@@ -1068,7 +1068,7 @@ const TrainingPage = ({ isLoggedIn }) => {
       </div>
 
       {/* Tab Content */}
-      {trainingTab === 'train' && <TrainingTrainTab />}
+      {trainingTab === 'train' && <TrainingTrainTab isLoggedIn={isLoggedIn} />}
       {trainingTab === 'history' && <TrainingHistoryTab />}
 
       {trainingTab === 'videos' && (
@@ -1514,7 +1514,7 @@ const TrainingPage = ({ isLoggedIn }) => {
 // ══════════════════════════════════════════════════
 // ── TRAINING TRAIN TAB (Treinar) ──
 // ══════════════════════════════════════════════════
-const TrainingTrainTab = () => {
+const TrainingTrainTab = ({ isLoggedIn }) => {
   const [datasetStats, setDatasetStats] = useState(null);
   const [exportedDatasetPath, setExportedDatasetPath] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
@@ -1547,20 +1547,15 @@ const TrainingTrainTab = () => {
 
     const pollInterval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/training/status/${activeJob.id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.success) {
-          setActiveJob(data.job);
-        }
+        const data = await api.training.getTrainingStatus(activeJob.id);
+        setActiveJob(data.job);
       } catch (err) {
         console.error('Poll error:', err);
       }
     }, 5000);
 
     return () => clearInterval(pollInterval);
-  }, [activeJob, token]);
+  }, [activeJob]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -1568,7 +1563,7 @@ const TrainingTrainTab = () => {
     try {
       const res = await fetch('/api/training/dataset/export', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (data.success) {
@@ -1595,7 +1590,7 @@ const TrainingTrainTab = () => {
       const res = await fetch('/api/training/start', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1607,7 +1602,7 @@ const TrainingTrainTab = () => {
       const data = await res.json();
       if (data.success) {
         const statusRes = await fetch(`/api/training/status/${data.job_id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: getAuthHeaders()
         });
         const statusData = await statusRes.json();
         if (statusData.success) {
@@ -1628,7 +1623,7 @@ const TrainingTrainTab = () => {
     try {
       await fetch(`/api/training/stop/${activeJob.id}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       setActiveJob(prev => ({ ...prev, status: 'stopped' }));
     } catch (err) {
