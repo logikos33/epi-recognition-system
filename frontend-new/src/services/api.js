@@ -182,6 +182,72 @@ export const api = {
   },
 
   // ========================================================================
+  // Training
+  // ========================================================================
+  training: {
+    getVideos: async () => {
+      const response = await GET('/api/training/videos');
+      return response.videos || [];
+    },
+
+    getDatasetStats: async () => {
+      const response = await GET('/api/training/dataset/stats');
+      return response;
+    },
+
+    uploadVideo: async (file, onProgress) => {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('video', file);
+
+      const response = await fetch(`${API_BASE_URL}/api/training/videos/upload`, {
+        method: 'POST',
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new APIError(error.error || 'Upload failed', response.status, error);
+      }
+
+      return response.json();
+    },
+
+    getFrames: async (videoId) => {
+      const response = await GET(`/api/training/videos/${videoId}/frames`);
+      return response.frames || [];
+    },
+
+    startTraining: async (config) => {
+      const response = await POST('/api/training/start', config);
+      return response;
+    },
+
+    stopTraining: async (jobId) => {
+      const response = await POST(`/api/training/stop`, { job_id: jobId });
+      return response;
+    },
+
+    getTrainingStatus: async (jobId) => {
+      const response = await GET(`/api/training/status/${jobId}`);
+      return response;
+    },
+
+    getHistory: async () => {
+      const response = await GET('/api/training/history');
+      return response.jobs || [];
+    },
+
+    activateModel: async (modelId) => {
+      const response = await POST(`/api/training/models/${modelId}/activate`);
+      return response;
+    },
+  },
+
+  // ========================================================================
   // Health Check
   // ========================================================================
   health: {

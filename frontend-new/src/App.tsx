@@ -27,6 +27,17 @@ const getAuthHeaders = (): Record<string, string> => {
   const t = getAuthToken();
   return t ? { 'Authorization': `Bearer ${t}` } : {};
 };
+
+// Authenticated fetch wrapper - adds auth header automatically
+const authFetch = async (url: string, options: RequestInit = {}) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+    ...options.headers,
+  };
+
+  return fetch(url, { ...options, headers });
+};
 // ────────────────────────────────────────────────────────
 
 // ══════════════════════════════════════════════════
@@ -838,14 +849,8 @@ const TrainingPage = () => {
   const loadVideos = async () => {
     setLoading(true);
     try {
-      const token = getAuthToken();
-      const response = await fetch('/api/training/videos', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const result = await response.json();
-      if (result.success && result.videos) {
-        setVideos(result.videos);
-      }
+      const videos = await api.training.getVideos();
+      setVideos(videos);
     } catch (e) {
       // Silencioso
     } finally {
@@ -1522,15 +1527,8 @@ const TrainingTrainTab = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const res = await fetch('/api/training/dataset/stats', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.success) {
-          setDatasetStats(data.stats);
-        } else {
-          setError(data.error || 'Failed to load dataset stats');
-        }
+        const data = await api.training.getDatasetStats();
+        setDatasetStats(data.stats);
       } catch (err) {
         setError(err.message);
       } finally {
