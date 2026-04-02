@@ -3480,6 +3480,50 @@ CREATE INDEX IF NOT EXISTS idx_session_events_occurred ON session_events(occurre
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================================================
+# CLEANUP: Remove duplicate rules
+# ============================================================================
+@app.route('/api/system/cleanup-duplicate-rules', methods=['POST'])
+def cleanup_duplicate_rules():
+    """Remove regras duplicadas mantendo apenas a mais recente de cada nome."""
+    try:
+        with get_db_context() as db:
+            # Contar antes
+            count_before = db.execute(text("SELECT COUNT(*) FROM rules")).scalar()
+
+            # Deletar duplicadas mantendo a mais recente (maior ID)
+            db.execute(text("""
+                DELETE FROM rules
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY user_id, name
+                                   ORDER BY created_at DESC
+                               ) as rn
+                        FROM rules
+                    ) ranked
+                    WHERE rn > 1
+                )
+            """))
+            deleted = db.execute(text("SELECT ROW_COUNT()")).scalar()
+
+            # Contar depois
+            count_after = db.execute(text("SELECT COUNT(*) FROM rules")).scalar()
+
+            logger.info(f"✅ Cleanup rules: {count_before} → {count_after} ({count_before - count_after} deletadas)")
+
+            return jsonify({
+                'success': True,
+                'count_before': count_before,
+                'count_after': count_after,
+                'deleted': count_before - count_after
+            })
+    except Exception as e:
+        logger.error(f"❌ Cleanup rules error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 Starting EPI Recognition System API Server")

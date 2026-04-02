@@ -15,6 +15,19 @@ import { LoginPage } from "./components/LoginPage";
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 
+// ── Token Helper ──
+const getAuthToken = () => {
+  return localStorage.getItem('token') ||
+         localStorage.getItem('access_token') ||
+         sessionStorage.getItem('token') ||
+         null;
+};
+
+const getAuthHeaders = () => {
+  const token = getAuthToken();
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 // ══════════════════════════════════════════════════
 // DEMO DATA — Câmeras e Detecções (Mock para demonstração)
 // Em produção: vem do backend via API
@@ -824,9 +837,9 @@ const TrainingPage = () => {
   const loadVideos = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      const headers = getAuthHeaders();
       const response = await fetch('/api/training/videos', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers
       });
       const result = await response.json();
       if (result.success && result.videos) {
@@ -850,10 +863,10 @@ const TrainingPage = () => {
     formData.append('video', file);
 
     try {
-      const token = localStorage.getItem('token');
+      const headers = getAuthHeaders();
       const res = await fetch('/api/training/videos/upload', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers,
         body: formData
       });
       const data = await res.json();
@@ -873,10 +886,10 @@ const TrainingPage = () => {
     if (!confirm('Tem certeza que deseja excluir este vídeo e todos os seus frames e anotações?')) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const headers = getAuthHeaders();
       const res = await fetch(`/api/training/videos/${videoId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers
       });
       if (res.ok) {
         setVideos(prev => prev.filter(v => v.id !== videoId));
@@ -893,7 +906,7 @@ const TrainingPage = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
+      const headers = getAuthHeaders();
       const res = await fetch(`/api/training/videos/${videoId}`, {
         method: 'PATCH',
         headers: {
@@ -931,7 +944,7 @@ const TrainingPage = () => {
 
   const extractVideoFrames = async (videoId, startTime = null, endTime = null) => {
     try {
-      const token = localStorage.getItem('token');
+      const headers = getAuthHeaders();
 
       const body = {};
       if (startTime !== null && endTime !== null) {
@@ -967,9 +980,9 @@ const TrainingPage = () => {
         // Poll para atualizar progresso
         const pollInterval = setInterval(async () => {
           try {
-            const token = localStorage.getItem('token');
+            const headers = getAuthHeaders();
             const statusRes = await fetch(`/api/training/videos`, {
-              headers: { 'Authorization': `Bearer ${token}` }
+              headers
             });
             const statusData = await statusRes.json();
 
@@ -1503,13 +1516,13 @@ const TrainingTrainTab = () => {
   const [exporting, setExporting] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  const token = localStorage.getItem('token');
+  const headers = getAuthHeaders();
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const res = await fetch('/api/training/dataset/stats', {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers
         });
         const data = await res.json();
         if (data.success) {
@@ -1534,7 +1547,7 @@ const TrainingTrainTab = () => {
     const pollInterval = setInterval(async () => {
       try {
         const res = await fetch(`/api/training/status/${activeJob.id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers
         });
         const data = await res.json();
         if (data.success) {
@@ -1554,7 +1567,7 @@ const TrainingTrainTab = () => {
     try {
       const res = await fetch('/api/training/dataset/export', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers
       });
       const data = await res.json();
       if (data.success) {
@@ -1593,7 +1606,7 @@ const TrainingTrainTab = () => {
       const data = await res.json();
       if (data.success) {
         const statusRes = await fetch(`/api/training/status/${data.job_id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers
         });
         const statusData = await statusRes.json();
         if (statusData.success) {
@@ -1614,7 +1627,7 @@ const TrainingTrainTab = () => {
     try {
       await fetch(`/api/training/stop/${activeJob.id}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers
       });
       setActiveJob(prev => ({ ...prev, status: 'stopped' }));
     } catch (err) {
@@ -1967,13 +1980,13 @@ const TrainingHistoryTab = () => {
   const [error, setError] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
 
-  const token = localStorage.getItem('token');
+  const headers = getAuthHeaders();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const historyRes = await fetch('/api/training/history', {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers
         });
         const historyData = await historyRes.json();
         if (historyData.success) {
@@ -1983,7 +1996,7 @@ const TrainingHistoryTab = () => {
         }
 
         const activeRes = await fetch('/api/training/models/active', {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers
         });
         const activeData = await activeRes.json();
         if (activeData.success && activeData.model) {
@@ -2002,13 +2015,13 @@ const TrainingHistoryTab = () => {
     try {
       const res = await fetch(`/api/training/models/${modelId}/activate`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers
       });
       const data = await res.json();
       if (data.success) {
         setActiveModel(data.model);
         const historyRes = await fetch('/api/training/history', {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers
         });
         const historyData = await historyRes.json();
         if (historyData.success) {
