@@ -3855,14 +3855,8 @@ export default function App() {
     setLoginLoading(true);
     setLoginError('');
     try {
-      const response = await fetch('http://localhost:5001/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword })
-      });
-      const data = await response.json();
+      const data = await api.auth.login(loginEmail, loginPassword);
       if (data.success && data.token) {
-        localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         localStorage.setItem('userRole', data.user?.role || 'operator');
         setIsLoggedIn(true);
