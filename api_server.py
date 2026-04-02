@@ -3537,6 +3537,44 @@ def cleanup_duplicate_rules():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/system/add-rules-unique-constraint', methods=['POST'])
+def add_rules_unique_constraint():
+    """Adiciona unique constraint (user_id, name) para prevenir duplicatas."""
+    try:
+        with get_db_context() as db:
+            # Verificar se constraint já existe
+            result = db.execute(text("""
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_name = 'rules'
+                AND constraint_name = 'rules_user_name_unique'
+            """))
+
+            if result.fetchone():
+                return jsonify({
+                    'success': True,
+                    'message': 'Constraint rules_user_name_unique já existe'
+                })
+
+            # Adicionar constraint
+            db.execute(text("""
+                ALTER TABLE rules
+                ADD CONSTRAINT rules_user_name_unique
+                UNIQUE (user_id, name)
+            """))
+            db.commit()
+
+            logger.info("✅ Unique constraint adicionado: rules_user_name_unique")
+
+            return jsonify({
+                'success': True,
+                'message': 'Unique constraint (user_id, name) adicionado com sucesso'
+            })
+    except Exception as e:
+        logger.error(f"❌ Add constraint error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 Starting EPI Recognition System API Server")
