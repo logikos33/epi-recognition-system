@@ -50,6 +50,15 @@ async function request(endpoint, options = {}) {
         tokenPreview: token ? `${token.substring(0, 20)}...` : 'NONE',
         error: data.error || data.message
       });
+
+      // Se 401 (Unauthorized), limpar token e forçar login
+      if (response.status === 401) {
+        console.warn('🔒 401 Unauthorized - limpando token expirado/inválido');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('userRole');
+        // Não recarrega automaticamente para não perder contexto
+      }
     }
 
     if (!response.ok) {

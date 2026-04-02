@@ -28,6 +28,35 @@ const getAuthHeaders = (): Record<string, string> => {
   return t ? { 'Authorization': `Bearer ${t}` } : {};
 };
 
+// Verifica se token está válido (não expirado)
+const isTokenValid = (): boolean => {
+  const token = getAuthToken();
+  if (!token) return false;
+
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+
+    const payload = JSON.parse(atob(parts[1]));
+    const now = Math.floor(Date.now() / 1000);
+
+    // Verificar expiração (com margem de 30s)
+    return payload.exp && (payload.exp - 30) > now;
+  } catch (e) {
+    console.error('Token inválido:', e);
+    return false;
+  }
+};
+
+// Limpa token inválido/expirado
+const clearInvalidToken = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('user');
+  localStorage.removeItem('userRole');
+  console.log('🧹 Token inválido limpo');
+};
+
 // Authenticated fetch wrapper - adds auth header automatically
 const authFetch = async (url: string, options: RequestInit = {}) => {
   const headers = {
@@ -843,8 +872,15 @@ const TrainingPage = ({ isLoggedIn }) => {
   });
 
   useEffect(() => {
-    if (isLoggedIn) {
+    if (isLoggedIn && isTokenValid()) {
+      console.log('✅ Carregando vídeos (token válido)');
       loadVideos();
+    } else if (isLoggedIn && !isTokenValid()) {
+      console.warn('⚠️ isLoggedIn=true mas token INVÁLIDO/EXPIRADO');
+      clearInvalidToken();
+      setIsLoggedIn(false);
+    } else {
+      console.log('⏸️ Não carregando vídeos (usuário não logado)');
     }
   }, [isLoggedIn]);
 
@@ -853,8 +889,9 @@ const TrainingPage = ({ isLoggedIn }) => {
     try {
       const videos = await api.training.getVideos();
       setVideos(videos);
+      console.log(`✅ Vídeos carregados: ${videos.length} vídeos`);
     } catch (e) {
-      // Silencioso
+      console.error('❌ Erro ao carregar vídeos:', e);
     } finally {
       setLoading(false);
     }
@@ -3828,7 +3865,17 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(!!getAuthToken());
+
+  // Validar token ao montar - limpar se estiver expirado/inválido
+  useEffect(() => {
+    const token = getAuthToken();
+    if (token && !isTokenValid()) {
+      clearInvalidToken();
+      setIsLoggedIn(false);
+    }
+  }, []);
+
+  const [isLoggedIn, setIsLoggedIn] = useState(isTokenValid());
   const [userRole, setUserRole] = useState(localStorage.getItem('userRole') || 'operator');
   const [userName, setUserName] = useState(JSON.parse(localStorage.getItem('user') || '{}')?.full_name || 'Admin');
   const [loginEmail, setLoginEmail] = useState('admin@empresa.com');
@@ -3852,8 +3899,16 @@ export default function App() {
     setLoginLoading(true);
     setLoginError('');
     try {
+      console.log('🔐 Tentando login com:', loginEmail);
       const data = await api.auth.login(loginEmail, loginPassword);
+      console.log('📩 Login response:', data);
+
       if (data.success && data.token) {
+        // Verificar se token foi salvo
+        const savedToken = localStorage.getItem('token');
+        console.log('✅ Token salvo no localStorage:', savedToken ? `${savedToken.substring(0, 20)}...` : 'NULL');
+        console.log('✅ Token válido?', isTokenValid());
+
         localStorage.setItem('user', JSON.stringify(data.user));
         localStorage.setItem('userRole', data.user?.role || 'operator');
         setIsLoggedIn(true);
@@ -3862,10 +3917,14 @@ export default function App() {
         setShowLoginModal(false);
         setLoginError('');
         success(`Bem-vindo, ${data.user.full_name || data.user.email}!`);
+
+        console.log('✅ Login completo! isLoggedIn=true');
       } else {
+        console.error('❌ Login falhou:', data.error);
         setLoginError(data.error || 'Falha no login');
       }
     } catch (err) {
+      console.error('❌ Erro no login:', err);
       setLoginError('Erro ao conectar. Tente novamente.');
     } finally {
       setLoginLoading(false);
