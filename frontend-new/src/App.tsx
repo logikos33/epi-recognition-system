@@ -15,6 +15,20 @@ import { LoginPage } from "./components/LoginPage";
 import AnnotationInterface from "./components/AnnotationInterface.jsx";
 import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 
+// ── Token Helper (null-safe) ─────────────────────────────
+const getAuthToken = (): string | null => {
+  return getAuthToken() ||
+         localStorage.getItem('access_token') ||
+         sessionStorage.getItem('token') ||
+         null;
+};
+
+const getAuthHeaders = (): Record<string, string> => {
+  const t = getAuthToken();
+  return t ? { 'Authorization': `Bearer ${t}` } : {};
+};
+// ────────────────────────────────────────────────────────
+
 // ══════════════════════════════════════════════════
 // DEMO DATA — Câmeras e Detecções (Mock para demonstração)
 // Em produção: vem do backend via API
@@ -824,7 +838,7 @@ const TrainingPage = () => {
   const loadVideos = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const response = await fetch('/api/training/videos', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -850,7 +864,7 @@ const TrainingPage = () => {
     formData.append('video', file);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const res = await fetch('/api/training/videos/upload', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -873,7 +887,7 @@ const TrainingPage = () => {
     if (!confirm('Tem certeza que deseja excluir este vídeo e todos os seus frames e anotações?')) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const res = await fetch(`/api/training/videos/${videoId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
@@ -893,7 +907,7 @@ const TrainingPage = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const res = await fetch(`/api/training/videos/${videoId}`, {
         method: 'PATCH',
         headers: {
@@ -931,7 +945,7 @@ const TrainingPage = () => {
 
   const extractVideoFrames = async (videoId, startTime = null, endTime = null) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
 
       const body = {};
       if (startTime !== null && endTime !== null) {
@@ -967,7 +981,7 @@ const TrainingPage = () => {
         // Poll para atualizar progresso
         const pollInterval = setInterval(async () => {
           try {
-            const token = localStorage.getItem('token');
+            const token = getAuthToken();
             const statusRes = await fetch(`/api/training/videos`, {
               headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -1503,7 +1517,7 @@ const TrainingTrainTab = () => {
   const [exporting, setExporting] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  const token = localStorage.getItem('token');
+  const token = getAuthToken();
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -1967,7 +1981,7 @@ const TrainingHistoryTab = () => {
   const [error, setError] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
 
-  const token = localStorage.getItem('token');
+  const token = getAuthToken();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -2829,7 +2843,7 @@ const RulesPage = () => {
   // Create custom rule
   const handleCreateRule = async () => {
     try {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const token = getAuthToken() || sessionStorage.getItem('token');
       const res = await fetch('http://localhost:5001/api/rules', {
         method: 'POST',
         headers: {
@@ -3817,7 +3831,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
+  const [isLoggedIn, setIsLoggedIn] = useState(!!getAuthToken());
   const [userRole, setUserRole] = useState(localStorage.getItem('userRole') || 'operator');
   const [userName, setUserName] = useState(JSON.parse(localStorage.getItem('user') || '{}')?.full_name || 'Admin');
   const [loginEmail, setLoginEmail] = useState('admin@empresa.com');
