@@ -3389,6 +3389,59 @@ def get_workers_health():
         }), 200
 
 
+# ============================================================================
+# TEMPORARY: Migration endpoint for training tables
+# ============================================================================
+@app.route('/admin/migrate-training-tables', methods=['POST'])
+def migrate_training_tables():
+    """Temporary endpoint to create missing training_videos and training_frames tables."""
+    try:
+        with get_db_context() as db:
+            sql = """
+CREATE TABLE IF NOT EXISTS training_videos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id UUID,
+    filename VARCHAR(255) NOT NULL,
+    storage_path VARCHAR(500),
+    original_path VARCHAR(500),
+    duration_seconds FLOAT,
+    frame_count INTEGER DEFAULT 0,
+    fps FLOAT,
+    uploaded_at TIMESTAMP DEFAULT NOW(),
+    selected_start INTEGER,
+    selected_end INTEGER,
+    total_chunks INTEGER DEFAULT 0,
+    processed_chunks INTEGER DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'uploaded',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_videos_user_id ON training_videos(user_id);
+CREATE INDEX IF NOT EXISTS idx_training_videos_project_id ON training_videos(project_id);
+CREATE INDEX IF NOT EXISTS idx_training_videos_status ON training_videos(status);
+
+CREATE TABLE IF NOT EXISTS training_frames (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    video_id UUID NOT NULL REFERENCES training_videos(id) ON DELETE CASCADE,
+    frame_number INTEGER NOT NULL,
+    filepath VARCHAR(500),
+    timestamp FLOAT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_frames_video_id ON training_frames(video_id);
+CREATE INDEX IF NOT EXISTS idx_training_frames_frame_number ON training_frames(video_id, frame_number);
+"""
+            db.execute(text(sql))
+            db.commit()
+            logger.info("✅ Migration executada - training_videos e training_frames criadas")
+            return jsonify({'success': True, 'message': 'Migration executed successfully'})
+    except Exception as e:
+        logger.error(f"❌ Migration error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 Starting EPI Recognition System API Server")
