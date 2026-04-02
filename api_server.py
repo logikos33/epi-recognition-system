@@ -3432,10 +3432,48 @@ CREATE TABLE IF NOT EXISTS training_frames (
 
 CREATE INDEX IF NOT EXISTS idx_training_frames_video_id ON training_frames(video_id);
 CREATE INDEX IF NOT EXISTS idx_training_frames_frame_number ON training_frames(video_id, frame_number);
+
+CREATE TABLE IF NOT EXISTS counting_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    camera_id UUID REFERENCES ip_cameras(id) ON DELETE SET NULL,
+    bay_id VARCHAR(100),
+    truck_plate VARCHAR(20),
+    product_count INTEGER DEFAULT 0,
+    ai_count INTEGER NOT NULL DEFAULT 0,
+    operator_count INTEGER,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMP,
+    duration_seconds INTEGER,
+    status VARCHAR(30) NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active','pending_validation','validated','rejected')),
+    validated_by VARCHAR(200),
+    validated_at TIMESTAMP,
+    validation_notes TEXT,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_counting_sessions_user ON counting_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_counting_sessions_status ON counting_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_counting_sessions_started ON counting_sessions(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS session_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES counting_sessions(id) ON DELETE CASCADE,
+    event_type VARCHAR(50) NOT NULL,
+    class_name VARCHAR(100),
+    confidence FLOAT,
+    details JSONB DEFAULT '{}',
+    occurred_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_events_occurred ON session_events(occurred_at DESC);
 """
             db.execute(text(sql))
             db.commit()
-            logger.info("✅ Migration executada - training_videos e training_frames criadas")
+            logger.info("✅ Migration executada - training_videos, training_frames, counting_sessions, session_events criadas")
             return jsonify({'success': True, 'message': 'Migration executed successfully'})
     except Exception as e:
         logger.error(f"❌ Migration error: {e}")
