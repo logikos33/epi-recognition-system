@@ -3392,7 +3392,7 @@ def get_workers_health():
 # ============================================================================
 # TEMPORARY: Migration endpoint for training tables
 # ============================================================================
-@app.route('/admin/migrate-training-tables', methods=['POST'])
+@app.route('/api/system/migrate-training-tables', methods=['POST'])
 def migrate_training_tables():
     """Temporary endpoint to create missing training_videos and training_frames tables."""
     try:
