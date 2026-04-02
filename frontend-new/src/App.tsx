@@ -821,7 +821,7 @@ const ClassesPage = () => (
 );
 
 // ── Training ──
-const TrainingPage = () => {
+const TrainingPage = ({ isLoggedIn }) => {
   const [trainingTab, setTrainingTab] = useState('videos'); // 'videos', 'train', 'history'
   const [videos, setVideos] = useState([]);
   const [selectedVideoId, setSelectedVideoId] = useState(null);
@@ -3265,7 +3265,7 @@ const RulesPage = () => {
 };
 
 // ── Validation (FASE 4) ──
-const ValidationPage = () => {
+const ValidationPage = ({ isLoggedIn }) => {
   const [pendingSessions, setPendingSessions] = useState([]);
   const [validatedSessions, setValidatedSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4047,9 +4047,9 @@ export default function App() {
             {page === "cameras" && <CamerasPage />}
             {page === "monitoring" && <MonitoringPage />}
             {page === "classes" && <ClassesPage />}
-            {page === "training" && <TrainingPage />}
+            {page === "training" && <TrainingPage isLoggedIn={isLoggedIn} />}
             {page === "rules" && <RulesPage />}
-            {page === "validations" && <ValidationPage />}
+            {page === "validations" && <ValidationPage isLoggedIn={isLoggedIn} />}
           </main>
         </div>
       </div>
