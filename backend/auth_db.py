@@ -11,6 +11,8 @@ import bcrypt
 import uuid
 import datetime
 import logging
+import jwt
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -399,4 +401,28 @@ __all__ = [
     'verify_session',
     'delete_session',
     'cleanup_expired_sessions',
+    'verify_token',
 ]
+
+
+def verify_token(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Verify JWT token and return payload.
+
+    Args:
+        token: JWT token string
+
+    Returns:
+        Payload dict if token is valid, None otherwise
+    """
+    SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-change-in-production-min-32-chars!')
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        return payload
+    except jwt.ExpiredSignatureError:
+        logger.warning("Token expired")
+        return None
+    except jwt.InvalidTokenError:
+        logger.warning("Invalid token")
+        return None

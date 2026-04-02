@@ -9,6 +9,7 @@ from flask import Blueprint, request, jsonify
 import logging
 
 from backend.database import get_db_context
+from backend.auth_db import verify_token
 from .models import Rule, CountingSession
 from .repository import RulesRepository, SessionRepository
 from .service import get_rules_engine
@@ -223,10 +224,16 @@ def get_pending_sessions():
             return jsonify({'success': False, 'error': 'Missing token'}), 401
 
         token = auth_header.split(' ')[1]
-        # TODO: Verify token (importar verify_token do backend)
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload.get('user_id')
+        if not user_id:
+            return jsonify({'success': False, 'error': 'user_id not found in token'}), 401
 
         with get_db_context() as db:
-            sessions = SessionRepository.get_pending(db, user_id='dummy-user-id')  # TODO: pegar user_id do token
+            sessions = SessionRepository.get_pending(db, user_id=user_id)
             return jsonify({
                 'success': True,
                 'sessions': [
@@ -256,7 +263,13 @@ def get_session_history():
             return jsonify({'success': False, 'error': 'Missing token'}), 401
 
         token = auth_header.split(' ')[1]
-        # TODO: Verify token
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload.get('user_id')
+        if not user_id:
+            return jsonify({'success': False, 'error': 'user_id not found in token'}), 401
 
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
@@ -264,7 +277,7 @@ def get_session_history():
 
         with get_db_context() as db:
             sessions = SessionRepository.get_history(
-                db, user_id='dummy-user-id',  # TODO: pegar do token
+                db, user_id=user_id,
                 limit=limit,
                 offset=offset,
                 status_filter=status
@@ -273,7 +286,7 @@ def get_session_history():
             # Contar total
             count_result = db.execute(text("""
                 SELECT COUNT(*) FROM counting_sessions WHERE user_id = :user_id
-            """), {'user_id': 'dummy-user-id'})  # TODO
+            """), {'user_id': user_id})
             total = count_result.scalar()
 
             return jsonify({
@@ -439,10 +452,16 @@ def get_session_stats():
             return jsonify({'success': False, 'error': 'Missing token'}), 401
 
         token = auth_header.split(' ')[1]
-        # TODO: Verify token e extrair user_id
+        payload = verify_token(token)
+        if not payload:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        user_id = payload.get('user_id')
+        if not user_id:
+            return jsonify({'success': False, 'error': 'user_id not found in token'}), 401
 
         with get_db_context() as db:
-            stats = SessionRepository.get_stats(db, user_id='dummy-user-id')  # TODO
+            stats = SessionRepository.get_stats(db, user_id=user_id)
             return jsonify({
                 'success': True,
                 'stats': stats
