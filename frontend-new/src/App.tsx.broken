@@ -17,7 +17,7 @@ import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 
 // ── Token Helper (null-safe) ─────────────────────────────
 const getAuthToken = (): string | null => {
-  return localStorage.getItem('token') ||
+  return getAuthToken() ||
          localStorage.getItem('access_token') ||
          sessionStorage.getItem('token') ||
          null;
