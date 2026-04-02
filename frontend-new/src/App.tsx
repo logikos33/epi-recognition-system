@@ -843,8 +843,10 @@ const TrainingPage = () => {
   });
 
   useEffect(() => {
-    loadVideos();
-  }, []);
+    if (isLoggedIn) {
+      loadVideos();
+    }
+  }, [isLoggedIn]);
 
   const loadVideos = async () => {
     setLoading(true);
@@ -1522,9 +1524,9 @@ const TrainingTrainTab = () => {
   const [exporting, setExporting] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  const token = getAuthToken();
-
   useEffect(() => {
+    if (!isLoggedIn) return;
+
     const fetchStats = async () => {
       try {
         const data = await api.training.getDatasetStats();
@@ -1536,7 +1538,7 @@ const TrainingTrainTab = () => {
       }
     };
     fetchStats();
-  }, [token]);
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') {
@@ -3276,6 +3278,8 @@ const ValidationPage = () => {
 
   // Polling para sessões pendentes (10s com backoff)
   useEffect(() => {
+    if (!isLoggedIn) return;
+
     let mounted = true;
     let failCount = 0;
     let pollInterval = 10000; // 10s inicial
@@ -3283,12 +3287,12 @@ const ValidationPage = () => {
     const fetchSessions = async () => {
       try {
         // Fetch pending sessions (com autenticação)
-        const token = localStorage.getItem("token") || "";
+        const token = getAuthToken();
         const headers = { "Authorization": `Bearer ${token}` };
 
         const [pendingRes, validatedRes] = await Promise.all([
-          fetch("http://localhost:5001/api/sessions/pending", { headers }),
-          fetch("http://localhost:5001/api/sessions/history?limit=20&status=validated", { headers }),
+          fetch("/api/sessions/pending", { headers }),
+          fetch("/api/sessions/history?limit=20&status=validated", { headers }),
         ]);
 
         if (!pendingRes.ok || !validatedRes.ok) throw new Error("HTTP error");
@@ -3321,7 +3325,7 @@ const ValidationPage = () => {
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [isLoggedIn]);
 
   // Validate session
   const handleValidate = async (sessionId, count, notesText) => {
