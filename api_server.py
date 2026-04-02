@@ -2207,19 +2207,9 @@ def get_dataset_stats():
         user_id = payload['user_id']
 
         with get_db_context() as db:
-            # Check if user is admin
-            user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
-            user_role = user[0] if user else 'operator'
-
-            # Build WHERE clause based on role
-            # Admin: no filter (see all data)
-            # Operator: filter by user_id
-            if user_role == 'admin':
-                where_clause = ""
-                params = {}
-            else:
-                where_clause = "WHERE tv.user_id = :user_id"
-                params = {'user_id': user_id}
+            # Simplified: always filter by user_id (no role column in schema)
+            where_clause = "WHERE tv.user_id = :user_id"
+            params = {'user_id': user_id}
 
             # Get total annotated frames
             result = db.execute(text(f"""
@@ -3071,30 +3061,15 @@ def list_all_videos():
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Check if user is admin
-        user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
-        user_role = user[0] if user else 'operator'
-
-        # Admin sees all videos, operator sees only their own
-        if user_role == 'admin':
-            # Admin: all videos from all users
-            videos = db.execute(text("""
-                SELECT id, project_id, filename, storage_path, duration_seconds,
-                       frame_count, fps, uploaded_at, selected_start, selected_end,
-                       total_chunks, processed_chunks, status, user_id
-                FROM training_videos
-                ORDER BY uploaded_at DESC
-            """)).fetchall()
-        else:
-            # Operator: only their own videos
-            videos = db.execute(text("""
-                SELECT id, project_id, filename, storage_path, duration_seconds,
-                       frame_count, fps, uploaded_at, selected_start, selected_end,
-                       total_chunks, processed_chunks, status, user_id
-                FROM training_videos
-                WHERE user_id = :user_id
-                ORDER BY uploaded_at DESC
-            """), {'user_id': user_id}).fetchall()
+        # Simplified: always filter by user_id (no role column in schema)
+        videos = db.execute(text("""
+            SELECT id, project_id, filename, storage_path, duration_seconds,
+                   frame_count, fps, uploaded_at, selected_start, selected_end,
+                   total_chunks, processed_chunks, status, user_id
+            FROM training_videos
+            WHERE user_id = :user_id
+            ORDER BY uploaded_at DESC
+        """), {'user_id': user_id}).fetchall()
 
         videos_with_status = []
         for video in videos:
