@@ -3491,7 +3491,7 @@ def cleanup_duplicate_rules():
             # Contar antes
             count_before = db.execute(text("SELECT COUNT(*) FROM rules")).scalar()
 
-            # Deletar duplicadas mantendo a mais recente (maior created_at)
+            # Deletar duplicatas mantendo a mais recente (maior created_at)
             db.execute(text("""
                 DELETE FROM rules
                 WHERE id IN (
@@ -3506,18 +3506,19 @@ def cleanup_duplicate_rules():
                     WHERE rn > 1
                 )
             """))
-            deleted = db.execute(text("SELECT ROW_COUNT()")).scalar()
+            db.commit()
 
             # Contar depois
             count_after = db.execute(text("SELECT COUNT(*) FROM rules")).scalar()
 
-            logger.info(f"✅ Cleanup rules: {count_before} → {count_after} ({count_before - count_after} deletadas)")
+            deleted_count = count_before - count_after
+            logger.info(f"✅ Cleanup rules: {count_before} → {count_after} ({deleted_count} deletadas)")
 
             return jsonify({
                 'success': True,
                 'count_before': count_before,
                 'count_after': count_after,
-                'deleted': count_before - count_after
+                'deleted': deleted_count
             })
     except Exception as e:
         logger.error(f"❌ Cleanup rules error: {e}")
