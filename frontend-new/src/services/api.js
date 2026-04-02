@@ -30,13 +30,27 @@ async function request(endpoint, options = {}) {
     ...options.headers,
   };
 
+  const url = `${API_BASE_URL}${endpoint}`;
+
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(url, {
       ...options,
       headers,
     });
 
     const data = await response.json();
+
+    // Debug logs
+    if (!response.ok) {
+      console.error('[API Error]', {
+        endpoint,
+        url,
+        status: response.status,
+        hasToken: !!token,
+        tokenPreview: token ? `${token.substring(0, 20)}...` : 'NONE',
+        error: data.error || data.message
+      });
+    }
 
     if (!response.ok) {
       throw new APIError(
