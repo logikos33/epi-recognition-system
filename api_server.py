@@ -3491,14 +3491,14 @@ def cleanup_duplicate_rules():
             # Contar antes
             count_before = db.execute(text("SELECT COUNT(*) FROM rules")).scalar()
 
-            # Deletar duplicadas mantendo a mais recente (maior ID)
+            # Deletar duplicadas mantendo a mais recente (maior created_at)
             db.execute(text("""
                 DELETE FROM rules
                 WHERE id IN (
                     SELECT id FROM (
                         SELECT id,
                                ROW_NUMBER() OVER (
-                                   PARTITION BY user_id, name
+                                   PARTITION BY name
                                    ORDER BY created_at DESC
                                ) as rn
                         FROM rules
