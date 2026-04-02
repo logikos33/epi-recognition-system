@@ -2,7 +2,7 @@
 // API Service Layer - EPI Recognition System
 // ============================================================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''; // Relative URL for same-origin
 
 // ============================================================================
 // Error Handling
