@@ -25,3 +25,5 @@ requests>=2.31.0
 # Utilities
 python-dotenv>=1.0.0
 gunicorn==21.2.0
+# ML/AI Dependencies (YOLO detection)
+ultralytics>=8.0.0
