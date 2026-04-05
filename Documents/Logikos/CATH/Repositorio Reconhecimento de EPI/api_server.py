@@ -1,6 +1,7 @@
 """
 API Server for EPI Recognition System
 With Authentication, Database, YOLO Detection, HLS Streaming, and WebSocket Support
+Last deployment: 2026-04-05 17:45 UTC - forced rebuild to clear migration cache
 """
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
