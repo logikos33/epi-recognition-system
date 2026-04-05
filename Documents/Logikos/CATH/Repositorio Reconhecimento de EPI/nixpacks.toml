@@ -1,15 +1,22 @@
-# Railway Deployment Configuration
-# Last updated: 2026-04-05 19:40 UTC - Fix pip installation
-# Using nixpkgs with pip pre-installed
+# Railway Deployment Configuration - PEP 668 Virtual Environment Fix
+# Python 3.11+ requires virtual environment for pip installation (PEP 668)
+# Last updated: 2026-04-05 20:00 UTC
 
 [phases.setup]
 nixPkgs = ["python311", "python311Packages.pip", "ffmpeg", "postgresql"]
 
+[phases.install]
+cmds = [
+    "python3.11 -m venv /opt/venv",
+    ". /opt/venv/bin/activate && pip install --upgrade pip setuptools wheel",
+    ". /opt/venv/bin/activate && pip install -r requirements-railway.txt"
+]
+
 [phases.build]
-cmd = "pip install --upgrade pip && pip install -r requirements-railway.txt"
+cmds = []
 
 [start]
-cmd = "gunicorn api_server:app --worker eventlet --worker-connections 1000 --timeout 120 --bind 0.0.0.0:8080"
+cmd = "/opt/venv/bin/gunicorn api_server:app --worker-class eventlet --worker-connections 1000 --timeout 120 --bind 0.0.0.0:$PORT"
 
-[phases.install]
-cmds = ["pip install --upgrade pip setuptools wheel", "pip install -r requirements-railway.txt"]
+[variables]
+PYTHON_VERSION = "3.11"
