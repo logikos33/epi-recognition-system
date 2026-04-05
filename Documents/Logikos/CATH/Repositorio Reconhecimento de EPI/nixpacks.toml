@@ -1,0 +1,19 @@
+[phases.setup]
+nixPkgs = ["python311", "ffmpeg", "ffmpeg-full"]
+aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
+
+[phases.build]
+cmds = [
+  "python -m venv /opt/venv",
+  ". /opt/venv/bin/activate",
+  "pip install --upgrade pip setuptools wheel",
+  "pip install -r requirements-railway.txt",
+  "pip install gunicorn eventlet"
+]
+
+[start]
+cmd = "gunicorn api_server:app --worker-class eventlet --worker-connections 1000 --timeout 120 --bind 0.0.0.0:$PORT"
+
+[phases.install]
+nixPkgs = ["python311", "ffmpeg", "ffmpeg-full"]
+aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
