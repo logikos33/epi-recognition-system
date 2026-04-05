@@ -1,3 +1,0 @@
-# Force Railway to use nixpacks instead of Dockerfile
-# Disables Docker build even if Dockerfile exists
-*
