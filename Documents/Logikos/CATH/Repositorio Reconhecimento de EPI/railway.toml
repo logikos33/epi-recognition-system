@@ -1,0 +1,5 @@
+[build]
+builder = "nixpacks"
+
+[build.env]
+RAILWAY_FORCE_NIXPACKS = "true"
