@@ -1,0 +1,34 @@
+RAILWAY VARIABLES - SERVIÇO V2-CLEAN
+Gerado: 1 Abr 2026 22:10
+
+═════════════════════════════════════════════════════════════════════════════
+
+CHAVES CRIPTOGRÁFICAS (NOVAS - ÚNICAS PARA ESTE DEPLOY):
+
+JWT_SECRET_KEY=c8b6d1770ecedc904ba61fc5bc9f54e23516e9a7ddc063b11e95f8045b00e15a
+SECRET_KEY=b8a513e006b5b511a4659db974ab233ea9e2372de148383dcff8d4d0e8219f8b
+CAMERA_SECRET_KEY=8d4d45e90c05ee6a6ce1c18938deec18d99e243f926746b1dfe66a79da8c26d1
+
+═════════════════════════════════════════════════════════════════════════════
+
+VARIÁVEIS PARA COPIAR E COLAR NO RAILWAY:
+
+SERVICE_TYPE=api
+PORT=8080
+JWT_SECRET_KEY=c8b6d1770ecedc904ba61fc5bc9f54e23516e9a7ddc063b11e95f8045b00e15a
+SECRET_KEY=b8a513e006b5b511a4659db974ab233ea9e2372de148383dcff8d4d0e8219f8b
+CAMERA_SECRET_KEY=8d4d45e90c05ee6a6ce1c18938deec18d99e243f926746b1dfe66a79da8c26d1
+FLASK_ENV=staging
+PYTHONUNBUFFERED=1
+ADMIN_EMAIL=admin@epimonitor.com
+ADMIN_PASSWORD=EpiMonitor@2024!
+ADMIN_NAME=Administrador
+CORS_ORIGINS=*
+
+═════════════════════════════════════════════════════════════════════════════
+
+CREDECIAIS DE ACESSO:
+
+Email:    admin@epimonitor.com
+Password: EpiMonitor@2024!
+

@@ -1,0 +1,288 @@
+// ============================================================================
+// API Service Layer - EPI Recognition System
+// ============================================================================
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''; // Relative URL for same-origin
+
+// ============================================================================
+// Error Handling
+// ============================================================================
+
+class APIError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.name = 'APIError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
+// ============================================================================
+// HTTP Helpers
+// ============================================================================
+
+async function request(endpoint, options = {}) {
+  const token = localStorage.getItem('token');
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+    ...options.headers,
+  };
+
+  const url = `${API_BASE_URL}${endpoint}`;
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    const data = await response.json();
+
+    // Debug logs
+    if (!response.ok) {
+      console.error('[API Error]', {
+        endpoint,
+        url,
+        status: response.status,
+        hasToken: !!token,
+        tokenPreview: token ? `${token.substring(0, 20)}...` : 'NONE',
+        error: data.error || data.message
+      });
+
+      // Se 401 (Unauthorized), limpar token e forçar login
+      if (response.status === 401) {
+        console.warn('🔒 401 Unauthorized - limpando token expirado/inválido');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('userRole');
+        // Não recarrega automaticamente para não perder contexto
+      }
+    }
+
+    if (!response.ok) {
+      throw new APIError(
+        data.error || data.message || 'Request failed',
+        response.status,
+        data
+      );
+    }
+
+    return data;
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+    throw new APIError(
+      error.message || 'Network error',
+      0,
+      null
+    );
+  }
+}
+
+const GET = (endpoint) => request(endpoint, { method: 'GET' });
+const POST = (endpoint, data) => request(endpoint, {
+  method: 'POST',
+  body: JSON.stringify(data),
+});
+const PUT = (endpoint, data) => request(endpoint, {
+  method: 'PUT',
+  body: JSON.stringify(data),
+});
+const DELETE = (endpoint) => request(endpoint, { method: 'DELETE' });
+
+// ============================================================================
+// API Methods
+// ============================================================================
+
+export const api = {
+  // ========================================================================
+  // Authentication
+  // ========================================================================
+  auth: {
+    login: async (email, password) => {
+      const response = await POST('/api/auth/login', { email, password });
+      if (response.success && response.token) {
+        localStorage.setItem('token', response.token);
+      }
+      return response;
+    },
+
+    register: async (email, password, full_name, company_name) => {
+      return POST('/api/auth/register', {
+        email,
+        password,
+        full_name,
+        company_name,
+      });
+    },
+
+    logout: () => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    },
+
+    getToken: () => localStorage.getItem('token'),
+    isAuthenticated: () => !!localStorage.getItem('token'),
+  },
+
+  // ========================================================================
+  // Cameras
+  // ========================================================================
+  cameras: {
+    list: async () => {
+      const response = await GET('/api/cameras');
+      return response.cameras || [];
+    },
+
+    getById: async (cameraId) => {
+      const response = await GET(`/api/cameras/${cameraId}`);
+      return response.camera;
+    },
+
+    create: async (cameraData) => {
+      const response = await POST('/api/cameras', cameraData);
+      return response.camera;
+    },
+
+    update: async (cameraId, cameraData) => {
+      const response = await PUT(`/api/cameras/${cameraId}`, cameraData);
+      return response.camera;
+    },
+
+    delete: async (cameraId) => {
+      const response = await DELETE(`/api/cameras/${cameraId}`);
+      return response;
+    },
+
+    testConnection: async (ip, port = 554, username = null, password = null) => {
+      const response = await POST('/api/cameras/test', {
+        ip,
+        port,
+        username,
+        password,
+      });
+      return response;
+    },
+
+    // Stream control
+    startStream: async (cameraId) => {
+      const response = await POST(`/api/cameras/${cameraId}/stream/start`);
+      return response;
+    },
+
+    stopStream: async (cameraId) => {
+      const response = await POST(`/api/cameras/${cameraId}/stream/stop`);
+      return response;
+    },
+
+    getStreamStatus: async (cameraId) => {
+      const response = await GET(`/api/cameras/${cameraId}/stream/status`);
+      return response;
+    },
+
+    // Get HLS stream URL
+    getStreamURL: (cameraId) => {
+      return `${API_BASE_URL}/streams/${cameraId}/index.m3u8`;
+    },
+  },
+
+  // ========================================================================
+  // Streams (Global)
+  // ========================================================================
+  streams: {
+    getAllStatus: async () => {
+      const response = await GET('/api/streams/status');
+      return response;
+    },
+
+    getHealthReport: async () => {
+      const response = await GET('/streams/health');
+      return response;
+    },
+  },
+
+  // ========================================================================
+  // Training
+  // ========================================================================
+  training: {
+    getVideos: async () => {
+      const response = await GET('/api/training/videos');
+      return response.videos || [];
+    },
+
+    getDatasetStats: async () => {
+      const response = await GET('/api/training/dataset/stats');
+      return response;
+    },
+
+    uploadVideo: async (file, onProgress) => {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('video', file);
+
+      const response = await fetch(`${API_BASE_URL}/api/training/videos/upload`, {
+        method: 'POST',
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new APIError(error.error || 'Upload failed', response.status, error);
+      }
+
+      return response.json();
+    },
+
+    getFrames: async (videoId) => {
+      const response = await GET(`/api/training/videos/${videoId}/frames`);
+      return response.frames || [];
+    },
+
+    startTraining: async (config) => {
+      const response = await POST('/api/training/start', config);
+      return response;
+    },
+
+    stopTraining: async (jobId) => {
+      const response = await POST(`/api/training/stop`, { job_id: jobId });
+      return response;
+    },
+
+    getTrainingStatus: async (jobId) => {
+      const response = await GET(`/api/training/status/${jobId}`);
+      return response;
+    },
+
+    getHistory: async () => {
+      const response = await GET('/api/training/history');
+      return response.jobs || [];
+    },
+
+    activateModel: async (modelId) => {
+      const response = await POST(`/api/training/models/${modelId}/activate`);
+      return response;
+    },
+  },
+
+  // ========================================================================
+  // Health Check
+  // ========================================================================
+  health: {
+    check: async () => {
+      const response = await GET('/health');
+      return response;
+    },
+  },
+};
+
+// ============================================================================
+// Export
+// ============================================================================
+
+export default api;

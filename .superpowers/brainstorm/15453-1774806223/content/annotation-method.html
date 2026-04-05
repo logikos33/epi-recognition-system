@@ -1,0 +1,50 @@
+<h2>Método de Anotação</h2>
+<p class="subtitle">Como o usuário vai marcar os objetos para treinamento?</p>
+
+<div class="cards">
+  <div class="card" data-choice="manual-boxes" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>A) Bounding Boxes Manuais</h3>
+      <p style="margin-top: 0.5rem; color: #666;">Usuário desenha retângulos ao redor dos objetos frame por frame</p>
+
+      <div style="margin-top: 1rem; padding: 0.75rem; background: #fef3c7; border-radius: 6px; font-size: 0.85rem;">
+        <strong>Pros:</strong> Maior precisão, controle total<br>
+        <strong>Contras:</strong> Trabalhoso, demorado
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="assisted" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>B) Anotação Assistida por IA</h3>
+      <p style="margin-top: 0.5rem; color: #666;">YOLO sugere caixas, usuário ajusta/confirma</p>
+
+      <div style="margin-top: 1rem; padding: 0.75rem; background: #d1fae5; border-radius: 6px; font-size: 0.85rem;">
+        <strong>Pros:</strong> 10x mais rápido, bom para datasets grandes<br>
+        <strong>Contras:</strong> Pode precisar de correções
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="hybrid-annotation" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <h3>C) Híbrido Inteligente (Recomendado)</h3>
+      <p style="margin-top: 0.5rem; color: #666;">IA anota automaticamente, usuário revisa só casos duvidosos</p>
+
+      <div style="margin-top: 1rem; padding: 0.75rem; background: #dbeafe; border-radius: 6px; font-size: 0.85rem;">
+        <strong>Pros:</strong> Melhor equilíbrio速度/precisão, escola bem<br>
+        <strong>Contras:</strong> Um pouco mais complexo de implementar
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 2rem;">
+  <h3>🎯 Considerações importantes:</h3>
+  <ul style="font-size: 0.95rem; line-height: 1.8;">
+    <li><strong>YOLOv8 precisa de ~100-1000 imagens</strong> por classe para bom desempenho</li>
+    <li><strong>Anotação manual demora ~1-2 min</strong> por imagem</li>
+    <li><strong>IA assistida reduz para ~10-20 seg</strong> por imagem</li>
+    <li><strong>Interface precisa ser intuitiva</strong> - anotadores não são técnicos</li>
+  </ul>
+</div>

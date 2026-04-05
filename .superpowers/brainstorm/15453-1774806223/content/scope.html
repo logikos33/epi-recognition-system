@@ -1,0 +1,38 @@
+<h2>Vamos começar entendendo o escopo</h2>
+<p class="subtitle">O que você quer priorizar neste momento?</p>
+
+<div class="options">
+  <div class="option" data-choice="fix-camera-error" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Corrigir Erro da Câmera</h3>
+      <p>Resolver o erro "Canvas ou video não encontrado" no componente CameraFeed e fazer a conexão com câmeras IP/DVRs funcionar</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="training-tab" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Aba de Treinamento YOLO</h3>
+      <p>Criar nova aba completa para treinamento do modelo com upload de vídeos, anotações e interface de treinamento</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="both-parallel" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Ambos (Recomendado)</h3>
+      <p>Resolver o erro da câmera primeiro (rápido) e depois criar a aba de treinamento completa com UX focada</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 2rem;">
+  <h3>Contexto atual do sistema:</h3>
+  <ul>
+    <li><strong>Dashboard:</strong> 3 abas (Dashboard, Live, Câmeras)</li>
+    <li><strong>Câmeras:</strong> Página de configuração IP/RTSP já existe</li>
+    <li><strong>CameraFeed:</strong> Usa webcam local com YOLO (erro no canvas)</li>
+    <li><strong>Backend:</strong> Flask + YOLOv8, PostgreSQL</li>
+  </ul>
+</div>

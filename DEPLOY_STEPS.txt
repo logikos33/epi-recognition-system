@@ -1,0 +1,79 @@
+╔════════════════════════════════════════════════════════════╗
+║     🚀 DEPLOY DA NOVA VERSÃO - PASSO A PASSO              ║
+╚════════════════════════════════════════════════════════════╝
+
+Execute estes comandos no seu terminal (onde você fez railway login):
+
+──────────────────────────────────────────────────────────────
+PASSO 1: Entrar no diretório do projeto
+──────────────────────────────────────────────────────────────
+cd "/Users/vitoremanuel/Documents/Logikos/CATH/Repositorio Reconhecimento de EPI "
+
+──────────────────────────────────────────────────────────────
+PASSO 2: Conectar ao projeto Railway existente
+──────────────────────────────────────────────────────────────
+railway link 366c8fae-197b-4e55-9ec9-b5261b3f4b62
+
+──────────────────────────────────────────────────────────────
+PASSO 3: Ver serviços existentes
+──────────────────────────────────────────────────────────────
+railway status
+
+──────────────────────────────────────────────────────────────
+PASSO 4: Ver variáveis de ambiente atuais
+──────────────────────────────────────────────────────────────
+railway variables
+
+──────────────────────────────────────────────────────────────
+PASSO 5: Adicionar PostgreSQL (se ainda não tiver)
+──────────────────────────────────────────────────────────────
+railway add postgresql
+
+──────────────────────────────────────────────────────────────
+PASSO 6: Definir variáveis de ambiente
+──────────────────────────────────────────────────────────────
+railway variables set JWT_SECRET_KEY="$(openssl rand -hex 32)"
+railway variables set PORT=5001
+railway variables set PYTHONUNBUFFERED=1
+
+──────────────────────────────────────────────────────────────
+PASSO 7: Fazer deploy da nova versão
+──────────────────────────────────────────────────────────────
+railway up
+
+──────────────────────────────────────────────────────────────
+PASSO 8: Monitorar o deploy
+──────────────────────────────────────────────────────────────
+railway logs
+
+──────────────────────────────────────────────────────────────
+PASSO 9: Verificar status do deploy
+──────────────────────────────────────────────────────────────
+railway status
+
+──────────────────────────────────────────────────────────────
+PASSO 10: Obter URL da API
+──────────────────────────────────────────────────────────────
+railway domain
+
+╔════════════════════════════════════════════════════════════╗
+║     📋 APÓS O DEPLOY - SETUP DO BANCO DE DADOS            ║
+╚════════════════════════════════════════════════════════════╝
+
+1. Obter DATABASE_URL:
+   railway variables
+
+2. Executar schema (substitua <URL>):
+   psql <URL> < railway-database-schema.sql
+
+3. Testar API:
+   curl https://epi-recognition-system-production.up.railway.app/health
+
+4. Testar registro:
+   curl -X POST https://epi-recognition-system-production.up.railway.app/api/auth/register \
+     -H "Content-Type: application/json" \
+     -d '{"email":"test@example.com","password":"123456","full_name":"Test User"}'
+
+╔════════════════════════════════════════════════════════════╗
+║     ✅ PRONTO!                                            ║
+╚════════════════════════════════════════════════════════════╝

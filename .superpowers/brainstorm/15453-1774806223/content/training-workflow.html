@@ -1,0 +1,40 @@
+<h2>Fluxo de Treinamento YOLO</h2>
+<p class="subtitle">Como o usuário vai interagir com o treinamento?</p>
+
+<div class="options">
+  <div class="option" data-choice="upload-first" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Upload Primeiro</h3>
+      <p>Usuário faz upload de vídeos pré-gravados, depois anota e treina</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="live-first" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Live First</h3>
+      <p>Usuário seleciona trechos ao vivo da câmera e treina em tempo real</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Híbrido (Recomendado)</h3>
+      <p>Permite upload de vídeos E seleção de trechos ao vivo - flexível</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 2rem;">
+  <h3>📋 Fases do treinamento:</h3>
+  <ol style="font-size: 0.95rem; line-height: 1.8;">
+    <li><strong>Coleta:</strong> Selecionar vídeos/frames de treinamento</li>
+    <li><strong>Anotação:</strong> Marcar bounding boxes e classes</li>
+    <li><strong>Configuração:</strong> Definir hiperparâmetros (epochs, batch size, etc.)</li>
+    <li><strong>Treinamento:</strong> Executar YOLO treinamento (background)</li>
+    <li><strong>Validação:</strong> Testar modelo com imagens de validação</li>
+    <li><strong>Deploy:</strong> Ativar modelo para produção</li>
+  </ol>
+</div>

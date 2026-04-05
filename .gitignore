@@ -1,0 +1,117 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# Environment Variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Supabase credentials
+supabase/
+.supabase/
+
+# Render deployment
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Storage
+storage/images/*
+storage/annotated/*
+storage/reports/*
+storage/models/*
+storage/datasets/*
+!storage/.gitkeep
+
+# Models
+models/*.pt
+models/*.pth
+models/*.onnx
+
+# Logs
+*.log
+storage/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+.worktrees/
+uploads/
+
+# Railway e produção
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.local
+storage/training_videos/*
+storage/training_frames/*
+storage/streams/*
+storage/training/*
+storage/models/active/*.pt
+!storage/.gitkeep
+!storage/training_videos/.gitkeep
+!storage/training_frames/.gitkeep
+!storage/streams/.gitkeep
+!storage/training/.gitkeep
+!storage/models/.gitkeep
+logs/*.log
+frontend-new/node_modules/
+*.tmp
+*.bak
+uploads/
+runs/
+frontend/
+# Adicionados antes do deploy Railway - arquivos grandes

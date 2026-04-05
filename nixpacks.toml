@@ -1,0 +1,14 @@
+# EPI Monitor V2 — API Service nixpacks
+# Build target: ~2 minutos (sem torch/FFmpeg)
+
+[phases.setup]
+nixPkgs = ["python311"]
+
+[phases.install]
+cmds = [
+  "pip install --upgrade pip --quiet",
+  "pip install -r requirements.txt --quiet"
+]
+
+[start]
+cmd = "python3 railway_start.py"

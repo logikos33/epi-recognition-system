@@ -1,0 +1,95 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║           RAILWAY DEPLOY - QUICKSTART (BROWSER)                            ║
+║           V2-clean → Staging Pré-Produção                                  ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+🔗 URL DO PROJETO: 
+   https://railway.app/project/366c8fae-197b-4e55-9ec9-b5261b3f4b62
+
+┌─ PASSO 1: ABRIR PROJETO ───────────────────────────────────────────────────┐
+│ 1. Acessar URL acima                                                      │
+│ 2. Verificar ambiente "Pré-Produção" (dropdown topo)                      │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PASSO 2: CRIAR SERVIÇOS ──────────────────────────────────────────────────┐
+│                                                                            │
+│ [A] API Service (GitHub)                                                  │
+│     → New Service → Deploy from GitHub repo                               │
+│     → Repo: logikos33/epi-recognition-system                             │
+│     → Branch: V2-clean                                                    │
+│     → Deploy Now                                                          │
+│                                                                            │
+│ [B] PostgreSQL                                                            │
+│     → New Service → Database → PostgreSQL                                 │
+│                                                                            │
+│ [C] Redis                                                                 │
+│     → New Service → Database → Redis                                      │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PASSO 3: CONFIGURAR VARIÁVEIS API ───────────────────────────────────────┐
+│                                                                            │
+│ Service Variables → Connect Service:                                      │
+│   ✓ PostgreSQL (injeta DATABASE_URL)                                      │
+│   ✓ Redis (injeta REDIS_URL)                                              │
+│                                                                            │
+│ New Variables:                                                             │
+│   SERVICE_TYPE=api                                                        │
+│   PORT=8080                                                               │
+│   JWT_SECRET_KEY=c95c9deea5d12c6c29c5cb0904f31d33fd5796aa550bcdd096d2b7...  │
+│   SECRET_KEY=cc0f18f0c496acbf695dbde98bfce0349cdd1af3cd8a616923b84f37...   │
+│   CAMERA_SECRET_KEY=LgcYZ-oaTO5dla6qEobzO_DMPcc-MGE4Uxzue3xYbc0            │
+│   ADMIN_EMAIL=admin@epimonitor.com                                        │
+│   ADMIN_PASSWORD=EpiMonitor@2024!                                         │
+│   ADMIN_NAME=Administrador                                                │
+│   CORS_ORIGINS=*                                                          │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PASSO 4: REDEPLOY ───────────────────────────────────────────────────────┐
+│                                                                            │
+│ 1. Deployments tab → Redeploy botão                                       │
+│ 2. Aguardar 2-3 minutos                                                   │
+│ 3. Verificar logs:                                                        │
+│    ✅ "PostgreSQL conectado"                                              │
+│    ✅ "Redis conectado"                                                   │
+│    ✅ "Migrations executadas"                                             │
+│    ✅ "Starting API server on port 8080"                                  │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ PASSO 5: TESTAR ──────────────────────────────────────────────────────────┐
+│                                                                            │
+# Health check
+curl https://<projeto>.up.railway.app/health
+
+# Login
+curl -X POST https://<projeto>.up.railway.app/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@epimonitor.com","password":"EpiMonitor@2024!"}'       │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ CREDENCIAIS ─────────────────────────────────────────────────────────────┐
+│                                                                            │
+│ Email:    admin@epimonitor.com                                            │
+│ Password: EpiMonitor@2024!                                                │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ CUSTOS ──────────────────────────────────────────────────────────────────┐
+│                                                                            │
+│ API:        ~$10/mês                                                       │
+│ PostgreSQL: ~$15/mês                                                       │
+│ Redis:      ~$5/mês                                                        │
+│ Worker:     ~$40/mês (opcional, só com câmeras)                           │
+│                                                                            │
+│ Total:      ~$30/mês (sem câmeras)                                         │
+│             ~$70/mês (com 1 worker)                                        │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  DOC COMPLETA: BROWSER-DEPLOY-GUIDE.md                                    ║
+║  CLI COM PROBLEMAS: USE BROWSER INTERFACE                                 ║
+╚═══════════════════════════════════════════════════════════════════════════╝
