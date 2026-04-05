@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from 'next/navigation';
 import VideoUploadZone from './components/VideoUploadZone'
+import { decodeJWT, isTokenExpired, validateToken, formatTTL } from './lib/jwt-utils'
 
 // Icons as inline SVGs for zero dependencies
 const Icons = {
@@ -578,6 +580,7 @@ const formatDuration = (seconds) => {
 }
 
 const TrainingVideosTab = ({ onAnnotate }) => {
+  const router = useRouter()
   const [videos, setVideos] = useState([])
   const [timeSelectionModal, setTimeSelectionModal] = useState({
     open: false,
@@ -594,23 +597,92 @@ const TrainingVideosTab = ({ onAnnotate }) => {
   const loadVideos = async () => {
     try {
       const token = localStorage.getItem('token')
+
+      // Verificar se token existe e não está expirado
+      if (!token) {
+        console.warn('⚠️ Nenhum token encontrado - redirecionando para login')
+        router.push('/login')
+        return
+      }
+
+      const tokenValidation = validateToken(token)
+      if (tokenValidation === 'expired') {
+        console.warn('⚠️ Token expirado - redirecionando para login')
+        localStorage.removeItem('token')
+        router.push('/login')
+        return
+      }
+
+      if (tokenValidation === 'invalid') {
+        console.warn('⚠️ Token inválido - redirecionando para login')
+        localStorage.removeItem('token')
+        router.push('/login')
+        return
+      }
+
+      if (tokenValidation === 'expiring-soon') {
+        const payload = decodeJWT(token)
+        const ttl = payload ? payload.exp - Math.floor(Date.now() / 1000) : 0
+        console.log(`⏰ Token expirando em breve (${formatTTL(ttl)})`)
+      }
+
+      console.log('✅ Carregando vídeos (token válido)')
+
       const response = await fetch('/api/training/videos', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       })
+
+      // Tratar erro 401 especificamente
+      if (response.status === 401) {
+        console.warn('🔒 401 Unauthorized - limpando token expirado/inválido')
+        localStorage.removeItem('token')
+        router.push('/login')
+        return
+      }
+
       const result = await response.json()
       if (result.success) {
         setVideos(result.videos)
+      } else if (result.error) {
+        console.error('❌ Erro ao carregar vídeos:', result.error)
+        if (result.error.includes('token') || result.error.includes('401')) {
+          localStorage.removeItem('token')
+          router.push('/login')
+        }
       }
     } catch (error) {
-      console.error('Error loading videos:', error)
+      console.error('❌ Erro ao carregar vídeos:', error)
     }
   }
 
   const handleUploadComplete = (result) => {
     console.log('Upload complete:', result)
     loadVideos()
+  }
+
+  const validateAndRefreshToken = async () => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      router.push('/login')
+      return null
+    }
+
+    const tokenValidation = validateToken(token)
+    if (tokenValidation === 'expired' || tokenValidation === 'invalid') {
+      localStorage.removeItem('token')
+      router.push('/login')
+      return null
+    }
+
+    if (tokenValidation === 'expiring-soon') {
+      const payload = decodeJWT(token)
+      const ttl = payload ? payload.exp - Math.floor(Date.now() / 1000) : 0
+      console.log(`⏰ Token expirando em breve (${formatTTL(ttl)})`)
+    }
+
+    return token
   }
 
   const handleExtractFrames = async (videoId, duration) => {
@@ -632,7 +704,8 @@ const TrainingVideosTab = ({ onAnnotate }) => {
 
   const extractFrames = async (videoId, body) => {
     try {
-      const token = localStorage.getItem('token')
+      const token = await validateAndRefreshToken()
+      if (!token) return
 
       const response = await fetch(`/api/training/videos/${videoId}/extract`, {
         method: 'POST',
@@ -642,6 +715,12 @@ const TrainingVideosTab = ({ onAnnotate }) => {
         },
         body: JSON.stringify(body)
       })
+
+      if (response.status === 401) {
+        localStorage.removeItem('token')
+        router.push('/login')
+        return
+      }
 
       const result = await response.json()
       if (result.success) {
@@ -692,7 +771,8 @@ const TrainingVideosTab = ({ onAnnotate }) => {
   }
 
   const pollVideoProgress = async (videoId) => {
-    const token = localStorage.getItem('token')
+    const token = await validateAndRefreshToken()
+    if (!token) return
 
     const poll = async () => {
       try {
@@ -701,6 +781,15 @@ const TrainingVideosTab = ({ onAnnotate }) => {
             'Authorization': `Bearer ${token}`
           }
         })
+
+        // Tratar erro 401 durante o polling
+        if (response.status === 401) {
+          console.warn('🔒 401 durante polling - token expirou')
+          localStorage.removeItem('token')
+          router.push('/login')
+          return
+        }
+
         const result = await response.json()
         if (result.success) {
           const updatedVideo = result.video
@@ -733,13 +822,21 @@ const TrainingVideosTab = ({ onAnnotate }) => {
     }
 
     try {
-      const token = localStorage.getItem('token')
+      const token = await validateAndRefreshToken()
+      if (!token) return
+
       const response = await fetch(`/api/training/videos/${videoId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       })
+
+      if (response.status === 401) {
+        localStorage.removeItem('token')
+        router.push('/login')
+        return
+      }
 
       const result = await response.json()
       if (result.success) {
@@ -1166,14 +1263,24 @@ const TrainingAnnotateTab = ({ videoId, onBack }) => {
   const loadFrames = async () => {
     if (!videoId) return
 
+    const token = await validateAndRefreshToken()
+    if (!token) return
+
     setLoading(true)
     try {
-      const token = localStorage.getItem('token')
       const response = await fetch(`/api/training/videos/${videoId}/frames`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       })
+
+      // Tratar erro 401
+      if (response.status === 401) {
+        console.warn('🔒 401 ao carregar frames - token expirou')
+        localStorage.removeItem('token')
+        router.push('/login')
+        return
+      }
 
       const result = await response.json()
       if (result.success && result.frames) {
