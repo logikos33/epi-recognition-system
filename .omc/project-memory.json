@@ -1,0 +1,516 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775347017046,
+  "projectRoot": "/Users/vitoremanuel/Documents/Logikos/CATH/Repositorio Reconhecimento de EPI ",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts",
+      "static",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "__pycache__": {
+      "path": "__pycache__",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775347017019,
+      "keyFiles": [
+        "api_server.cpython-314.pyc"
+      ]
+    },
+    "backend": {
+      "path": "backend",
+      "purpose": null,
+      "fileCount": 19,
+      "lastAccessed": 1775347017019,
+      "keyFiles": [
+        "annotation_db.py",
+        "auth_db.py",
+        "camera_service.py",
+        "database.py",
+        "fueling_session_service.py"
+      ]
+    },
+    "cameras": {
+      "path": "cameras",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1775347017024,
+      "keyFiles": [
+        "__init__.py",
+        "encryption.py",
+        "health_checker.py",
+        "models.py",
+        "network_utils.py"
+      ]
+    },
+    "dashboard": {
+      "path": "dashboard",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1775347017024,
+      "keyFiles": [
+        "__init__.py",
+        "routes.py",
+        "service.py"
+      ]
+    },
+    "datasets": {
+      "path": "datasets",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775347017025,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1775347017025,
+      "keyFiles": [
+        "DEBITO_TECNICO_401_TRAINING.md",
+        "task-10-annotation-canvas-implementation.md"
+      ]
+    },
+    "frontend": {
+      "path": "frontend",
+      "purpose": null,
+      "fileCount": 18,
+      "lastAccessed": 1775347017026,
+      "keyFiles": [
+        "README.md",
+        "jsconfig.json",
+        "next-env.d.ts",
+        "next.config.js",
+        "package-lock.json"
+      ]
+    },
+    "frontend-new": {
+      "path": "frontend-new",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1775347017026,
+      "keyFiles": [
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "vite.config.js"
+      ]
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1775347017026,
+      "keyFiles": [
+        "api_server.log",
+        "backend.pid",
+        "backend_restart.log",
+        "backend_session.log"
+      ]
+    },
+    "migrations": {
+      "path": "migrations",
+      "purpose": "Database migrations",
+      "fileCount": 16,
+      "lastAccessed": 1775347017027,
+      "keyFiles": [
+        "000_create_training_tables.sql",
+        "001_create_base_tables.sql",
+        "002_create_cameras_table.sql",
+        "003_create_yolo_training_tables.sql",
+        "004_alter_training_videos_add_processing_columns.sql"
+      ]
+    },
+    "models": {
+      "path": "models",
+      "purpose": "Data models",
+      "fileCount": 4,
+      "lastAccessed": 1775347017027,
+      "keyFiles": [
+        "__init__.py",
+        "database.py",
+        "schemas.py",
+        "yolov8n.pt"
+      ]
+    },
+    "rules": {
+      "path": "rules",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1775347017027,
+      "keyFiles": [
+        "__init__.py",
+        "models.py",
+        "repository.py",
+        "routes.py",
+        "service.py"
+      ]
+    },
+    "runs": {
+      "path": "runs",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775347017028,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1775347017028,
+      "keyFiles": [
+        "validate-proxy.sh"
+      ]
+    },
+    "services": {
+      "path": "services",
+      "purpose": "Business logic services",
+      "fileCount": 2,
+      "lastAccessed": 1775347017028,
+      "keyFiles": [
+        "__init__.py",
+        "api_worker_proxy.py"
+      ]
+    },
+    "static": {
+      "path": "static",
+      "purpose": "Static files",
+      "fileCount": 1,
+      "lastAccessed": 1775347017028,
+      "keyFiles": [
+        "index.html"
+      ]
+    },
+    "storage": {
+      "path": "storage",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775347017029,
+      "keyFiles": []
+    },
+    "streams": {
+      "path": "streams",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775347017029,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 22,
+      "lastAccessed": 1775347017029,
+      "keyFiles": [
+        "__init__.py",
+        "conftest.py",
+        "test_annotation_db.py",
+        "test_api_annotations.py",
+        "test_api_cameras.py"
+      ]
+    },
+    "tmp": {
+      "path": "tmp",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775347017029,
+      "keyFiles": [
+        "add_user_id.py"
+      ]
+    },
+    "training": {
+      "path": "training",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775347017030,
+      "keyFiles": [
+        "train_worker.py",
+        "training_optimizer.py"
+      ]
+    },
+    "uploads": {
+      "path": "uploads",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775347017030,
+      "keyFiles": []
+    },
+    "venv": {
+      "path": "venv",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775347017030,
+      "keyFiles": [
+        "pyvenv.cfg"
+      ]
+    },
+    "worker": {
+      "path": "worker",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775347017030,
+      "keyFiles": [
+        "Dockerfile",
+        "railway.toml"
+      ]
+    },
+    "frontend-new/dist": {
+      "path": "frontend-new/dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 1,
+      "lastAccessed": 1775347017031,
+      "keyFiles": [
+        "index.html"
+      ]
+    },
+    "frontend-new/node_modules": {
+      "path": "frontend-new/node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 1,
+      "lastAccessed": 1775347017031,
+      "keyFiles": []
+    },
+    "frontend-new/src": {
+      "path": "frontend-new/src",
+      "purpose": "Source code",
+      "fileCount": 6,
+      "lastAccessed": 1775347017031,
+      "keyFiles": [
+        "App.tsx",
+        "App.tsx.backup",
+        "App.tsx.bak"
+      ]
+    },
+    "static/assets": {
+      "path": "static/assets",
+      "purpose": "Static assets",
+      "fileCount": 3,
+      "lastAccessed": 1775347017032,
+      "keyFiles": [
+        "index--QoSRh-h.js",
+        "index--QoSRh-h.js.map",
+        "index-CNr_s-PZ.css"
+      ]
+    },
+    "storage/models": {
+      "path": "storage/models",
+      "purpose": "Data models",
+      "fileCount": 1,
+      "lastAccessed": 1775347017032,
+      "keyFiles": []
+    },
+    "venv/bin": {
+      "path": "venv/bin",
+      "purpose": "Executable scripts",
+      "fileCount": 33,
+      "lastAccessed": 1775347017033,
+      "keyFiles": [
+        "Activate.ps1",
+        "activate",
+        "activate.csh"
+      ]
+    },
+    "venv/lib": {
+      "path": "venv/lib",
+      "purpose": "Library code",
+      "fileCount": 0,
+      "lastAccessed": 1775347017033,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/frontend-new/src/App.tsx",
+      "accessCount": 19,
+      "lastAccessed": 1775410257698,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/nixpacks.toml",
+      "accessCount": 15,
+      "lastAccessed": 1775422193354,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/api_server.py",
+      "accessCount": 9,
+      "lastAccessed": 1775420964644,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI",
+      "accessCount": 8,
+      "lastAccessed": 1775419015527,
+      "type": "directory"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/011_remove_duplicate_rules.sql",
+      "accessCount": 6,
+      "lastAccessed": 1775420936591,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/requirements-railway.txt",
+      "accessCount": 5,
+      "lastAccessed": 1775418928074,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/railway.toml",
+      "accessCount": 5,
+      "lastAccessed": 1775421647157,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/2026-03-29-fueling-monitoring.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775410610622,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/003_create_fueling_tables.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775420173130,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/005_create_frame_annotations_table.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775420173178,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/001_create_classes_yolo_table.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775420173231,
+      "type": "file"
+    },
+    {
+      "path": "api_server.py",
+      "accessCount": 3,
+      "lastAccessed": 1775421603216,
+      "type": "directory"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI /nixpacks.toml",
+      "accessCount": 2,
+      "lastAccessed": 1775418568522,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/002_create_frames_table.sql",
+      "accessCount": 2,
+      "lastAccessed": 1775420053890,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/Procfile",
+      "accessCount": 1,
+      "lastAccessed": 1775412094395,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/requirements.txt",
+      "accessCount": 1,
+      "lastAccessed": 1775412943048,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/.dockerignore",
+      "accessCount": 1,
+      "lastAccessed": 1775414171070,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/401-FIX-SUMMARY.md",
+      "accessCount": 1,
+      "lastAccessed": 1775417370127,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/004_alter_training_videos_add_processing_columns.sql",
+      "accessCount": 1,
+      "lastAccessed": 1775418903314,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend/fueling_session_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1775418903343,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend",
+      "accessCount": 1,
+      "lastAccessed": 1775418967800,
+      "type": "directory"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend/annotation_db.py",
+      "accessCount": 1,
+      "lastAccessed": 1775418974700,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend/database.py",
+      "accessCount": 1,
+      "lastAccessed": 1775421612124,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/Dockerfile",
+      "accessCount": 1,
+      "lastAccessed": 1775422263318,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/RAILWAY_CACHE_BUST_1775422700.txt",
+      "accessCount": 1,
+      "lastAccessed": 1775422890741,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

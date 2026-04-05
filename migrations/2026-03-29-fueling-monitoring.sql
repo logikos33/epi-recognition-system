@@ -15,9 +15,9 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
--- Cameras (Câmeras do sistema)
+-- Fueling Cameras (Câmeras do sistema de abastecimento)
 -- ON DELETE CASCADE: When a bay is deleted, all associated cameras are automatically deleted
-CREATE TABLE IF NOT EXISTS cameras (
+CREATE TABLE IF NOT EXISTS fueling_cameras (
     id SERIAL PRIMARY KEY,
     bay_id INTEGER REFERENCES bays(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
@@ -27,9 +27,9 @@ CREATE TABLE IF NOT EXISTS cameras (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Add unique constraint for cameras (bay_id + name)
+-- Add unique constraint for fueling_cameras (bay_id + name)
 DO $$ BEGIN
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_cameras_bay_name ON cameras(bay_id, name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fueling_cameras_bay_name ON fueling_cameras(bay_id, name);
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
@@ -38,7 +38,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS fueling_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     bay_id INTEGER REFERENCES bays(id),
-    camera_id INTEGER REFERENCES cameras(id),
+    camera_id INTEGER REFERENCES fueling_cameras(id),
     license_plate VARCHAR(20),
     truck_entry_time TIMESTAMP NOT NULL,
     truck_exit_time TIMESTAMP,

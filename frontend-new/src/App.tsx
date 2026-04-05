@@ -17,7 +17,7 @@ import VideoTimelineSelector from "./components/VideoTimelineSelector.jsx";
 
 // ── Token Helper (null-safe) ─────────────────────────────
 const getAuthToken = (): string | null => {
-  return getAuthToken() ||
+  return localStorage.getItem('token') ||
          localStorage.getItem('access_token') ||
          sessionStorage.getItem('token') ||
          null;
@@ -26,6 +26,46 @@ const getAuthToken = (): string | null => {
 const getAuthHeaders = (): Record<string, string> => {
   const t = getAuthToken();
   return t ? { 'Authorization': `Bearer ${t}` } : {};
+};
+
+// Verifica se token está válido (não expirado)
+const isTokenValid = (): boolean => {
+  const token = getAuthToken();
+  if (!token) return false;
+
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+
+    const payload = JSON.parse(atob(parts[1]));
+    const now = Math.floor(Date.now() / 1000);
+
+    // Verificar expiração (com margem de 30s)
+    return payload.exp && (payload.exp - 30) > now;
+  } catch (e) {
+    console.error('Token inválido:', e);
+    return false;
+  }
+};
+
+// Limpa token inválido/expirado
+const clearInvalidToken = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('user');
+  localStorage.removeItem('userRole');
+  console.log('🧹 Token inválido limpo');
+};
+
+// Authenticated fetch wrapper - adds auth header automatically
+const authFetch = async (url: string, options: RequestInit = {}) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+    ...options.headers,
+  };
+
+  return fetch(url, { ...options, headers });
 };
 // ────────────────────────────────────────────────────────
 
@@ -810,7 +850,7 @@ const ClassesPage = () => (
 );
 
 // ── Training ──
-const TrainingPage = () => {
+const TrainingPage = ({ isLoggedIn }) => {
   const [trainingTab, setTrainingTab] = useState('videos'); // 'videos', 'train', 'history'
   const [videos, setVideos] = useState([]);
   const [selectedVideoId, setSelectedVideoId] = useState(null);
@@ -832,22 +872,26 @@ const TrainingPage = () => {
   });
 
   useEffect(() => {
-    loadVideos();
-  }, []);
+    if (isLoggedIn && isTokenValid()) {
+      console.log('✅ Carregando vídeos (token válido)');
+      loadVideos();
+    } else if (isLoggedIn && !isTokenValid()) {
+      console.warn('⚠️ isLoggedIn=true mas token INVÁLIDO/EXPIRADO');
+      clearInvalidToken();
+      setIsLoggedIn(false);
+    } else {
+      console.log('⏸️ Não carregando vídeos (usuário não logado)');
+    }
+  }, [isLoggedIn]);
 
   const loadVideos = async () => {
     setLoading(true);
     try {
-      const token = getAuthToken();
-      const response = await fetch('/api/training/videos', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const result = await response.json();
-      if (result.success && result.videos) {
-        setVideos(result.videos);
-      }
+      const videos = await api.training.getVideos();
+      setVideos(videos);
+      console.log(`✅ Vídeos carregados: ${videos.length} vídeos`);
     } catch (e) {
-      // Silencioso
+      console.error('❌ Erro ao carregar vídeos:', e);
     } finally {
       setLoading(false);
     }
@@ -1061,7 +1105,7 @@ const TrainingPage = () => {
       </div>
 
       {/* Tab Content */}
-      {trainingTab === 'train' && <TrainingTrainTab />}
+      {trainingTab === 'train' && <TrainingTrainTab isLoggedIn={isLoggedIn} />}
       {trainingTab === 'history' && <TrainingHistoryTab />}
 
       {trainingTab === 'videos' && (
@@ -1507,7 +1551,7 @@ const TrainingPage = () => {
 // ══════════════════════════════════════════════════
 // ── TRAINING TRAIN TAB (Treinar) ──
 // ══════════════════════════════════════════════════
-const TrainingTrainTab = () => {
+const TrainingTrainTab = ({ isLoggedIn }) => {
   const [datasetStats, setDatasetStats] = useState(null);
   const [exportedDatasetPath, setExportedDatasetPath] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
@@ -1517,20 +1561,13 @@ const TrainingTrainTab = () => {
   const [exporting, setExporting] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  const token = getAuthToken();
-
   useEffect(() => {
+    if (!isLoggedIn) return;
+
     const fetchStats = async () => {
       try {
-        const res = await fetch('/api/training/dataset/stats', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.success) {
-          setDatasetStats(data.stats);
-        } else {
-          setError(data.error || 'Failed to load dataset stats');
-        }
+        const data = await api.training.getDatasetStats();
+        setDatasetStats(data.stats);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -1538,7 +1575,7 @@ const TrainingTrainTab = () => {
       }
     };
     fetchStats();
-  }, [token]);
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') {
@@ -1547,20 +1584,15 @@ const TrainingTrainTab = () => {
 
     const pollInterval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/training/status/${activeJob.id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.success) {
-          setActiveJob(data.job);
-        }
+        const data = await api.training.getTrainingStatus(activeJob.id);
+        setActiveJob(data.job);
       } catch (err) {
         console.error('Poll error:', err);
       }
     }, 5000);
 
     return () => clearInterval(pollInterval);
-  }, [activeJob, token]);
+  }, [activeJob]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -1568,7 +1600,7 @@ const TrainingTrainTab = () => {
     try {
       const res = await fetch('/api/training/dataset/export', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (data.success) {
@@ -1595,7 +1627,7 @@ const TrainingTrainTab = () => {
       const res = await fetch('/api/training/start', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          ...getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1607,7 +1639,7 @@ const TrainingTrainTab = () => {
       const data = await res.json();
       if (data.success) {
         const statusRes = await fetch(`/api/training/status/${data.job_id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: getAuthHeaders()
         });
         const statusData = await statusRes.json();
         if (statusData.success) {
@@ -1628,7 +1660,7 @@ const TrainingTrainTab = () => {
     try {
       await fetch(`/api/training/stop/${activeJob.id}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getAuthHeaders()
       });
       setActiveJob(prev => ({ ...prev, status: 'stopped' }));
     } catch (err) {
@@ -3265,7 +3297,7 @@ const RulesPage = () => {
 };
 
 // ── Validation (FASE 4) ──
-const ValidationPage = () => {
+const ValidationPage = ({ isLoggedIn }) => {
   const [pendingSessions, setPendingSessions] = useState([]);
   const [validatedSessions, setValidatedSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -3278,6 +3310,8 @@ const ValidationPage = () => {
 
   // Polling para sessões pendentes (10s com backoff)
   useEffect(() => {
+    if (!isLoggedIn) return;
+
     let mounted = true;
     let failCount = 0;
     let pollInterval = 10000; // 10s inicial
@@ -3285,12 +3319,12 @@ const ValidationPage = () => {
     const fetchSessions = async () => {
       try {
         // Fetch pending sessions (com autenticação)
-        const token = localStorage.getItem("token") || "";
+        const token = getAuthToken();
         const headers = { "Authorization": `Bearer ${token}` };
 
         const [pendingRes, validatedRes] = await Promise.all([
-          fetch("http://localhost:5001/api/sessions/pending", { headers }),
-          fetch("http://localhost:5001/api/sessions/history?limit=20&status=validated", { headers }),
+          fetch("/api/sessions/pending", { headers }),
+          fetch("/api/sessions/history?limit=20&status=validated", { headers }),
         ]);
 
         if (!pendingRes.ok || !validatedRes.ok) throw new Error("HTTP error");
@@ -3323,7 +3357,7 @@ const ValidationPage = () => {
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [isLoggedIn]);
 
   // Validate session
   const handleValidate = async (sessionId, count, notesText) => {
@@ -3831,7 +3865,17 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(!!getAuthToken());
+
+  // Validar token ao montar - limpar se estiver expirado/inválido
+  useEffect(() => {
+    const token = getAuthToken();
+    if (token && !isTokenValid()) {
+      clearInvalidToken();
+      setIsLoggedIn(false);
+    }
+  }, []);
+
+  const [isLoggedIn, setIsLoggedIn] = useState(isTokenValid());
   const [userRole, setUserRole] = useState(localStorage.getItem('userRole') || 'operator');
   const [userName, setUserName] = useState(JSON.parse(localStorage.getItem('user') || '{}')?.full_name || 'Admin');
   const [loginEmail, setLoginEmail] = useState('admin@empresa.com');
@@ -3855,14 +3899,16 @@ export default function App() {
     setLoginLoading(true);
     setLoginError('');
     try {
-      const response = await fetch('http://localhost:5001/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword })
-      });
-      const data = await response.json();
+      console.log('🔐 Tentando login com:', loginEmail);
+      const data = await api.auth.login(loginEmail, loginPassword);
+      console.log('📩 Login response:', data);
+
       if (data.success && data.token) {
-        localStorage.setItem('token', data.token);
+        // Verificar se token foi salvo
+        const savedToken = localStorage.getItem('token');
+        console.log('✅ Token salvo no localStorage:', savedToken ? `${savedToken.substring(0, 20)}...` : 'NULL');
+        console.log('✅ Token válido?', isTokenValid());
+
         localStorage.setItem('user', JSON.stringify(data.user));
         localStorage.setItem('userRole', data.user?.role || 'operator');
         setIsLoggedIn(true);
@@ -3871,10 +3917,14 @@ export default function App() {
         setShowLoginModal(false);
         setLoginError('');
         success(`Bem-vindo, ${data.user.full_name || data.user.email}!`);
+
+        console.log('✅ Login completo! isLoggedIn=true');
       } else {
+        console.error('❌ Login falhou:', data.error);
         setLoginError(data.error || 'Falha no login');
       }
     } catch (err) {
+      console.error('❌ Erro no login:', err);
       setLoginError('Erro ao conectar. Tente novamente.');
     } finally {
       setLoginLoading(false);
@@ -4051,9 +4101,9 @@ export default function App() {
             {page === "cameras" && <CamerasPage />}
             {page === "monitoring" && <MonitoringPage />}
             {page === "classes" && <ClassesPage />}
-            {page === "training" && <TrainingPage />}
+            {page === "training" && <TrainingPage isLoggedIn={isLoggedIn} />}
             {page === "rules" && <RulesPage />}
-            {page === "validations" && <ValidationPage />}
+            {page === "validations" && <ValidationPage isLoggedIn={isLoggedIn} />}
           </main>
         </div>
       </div>

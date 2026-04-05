@@ -1,0 +1,126 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║           DÉBITOS TÉCNICOS - PRODUÇÃO RAILWAY                               ║
+║           Análise Completa - 1 Abr 2026                                     ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+┌─ 🚨 CRÍTICOS (3) - BLOQUEIAM PRODUÇÃO ─────────────────────────────────────┐
+│                                                                            │
+│  1. ❌ Migration 001 AUSENTE                                               │
+│     → Código: migrations/001_*.sql não existe                             │
+│     → Impacto: Banco não cria do zero                                     │
+│     → Solução: cp railway-schema-simple.sql migrations/001_create_base.sql│
+│     → Tempo: 5 minutos                                                    │
+│                                                                            │
+│  2. ⚠️  CORS PERMISSIVO (*)                                               │
+│     → Código: api_server.py:69 - CORS_ORIGINS='*'                         │
+│     → Impacto: Qualquer origem pode acessar API                          │
+│     → Solução: Railway dashboard → CORS_ORIGINS=https://dominio.com      │
+│     → Tempo: 2 minutos                                                    │
+│                                                                            │
+│  3. 🔐 SECRETS EM DOCUMENTAÇÃO                                            │
+│     → Arquivos: QUICKSTART-Railway.md (linhas 23-25)                     │
+│     → Impacto: Expose secrets dev em docs públicas                        │
+│     → Solução: Substituir por <placeholder>                               │
+│     → Tempo: 3 minutos                                                    │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ ⚠️  ALTOS (4) - FUNCIONALIDADE COMPROMETIDA ─────────────────────────────┐
+│                                                                            │
+│  4. 📦 FRONTEND BUILD DESATUALIZADO                                       │
+│     → frontend-new/dist/ pode estar antigo                                │
+│     → Solução: cd frontend-new && npm run build                           │
+│     → Tempo: 2 minutos                                                    │
+│                                                                            │
+│  5. 🔄 WORKER NÃO DEPLOYADO                                               │
+│     → Microserviços criados mas não configurados no Railway              │
+│     → Impacto: Processamento câmeras não escala                          │
+│     → Prioridade: BAIXA (só quando tiver câmeras)                        │
+│                                                                            │
+│  6. 🗄️  MIGRATIONS CONFLITANTES                                          │
+│     → Dois arquivos 005_*.sql existem!                                   │
+│     → Solução: Renomear um para 005b_ ou usar timestamp                 │
+│     → Tempo: 5 minutos                                                    │
+│                                                                            │
+│  7. 🔗 REDIS NÃO VERIFICADO NO STARTUP                                   │
+│     → railway_start.py não checa Redis connection                        │
+│     → Prioridade: BAIXA (só quando Worker for deployado)                 │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 🟡 MÉDIOS (3) - RISCO DE FALHA ─────────────────────────────────────────┐
+│                                                                            │
+│  8. 🏥 HEALTH CHECK INCOMPLETO                                            │
+│     → /health não verifica DB/Redis                                       │
+│     → Solução: Adicionar checks de conexão                                │
+│     → Tempo: 15 minutos                                                   │
+│                                                                            │
+│  9. 📝 LOGS ESTRUTURADOS AUSENTES                                         │
+│     → Logs são texto puro, difícil debug                                 │
+│     → Solução: Adicionar structlog                                        │
+│     → Prioridade: BAIXA                                                   │
+│                                                                            │
+│ 10. 🎯 YOLO MODEL PATH NÃO VALIDADO                                      │
+│     → Worker crasha se modelo não existir                                │
+│     → Solução: Adicionar fallback + validação                            │
+│     → Tempo: 5 minutos                                                    │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ 🔵 BAIXOS (3) - QUALIDADE ────────────────────────────────────────────────┐
+│                                                                            │
+│ 11. 📚 README.md INCOMPLETO                                               │
+│ 12. 🧪 TESTES INTEGRAÇÃO AUSENTES                                         │
+│ 13. 🔄 .ENV.EXAMPLE AUSENTE                                               │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  CHECKLIST DEPLOY - ANTES DE PRODUÇÃO (20 min total)                     ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+[ ] 1. CRIAR MIGRATION 001 (5 min)
+    cp railway-schema-simple.sql migrations/001_create_base_tables.sql
+    git add migrations/ && git commit -m "fix: add migration 001"
+
+[ ] 2. RENOMEAR MIGRATIONS 005 (5 min)
+    ls migrations/005*.sql
+    # Renomear um dos arquivos se houver conflito
+
+[ ] 3. REBUILD FRONTEND (2 min)
+    cd frontend-new && npm run build && cd ..
+    git add frontend-new/dist/
+
+[ ] 4. REMOVER SECRETS DOCS (3 min)
+    sed -i '' 's/JWT_SECRET_KEY=.*/JWT_SECRET_KEY=<gerar-32-hex>/' *.md
+    git add *.md && git commit -m "security: remove secrets from docs"
+
+[ ] 5. CONFIGURAR CORS NO RAILWAY (2 min)
+    Dashboard → Variables → CORS_ORIGINS=https://dominio.com
+
+[ ] 6. PUSH PARA V2-CLEAN
+    git push origin V2-clean
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  STATUS FINAL                                                              ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+Débitos Críticos:   3  (todos < 5 min)
+Débitos Altos:      4
+Débitos Médios:     3
+Débitos Baixos:     3
+
+Tempo Correção:     ~20 minutos
+Veredito:           ✅ PRONTO PARA DEPLOY após correções
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  DOCUMENTAÇÃO COMPLETA                                                     ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+📄 DEBITOS-TECNICOS-RAILWAY.md - Análise completa com código
+📄 BROWSER-DEPLOY-GUIDE.md - Guia passo a passo Railway
+📄 RAILWAY-QUICKSTART.txt - Quick reference
+
+COMANDO ÚTIL:
+cat DEBITOS-TECNICOS-RAILWAY.md | less
+

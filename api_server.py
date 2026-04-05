@@ -10,8 +10,8 @@ import base64
 import numpy as np
 import os
 import json
-from cv2 import imdecode, IMREAD_COLOR
-from ultralytics import YOLO
+# from cv2 import imdecode, IMREAD_COLOR  # Moved to Worker - not needed in API
+# from ultralytics import YOLO  # Moved to Worker - not needed in API
 import bcrypt
 import jwt
 import datetime
@@ -43,9 +43,9 @@ from backend.training_db import TrainingProjectDB
 from backend.camera_service import CameraService  # For fueling monitoring cameras (bays)
 from backend.ip_camera_service import IPCameraService  # For IP cameras
 from backend.fueling_session_service import FuelingSessionService
-from backend.ocr_service import OCRService
+from backend.ocr_service_wrapper import OCRService
 from backend.stream_manager import StreamManager
-from backend.yolo_processor import YOLOProcessorManager
+from backend.yolo_processor_wrapper import YOLOProcessorManager
 from training.training_optimizer import TrainingResourceManager
 
 # Configure logging
@@ -195,7 +195,7 @@ PORT = int(os.environ.get('PORT', 5001))
 model_path = 'models/yolov8n.pt'
 try:
     logger.info(f"Loading YOLO model from: {model_path}")
-    model = YOLO(model_path)
+    from ultralytics import YOLO; model = YOLO(model_path)
     logger.info("✅ YOLO model loaded successfully")
 except Exception as e:
     logger.error(f"❌ Failed to load YOLO model: {e}")
@@ -1143,7 +1143,7 @@ def websocket_test():
 import threading
 import os
 
-from backend.video_processor import VideoProcessor
+from backend.video_processor_wrapper import VideoProcessor
 
 
 @app.route('/api/training/projects/<project_id>/videos', methods=['POST'])
@@ -2207,19 +2207,9 @@ def get_dataset_stats():
         user_id = payload['user_id']
 
         with get_db_context() as db:
-            # Check if user is admin
-            user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
-            user_role = user[0] if user else 'operator'
-
-            # Build WHERE clause based on role
-            # Admin: no filter (see all data)
-            # Operator: filter by user_id
-            if user_role == 'admin':
-                where_clause = ""
-                params = {}
-            else:
-                where_clause = "WHERE tv.user_id = :user_id"
-                params = {'user_id': user_id}
+            # Simplified: always filter by user_id (no role column in schema)
+            where_clause = "WHERE tv.user_id = :user_id"
+            params = {'user_id': user_id}
 
             # Get total annotated frames
             result = db.execute(text(f"""
@@ -2243,13 +2233,13 @@ def get_dataset_stats():
 
             # Get class distribution
             result = db.execute(text(f"""
-                SELECT yc.name, COUNT(*) as count
+                SELECT yc.nome, COUNT(*) as count
                 FROM frame_annotations fa
                 JOIN training_frames tf ON tf.id = fa.frame_id
                 JOIN training_videos tv ON tv.id = tf.video_id
-                JOIN yolo_classes yc ON yc.id = fa.class_id
+                JOIN classes_yolo yc ON yc.id = fa.class_id
                 {where_clause}
-                GROUP BY yc.name
+                GROUP BY yc.nome
                 ORDER BY count DESC
             """), params)
             class_distribution = {row[0]: row[1] for row in result}
@@ -2342,7 +2332,7 @@ def export_dataset():
             # YOLO requires 0-based sequential indices (0, 1, 2...)
             # Database has arbitrary IDs (possibly starting from 1, 2, 5, etc.)
             classes_result = db.execute(text("""
-                SELECT id, name FROM yolo_classes ORDER BY id ASC
+                SELECT id, nome FROM classes_yolo ORDER BY id ASC
             """))
             classes = classes_result.fetchall()
 
@@ -2384,7 +2374,7 @@ def export_dataset():
                         fa.bbox_width,
                         fa.bbox_height
                     FROM frame_annotations fa
-                    JOIN yolo_classes yc ON yc.id = fa.class_id
+                    JOIN classes_yolo yc ON yc.id = fa.class_id
                     WHERE fa.frame_id = :frame_id
                 """), {'frame_id': frame_id})
 
@@ -2918,10 +2908,10 @@ def list_classes():
     """Lista classes YOLO para anotação"""
     db = get_db_session()
 
-    # Criar tabela yolo_classes se não existir
+    # Criar tabela classes_yolo se não existir
     try:
         db.execute(text("""
-            CREATE TABLE IF NOT EXISTS yolo_classes (
+            CREATE TABLE IF NOT EXISTS classes_yolo (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL UNIQUE,
                 color VARCHAR(7) NOT NULL DEFAULT '#22c55e',
@@ -2930,10 +2920,10 @@ def list_classes():
         """))
         db.commit()
     except Exception as e:
-        logger.warning(f"Tabela yolo_classes pode já existir: {e}")
+        logger.warning(f"Tabela classes_yolo pode já existir: {e}")
 
     result = db.execute(text(
-        "SELECT id, name, color FROM yolo_classes ORDER BY id"
+        "SELECT id, nome, cor_hex FROM classes_yolo ORDER BY id"
     )).fetchall()
 
     # Se vazio, inserir defaults
@@ -2943,13 +2933,13 @@ def list_classes():
             ('Placa', '#3b82f6'), ('Capacete', '#8b5cf6'),
             ('Colete', '#ec4899'), ('Sem EPI', '#ef4444'),
         ]
-        for name, color in defaults:
+        for nome, cor_hex in defaults:
             db.execute(text(
-                "INSERT INTO yolo_classes (name, color) VALUES (:name, :color)"
-            ), {"name": name, "color": color})
+                "INSERT INTO classes_yolo (nome, cor_hex) VALUES (:nome, :cor_hex)"
+            ), {"nome": nome, "cor_hex": cor_hex})
         db.commit()
         result = db.execute(text(
-            "SELECT id, name, color FROM yolo_classes ORDER BY id"
+            "SELECT id, nome, cor_hex FROM classes_yolo ORDER BY id"
         )).fetchall()
 
     classes = [{"id": r[0], "name": r[1], "color": r[2]} for r in result]
@@ -2970,21 +2960,21 @@ def create_class():
             return jsonify({"success": False, "error": "Invalid token"}), 401
 
         data = request.get_json()
-        name = data.get('name', '').strip()
-        color = data.get('color', '#22c55e')
+        nome = data.get('name', '').strip()
+        cor_hex = data.get('color', '#22c55e')
 
-        if not name:
+        if not nome:
             return jsonify({"success": False, "error": "Nome obrigatório"}), 400
 
         db = get_db_session()
         db.execute(text(
-            "INSERT INTO yolo_classes (name, color) VALUES (:name, :color)"
-        ), {"name": name, "color": color})
+            "INSERT INTO classes_yolo (nome, cor_hex) VALUES (:nome, :cor_hex)"
+        ), {"nome": nome, "cor_hex": cor_hex})
         db.commit()
 
         row = db.execute(text(
-            "SELECT id, name, color FROM yolo_classes WHERE name = :name"
-        ), {"name": name}).fetchone()
+            "SELECT id, nome, cor_hex FROM classes_yolo WHERE nome = :nome"
+        ), {"nome": nome}).fetchone()
 
         return jsonify({
             "success": True,
@@ -3023,7 +3013,7 @@ def predict_frame(frame_id):
                 model_path = "models/yolov8n.pt"
 
             if os.path.exists(model_path):
-                model = YOLO(model_path)
+                from ultralytics import YOLO; model = YOLO(model_path)
                 results = model(image_path)
                 annotations = []
                 for r in results:
@@ -3060,41 +3050,38 @@ def list_all_videos():
     """
     try:
         auth_header = request.headers.get('Authorization')
+
+        # DEBUG LOG
+        print(f"[DEBUG /api/training/videos]")
+        print(f"  Auth header: {auth_header[:50] if auth_header else 'None'}...")
+        print(f"  Headers: {dict(request.headers)}")
+
         if not auth_header or not auth_header.startswith('Bearer '):
+            print(f"  ❌ Missing or invalid Authorization header")
             return jsonify({'success': False, 'error': 'Missing token'}), 401
 
         token = auth_header.split(' ')[1]
+        print(f"  Token (first 30): {token[:30]}...")
+
         payload = verify_token(token)
         if not payload:
+            print(f"  ❌ verify_token() returned None")
             return jsonify({'success': False, 'error': 'Invalid token'}), 401
+
+        print(f"  ✅ Token válido! User ID: {payload.get('user_id')}")
 
         user_id = payload['user_id']
         db = get_db_session()
 
-        # Check if user is admin
-        user = db.execute(text("SELECT role FROM users WHERE id = :user_id"), {'user_id': user_id}).fetchone()
-        user_role = user[0] if user else 'operator'
-
-        # Admin sees all videos, operator sees only their own
-        if user_role == 'admin':
-            # Admin: all videos from all users
-            videos = db.execute(text("""
-                SELECT id, project_id, filename, storage_path, duration_seconds,
-                       frame_count, fps, uploaded_at, selected_start, selected_end,
-                       total_chunks, processed_chunks, status, user_id
-                FROM training_videos
-                ORDER BY uploaded_at DESC
-            """)).fetchall()
-        else:
-            # Operator: only their own videos
-            videos = db.execute(text("""
-                SELECT id, project_id, filename, storage_path, duration_seconds,
-                       frame_count, fps, uploaded_at, selected_start, selected_end,
-                       total_chunks, processed_chunks, status, user_id
-                FROM training_videos
-                WHERE user_id = :user_id
-                ORDER BY uploaded_at DESC
-            """), {'user_id': user_id}).fetchall()
+        # Simplified: always filter by user_id (no role column in schema)
+        videos = db.execute(text("""
+            SELECT id, project_id, filename, storage_path, duration_seconds,
+                   frame_count, fps, uploaded_at, selected_start, selected_end,
+                   total_chunks, processed_chunks, status, user_id
+            FROM training_videos
+            WHERE user_id = :user_id
+            ORDER BY uploaded_at DESC
+        """), {'user_id': user_id}).fetchall()
 
         videos_with_status = []
         for video in videos:
@@ -3154,14 +3141,55 @@ def upload_video_alias():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'No file selected'}), 400
 
-        # Save file
+        # Save file to temp location first (for hash calculation)
         from pathlib import Path
+        import hashlib
+        import tempfile
+
         upload_dir = Path('storage/training_videos')
         upload_dir.mkdir(parents=True, exist_ok=True)
 
-        safe_filename = f"{video_id}_{file.filename}"
-        file_path = upload_dir / safe_filename
-        file.save(str(file_path))
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+            file.save(tmp_file.name)
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            # Calculate SHA256 hash
+            sha256_hash = hashlib.sha256()
+            with open(tmp_path, "rb") as f:
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            content_hash = sha256_hash.hexdigest()
+
+            # Check for duplicate (same user, same hash)
+            duplicate_check = db.execute(text("""
+                SELECT id, filename, uploaded_at
+                FROM training_videos
+                WHERE user_id = :user_id AND content_hash = :hash
+            """), {'user_id': user_id, 'hash': content_hash}).fetchone()
+
+            if duplicate_check:
+                # Clean up temp file
+                tmp_path.unlink()
+                return jsonify({
+                    'success': False,
+                    'error': f'Este vídeo já foi enviado em {duplicate_check[2]}',
+                    'duplicate': True,
+                    'existing_video_id': str(duplicate_check[0]),
+                    'existing_filename': duplicate_check[1]
+                }), 400
+
+            # Move to final location
+            safe_filename = f"{video_id}_{file.filename}"
+            file_path = upload_dir / safe_filename
+            tmp_path.rename(file_path)
+
+        except Exception as e:
+            # Clean up temp file on error
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise e
 
         # Get video metadata
         import cv2
@@ -3171,13 +3199,13 @@ def upload_video_alias():
         duration_seconds = frame_count / fps if fps and fps > 0 else None
         cap.release()
 
-        # Insert into database (project_id is optional, set to NULL)
+        # Insert into database with SHA256 hash
         db.execute(text("""
             INSERT INTO training_videos
             (id, project_id, user_id, filename, storage_path, duration_seconds,
-             frame_count, fps, uploaded_at, status)
+             frame_count, fps, uploaded_at, status, content_hash)
             VALUES (:id, :project_id, :user_id, :filename, :storage_path,
-                    :duration_seconds, :frame_count, :fps, NOW(), 'pending')
+                    :duration_seconds, :frame_count, :fps, NOW(), 'pending', :hash)
         """), {
             'id': video_id,
             'project_id': None,  # No project required
@@ -3186,7 +3214,8 @@ def upload_video_alias():
             'storage_path': str(file_path),
             'duration_seconds': duration_seconds,
             'frame_count': frame_count,
-            'fps': fps
+            'fps': fps,
+            'hash': content_hash
         })
         db.commit()
 
@@ -3381,7 +3410,7 @@ def serve_frontend(path):
     """Serve React frontend build em produção Railway."""
     dist_dir = _os.path.join(
         _os.path.dirname(_os.path.abspath(__file__)),
-        'frontend-new', 'dist'
+        'static'
     )
     if path and _os.path.exists(_os.path.join(dist_dir, path)):
         return _sfd(dist_dir, path)
@@ -3412,6 +3441,419 @@ def get_workers_health():
             'mode': 'local',
             'error': str(e)
         }), 200
+
+
+# ============================================================================
+# TEMPORARY: Migration endpoint for training tables
+# ============================================================================
+@app.route('/api/system/migrate-training-tables', methods=['POST'])
+def migrate_training_tables():
+    """Temporary endpoint to create missing training_videos and training_frames tables."""
+    try:
+        with get_db_context() as db:
+            sql = """
+CREATE TABLE IF NOT EXISTS training_videos (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id UUID,
+    filename VARCHAR(255) NOT NULL,
+    storage_path VARCHAR(500),
+    original_path VARCHAR(500),
+    duration_seconds FLOAT,
+    frame_count INTEGER DEFAULT 0,
+    fps FLOAT,
+    uploaded_at TIMESTAMP DEFAULT NOW(),
+    selected_start INTEGER,
+    selected_end INTEGER,
+    total_chunks INTEGER DEFAULT 0,
+    processed_chunks INTEGER DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'uploaded',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_videos_user_id ON training_videos(user_id);
+CREATE INDEX IF NOT EXISTS idx_training_videos_project_id ON training_videos(project_id);
+CREATE INDEX IF NOT EXISTS idx_training_videos_status ON training_videos(status);
+
+CREATE TABLE IF NOT EXISTS training_frames (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    video_id UUID NOT NULL REFERENCES training_videos(id) ON DELETE CASCADE,
+    frame_number INTEGER NOT NULL,
+    filepath VARCHAR(500),
+    timestamp FLOAT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_frames_video_id ON training_frames(video_id);
+CREATE INDEX IF NOT EXISTS idx_training_frames_frame_number ON training_frames(video_id, frame_number);
+
+CREATE TABLE IF NOT EXISTS counting_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    camera_id UUID REFERENCES ip_cameras(id) ON DELETE SET NULL,
+    bay_id VARCHAR(100),
+    truck_plate VARCHAR(20),
+    product_count INTEGER DEFAULT 0,
+    ai_count INTEGER NOT NULL DEFAULT 0,
+    operator_count INTEGER,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMP,
+    duration_seconds INTEGER,
+    status VARCHAR(30) NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active','pending_validation','validated','rejected')),
+    validated_by VARCHAR(200),
+    validated_at TIMESTAMP,
+    validation_notes TEXT,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_counting_sessions_user ON counting_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_counting_sessions_status ON counting_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_counting_sessions_started ON counting_sessions(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS session_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES counting_sessions(id) ON DELETE CASCADE,
+    event_type VARCHAR(50) NOT NULL,
+    class_name VARCHAR(100),
+    confidence FLOAT,
+    details JSONB DEFAULT '{}',
+    occurred_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_events_occurred ON session_events(occurred_at DESC);
+"""
+            db.execute(text(sql))
+            db.commit()
+            logger.info("✅ Migration executada - training_videos, training_frames, counting_sessions, session_events criadas")
+            return jsonify({'success': True, 'message': 'Migration executed successfully'})
+    except Exception as e:
+        logger.error(f"❌ Migration error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# CLEANUP: Remove duplicate rules
+# ============================================================================
+@app.route('/api/system/cleanup-duplicate-rules', methods=['POST'])
+def cleanup_duplicate_rules():
+    """Remove regras duplicadas mantendo apenas a mais recente de cada nome."""
+    try:
+        with get_db_context() as db:
+            # Contar antes
+            count_before = db.execute(text("SELECT COUNT(*) FROM rules")).scalar()
+
+            # Deletar duplicatas mantendo a mais recente (maior created_at)
+            db.execute(text("""
+                DELETE FROM rules
+                WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY name
+                                   ORDER BY created_at DESC
+                               ) as rn
+                        FROM rules
+                    ) ranked
+                    WHERE rn > 1
+                )
+            """))
+            db.commit()
+
+            # Contar depois
+            count_after = db.execute(text("SELECT COUNT(*) FROM rules")).scalar()
+
+            deleted_count = count_before - count_after
+            logger.info(f"✅ Cleanup rules: {count_before} → {count_after} ({deleted_count} deletadas)")
+
+            return jsonify({
+                'success': True,
+                'count_before': count_before,
+                'count_after': count_after,
+                'deleted': deleted_count
+            })
+    except Exception as e:
+        logger.error(f"❌ Cleanup rules error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/system/add-rules-unique-constraint', methods=['POST'])
+def add_rules_unique_constraint():
+    """Adiciona unique constraint (user_id, name) para prevenir duplicatas."""
+    try:
+        with get_db_context() as db:
+            # Verificar se constraint já existe
+            result = db.execute(text("""
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_name = 'rules'
+                AND constraint_name = 'rules_user_name_unique'
+            """))
+
+            if result.fetchone():
+                return jsonify({
+                    'success': True,
+                    'message': 'Constraint rules_user_name_unique já existe'
+                })
+
+            # Adicionar constraint
+            db.execute(text("""
+                ALTER TABLE rules
+                ADD CONSTRAINT rules_user_name_unique
+                UNIQUE (user_id, name)
+            """))
+            db.commit()
+
+            logger.info("✅ Unique constraint adicionado: rules_user_name_unique")
+
+            return jsonify({
+                'success': True,
+                'message': 'Unique constraint (user_id, name) adicionado com sucesso'
+            })
+    except Exception as e:
+        logger.error(f"❌ Add constraint error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/system/run-migration/<int:migration_id>', methods=['POST'])
+def run_migration(migration_id):
+    """Executa uma migration SQL específica."""
+    migrations = {
+        12: """
+            -- Migration 012: Video Storage Optimization
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+
+            CREATE INDEX IF NOT EXISTS idx_training_videos_hash
+                ON training_videos(content_hash)
+                WHERE content_hash IS NOT NULL;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS frames_extracted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS video_deleted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS auto_delete_after TIMESTAMP;
+
+            CREATE INDEX IF NOT EXISTS idx_videos_cleanup
+                ON training_videos(auto_delete_after)
+                WHERE video_deleted_at IS NULL
+                AND frames_extracted_at IS NOT NULL;
+        """
+    }
+
+    if migration_id not in migrations:
+        return jsonify({
+            'success': False,
+            'error': f'Migration {migration_id} não encontrada'
+        }), 404
+
+    try:
+        with get_db_context() as db:
+            db.execute(text(migrations[migration_id]))
+            db.commit()
+
+            logger.info(f"✅ Migration {migration_id} executada com sucesso")
+
+            return jsonify({
+                'success': True,
+                'message': f'Migration {migration_id} executada com sucesso',
+                'migration_id': migration_id
+            })
+    except Exception as e:
+        logger.error(f"❌ Migration {migration_id} error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# STORAGE CLEANUP SCHEDULER
+# ============================================================================
+import threading as _threading
+from pathlib import Path as _Path
+
+def _cleanup_old_videos():
+    """
+    Deleta arquivos físicos de vídeos com mais de 7 dias após extração de frames.
+    Roda automaticamente a cada hora via scheduler.
+    """
+    try:
+        with get_db_context() as db:
+            # Encontrar vídeos para deletar
+            result = db.execute(text("""
+                SELECT id, filename, storage_path
+                FROM training_videos
+                WHERE video_deleted_at IS NULL
+                AND frames_extracted_at IS NOT NULL
+                AND frames_extracted_at < NOW() - INTERVAL '7 days'
+            """))
+
+            videos = result.fetchall()
+
+            if not videos:
+                return
+
+            deleted_count = 0
+            total_freed = 0
+
+            for video in videos:
+                video_id = str(video[0])
+                filename = video[1]
+                storage_path = video[2]
+
+                # Deletar arquivo físico
+                file_path = _Path(storage_path)
+                if file_path.exists():
+                    try:
+                        file_size = file_path.stat().st_size
+                        file_path.unlink()
+                        total_freed += file_size
+                        deleted_count += 1
+
+                        # Marcar como deletado no banco
+                        db.execute(text("""
+                            UPDATE training_videos
+                            SET video_deleted_at = NOW()
+                            WHERE id = :id
+                        """), {'id': video_id})
+
+                        logger.info(f"[CLEANUP] Vídeo deletado: {filename} ({file_size / 1024 / 1024:.1f} MB)")
+                    except Exception as e:
+                        logger.error(f"[CLEANUP] Erro ao deletar {filename}: {e}")
+
+            db.commit()
+
+            if deleted_count > 0:
+                logger.info(f"[CLEANUP] ✅ {deleted_count} vídeos deletados, {total_freed / 1024 / 1024:.1f} MB liberados")
+
+    except Exception as e:
+        logger.error(f"[CLEANUP] ❌ Erro: {e}")
+
+
+def _run_cleanup_scheduler():
+    """
+    Loop de cleanup que roda a cada hora.
+    Executa em background thread daemon.
+    """
+    import time as _time
+    import logging
+
+    # Criar logger específico para o scheduler
+    scheduler_logger = logging.getLogger('cleanup_scheduler')
+    scheduler_logger.setLevel(logging.INFO)
+
+    scheduler_logger.info("[CLEANUP] 🧹 Scheduler iniciado (rodará a cada 1 hora)")
+
+    while True:
+        try:
+            _time.sleep(3600)  # 1 hora
+            scheduler_logger.info("[CLEANUP] ⏰ Executando cleanup agendado...")
+            _cleanup_old_videos()
+        except Exception as e:
+            scheduler_logger.error(f"[CLEANUP] Erro no scheduler: {e}")
+
+
+# Iniciar scheduler em background (daemon thread)
+_cleanup_thread = _threading.Thread(
+    target=_run_cleanup_scheduler,
+    daemon=True,
+    name="video-cleanup-scheduler"
+)
+_cleanup_thread.start()
+logger.info("✅ Video cleanup scheduler iniciado (background thread)")
+
+
+@app.route('/api/system/add-rules-unique-constraint', methods=['POST'])
+def add_rules_unique_constraint():
+    """Adiciona unique constraint (user_id, name) para prevenir duplicatas."""
+    try:
+        with get_db_context() as db:
+            # Verificar se constraint já existe
+            result = db.execute(text("""
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_name = 'rules'
+                AND constraint_name = 'rules_user_name_unique'
+            """))
+
+            if result.fetchone():
+                return jsonify({
+                    'success': True,
+                    'message': 'Constraint rules_user_name_unique já existe'
+                })
+
+            # Adicionar constraint
+            db.execute(text("""
+                ALTER TABLE rules
+                ADD CONSTRAINT rules_user_name_unique
+                UNIQUE (user_id, name)
+            """))
+            db.commit()
+
+            logger.info("✅ Unique constraint adicionado: rules_user_name_unique")
+
+            return jsonify({
+                'success': True,
+                'message': 'Unique constraint (user_id, name) adicionado com sucesso'
+            })
+    except Exception as e:
+        logger.error(f"❌ Add constraint error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/system/run-migration/<int:migration_id>', methods=['POST'])
+def run_migration(migration_id):
+    """Executa uma migration SQL específica."""
+    migrations = {
+        12: """
+            -- Migration 012: Video Storage Optimization
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+
+            CREATE INDEX IF NOT EXISTS idx_training_videos_hash
+                ON training_videos(content_hash)
+                WHERE content_hash IS NOT NULL;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS frames_extracted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS video_deleted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS auto_delete_after TIMESTAMP;
+
+            CREATE INDEX IF NOT EXISTS idx_videos_cleanup
+                ON training_videos(auto_delete_after)
+                WHERE video_deleted_at IS NULL
+                AND frames_extracted_at IS NOT NULL;
+        """
+    }
+
+    if migration_id not in migrations:
+        return jsonify({
+            'success': False,
+            'error': f'Migration {migration_id} não encontrada'
+        }), 404
+
+    try:
+        with get_db_context() as db:
+            db.execute(text(migrations[migration_id]))
+            db.commit()
+
+            logger.info(f"✅ Migration {migration_id} executada com sucesso")
+
+            return jsonify({
+                'success': True,
+                'message': f'Migration {migration_id} executada com sucesso',
+                'migration_id': migration_id
+            })
+    except Exception as e:
+        logger.error(f"❌ Migration {migration_id} error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 if __name__ == '__main__':

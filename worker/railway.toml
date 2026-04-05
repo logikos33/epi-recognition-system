@@ -1,0 +1,12 @@
+# Worker Service Railway Config
+# Usa Dockerfile para cache permanente do torch
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "./worker/Dockerfile"
+
+[deploy]
+startCommand = "python3 railway_start.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+healthcheckTimeout = 120

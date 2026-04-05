@@ -1,0 +1,22 @@
+# EPI Monitor V2 — Worker Service
+# CONTÉM torch/YOLO — build ~15 min na primeira vez
+# Rebuilda APENAS quando este arquivo mudar
+
+# AI/ML — os pacotes pesados
+torch --index-url https://download.pytorch.org/whl/cpu
+torchvision --index-url https://download.pytorch.org/whl/cpu
+ultralytics
+opencv-python-headless
+
+# Database
+psycopg2-binary
+sqlalchemy
+
+# Messaging
+redis
+
+# Utils
+Pillow
+numpy
+requests
+python-dotenv

@@ -6,6 +6,8 @@ Endpoints:
 - /api/sessions (7 endpoints): gerenciar sessões de contagem
 """
 from flask import Blueprint, request, jsonify
+from sqlalchemy import text
+from datetime import datetime
 import logging
 
 from backend.database import get_db_context

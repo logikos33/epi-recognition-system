@@ -2,7 +2,7 @@
 // API Service Layer - EPI Recognition System
 // ============================================================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || ''; // Relative URL for same-origin
 
 // ============================================================================
 // Error Handling
@@ -30,13 +30,36 @@ async function request(endpoint, options = {}) {
     ...options.headers,
   };
 
+  const url = `${API_BASE_URL}${endpoint}`;
+
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(url, {
       ...options,
       headers,
     });
 
     const data = await response.json();
+
+    // Debug logs
+    if (!response.ok) {
+      console.error('[API Error]', {
+        endpoint,
+        url,
+        status: response.status,
+        hasToken: !!token,
+        tokenPreview: token ? `${token.substring(0, 20)}...` : 'NONE',
+        error: data.error || data.message
+      });
+
+      // Se 401 (Unauthorized), limpar token e forçar login
+      if (response.status === 401) {
+        console.warn('🔒 401 Unauthorized - limpando token expirado/inválido');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('userRole');
+        // Não recarrega automaticamente para não perder contexto
+      }
+    }
 
     if (!response.ok) {
       throw new APIError(
@@ -177,6 +200,72 @@ export const api = {
 
     getHealthReport: async () => {
       const response = await GET('/streams/health');
+      return response;
+    },
+  },
+
+  // ========================================================================
+  // Training
+  // ========================================================================
+  training: {
+    getVideos: async () => {
+      const response = await GET('/api/training/videos');
+      return response.videos || [];
+    },
+
+    getDatasetStats: async () => {
+      const response = await GET('/api/training/dataset/stats');
+      return response;
+    },
+
+    uploadVideo: async (file, onProgress) => {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('video', file);
+
+      const response = await fetch(`${API_BASE_URL}/api/training/videos/upload`, {
+        method: 'POST',
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new APIError(error.error || 'Upload failed', response.status, error);
+      }
+
+      return response.json();
+    },
+
+    getFrames: async (videoId) => {
+      const response = await GET(`/api/training/videos/${videoId}/frames`);
+      return response.frames || [];
+    },
+
+    startTraining: async (config) => {
+      const response = await POST('/api/training/start', config);
+      return response;
+    },
+
+    stopTraining: async (jobId) => {
+      const response = await POST(`/api/training/stop`, { job_id: jobId });
+      return response;
+    },
+
+    getTrainingStatus: async (jobId) => {
+      const response = await GET(`/api/training/status/${jobId}`);
+      return response;
+    },
+
+    getHistory: async () => {
+      const response = await GET('/api/training/history');
+      return response.jobs || [];
+    },
+
+    activateModel: async (modelId) => {
+      const response = await POST(`/api/training/models/${modelId}/activate`);
       return response;
     },
   },

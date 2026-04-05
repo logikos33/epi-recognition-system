@@ -273,12 +273,12 @@ class SessionRepository:
         """Retorna estatísticas agregadas."""
         result = db.execute(text("""
             SELECT
-                COUNT(*) FILTER (WHERE started_at >= CURRENT_DATE) as total_today,
-                COALESCE(SUM(product_count), 0) FILTER (WHERE started_at >= CURRENT_DATE) as products_today,
+                COUNT(CASE WHEN started_at >= CURRENT_DATE THEN 1 END) as total_today,
+                COALESCE(SUM(CASE WHEN started_at >= CURRENT_DATE THEN product_count ELSE 0 END), 0) as products_today,
                 COUNT(*) as trucks_today,
-                COALESCE(AVG(duration_seconds) / 60, 0) FILTER (WHERE duration_seconds IS NOT NULL) as avg_duration_minutes,
-                COUNT(*) FILTER (WHERE status = 'pending_validation') as pending_count,
-                COUNT(*) FILTER (WHERE status = 'active') as active_count
+                COALESCE(AVG(CASE WHEN duration_seconds IS NOT NULL THEN duration_seconds ELSE NULL END) / 60, 0) as avg_duration_minutes,
+                COUNT(CASE WHEN status = 'pending_validation' THEN 1 END) as pending_count,
+                COUNT(CASE WHEN status = 'active' THEN 1 END) as active_count
             FROM counting_sessions
             WHERE user_id = :user_id
         """), {'user_id': user_id})

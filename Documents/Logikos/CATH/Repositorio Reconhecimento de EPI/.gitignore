@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.log
+.env
+.venv/
+venv/
+ENV/
+
+# Node.js
+node_modules/
+dist/
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+streams/# Cache bust: Sun Apr  5 15:32:50 -03 2026
