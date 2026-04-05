@@ -3766,43 +3766,6 @@ _cleanup_thread.start()
 logger.info("✅ Video cleanup scheduler iniciado (background thread)")
 
 
-@app.route('/api/system/add-rules-unique-constraint', methods=['POST'])
-        with get_db_context() as db:
-            db.execute(text(migrations[migration_id]))
-            db.commit()
-
-            logger.info(f"✅ Migration {migration_id} executada com sucesso")
-
-            return jsonify({
-                'success': True,
-                'message': f'Migration {migration_id} executada com sucesso',
-                'migration_id': migration_id
-            })
-    except Exception as e:
-        logger.error(f"❌ Migration {migration_id} error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-if __name__ == '__main__':
-    logger.info("=" * 60)
-    logger.info("🚀 Starting EPI Recognition System API Server")
-
-    # Initialize database tables
-    init_database_tables()
-
-    # Initialize training tables
-    init_training_tables()
-
-    logger.info("=" * 60)
-    logger.info("=" * 60)
-    logger.info(f"📡 WebSocket support: ENABLED")
-    logger.info(f"📹 HLS streaming: ENABLED")
-    logger.info(f"🎯 YOLO detection: ENABLED")
-    logger.info(f"🌐 Server running on: http://0.0.0.0:{PORT}")
-    # logger.info(f"🔌 WebSocket endpoint: ws://localhost:{PORT}/socket.io/")  # TODO: Implement WebSocket
-    logger.info("=" * 60)
-
-    # Run with SocketIO if available, otherwise use regular Flask
     if socketio:
         socketio.run(
             app,
