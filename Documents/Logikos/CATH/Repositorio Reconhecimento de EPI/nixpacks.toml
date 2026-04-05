@@ -1,3 +1,6 @@
+# Railway deployment configuration for EPI Recognition System
+# Forces fresh build with Python 3.11 + FFmpeg + requirements-railway.txt
+
 [phases.setup]
 nixPkgs = ["python311", "ffmpeg", "ffmpeg-full"]
 aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
@@ -13,7 +16,3 @@ cmds = [
 
 [start]
 cmd = "gunicorn api_server:app --worker-class eventlet --worker-connections 1000 --timeout 120 --bind 0.0.0.0:$PORT"
-
-[phases.install]
-nixPkgs = ["python311", "ffmpeg", "ffmpeg-full"]
-aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
