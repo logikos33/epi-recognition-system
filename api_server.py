@@ -3141,14 +3141,55 @@ def upload_video_alias():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'No file selected'}), 400
 
-        # Save file
+        # Save file to temp location first (for hash calculation)
         from pathlib import Path
+        import hashlib
+        import tempfile
+
         upload_dir = Path('storage/training_videos')
         upload_dir.mkdir(parents=True, exist_ok=True)
 
-        safe_filename = f"{video_id}_{file.filename}"
-        file_path = upload_dir / safe_filename
-        file.save(str(file_path))
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+            file.save(tmp_file.name)
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            # Calculate SHA256 hash
+            sha256_hash = hashlib.sha256()
+            with open(tmp_path, "rb") as f:
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            content_hash = sha256_hash.hexdigest()
+
+            # Check for duplicate (same user, same hash)
+            duplicate_check = db.execute(text("""
+                SELECT id, filename, uploaded_at
+                FROM training_videos
+                WHERE user_id = :user_id AND content_hash = :hash
+            """), {'user_id': user_id, 'hash': content_hash}).fetchone()
+
+            if duplicate_check:
+                # Clean up temp file
+                tmp_path.unlink()
+                return jsonify({
+                    'success': False,
+                    'error': f'Este vídeo já foi enviado em {duplicate_check[2]}',
+                    'duplicate': True,
+                    'existing_video_id': str(duplicate_check[0]),
+                    'existing_filename': duplicate_check[1]
+                }), 400
+
+            # Move to final location
+            safe_filename = f"{video_id}_{file.filename}"
+            file_path = upload_dir / safe_filename
+            tmp_path.rename(file_path)
+
+        except Exception as e:
+            # Clean up temp file on error
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise e
 
         # Get video metadata
         import cv2
@@ -3158,13 +3199,13 @@ def upload_video_alias():
         duration_seconds = frame_count / fps if fps and fps > 0 else None
         cap.release()
 
-        # Insert into database (project_id is optional, set to NULL)
+        # Insert into database with SHA256 hash
         db.execute(text("""
             INSERT INTO training_videos
             (id, project_id, user_id, filename, storage_path, duration_seconds,
-             frame_count, fps, uploaded_at, status)
+             frame_count, fps, uploaded_at, status, content_hash)
             VALUES (:id, :project_id, :user_id, :filename, :storage_path,
-                    :duration_seconds, :frame_count, :fps, NOW(), 'pending')
+                    :duration_seconds, :frame_count, :fps, NOW(), 'pending', :hash)
         """), {
             'id': video_id,
             'project_id': None,  # No project required
@@ -3173,7 +3214,8 @@ def upload_video_alias():
             'storage_path': str(file_path),
             'duration_seconds': duration_seconds,
             'frame_count': frame_count,
-            'fps': fps
+            'fps': fps,
+            'hash': content_hash
         })
         db.commit()
 
@@ -3572,6 +3614,245 @@ def add_rules_unique_constraint():
             })
     except Exception as e:
         logger.error(f"❌ Add constraint error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/system/run-migration/<int:migration_id>', methods=['POST'])
+def run_migration(migration_id):
+    """Executa uma migration SQL específica."""
+    migrations = {
+        12: """
+            -- Migration 012: Video Storage Optimization
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+
+            CREATE INDEX IF NOT EXISTS idx_training_videos_hash
+                ON training_videos(content_hash)
+                WHERE content_hash IS NOT NULL;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS frames_extracted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS video_deleted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS auto_delete_after TIMESTAMP;
+
+            CREATE INDEX IF NOT EXISTS idx_videos_cleanup
+                ON training_videos(auto_delete_after)
+                WHERE video_deleted_at IS NULL
+                AND frames_extracted_at IS NOT NULL;
+        """
+    }
+
+    if migration_id not in migrations:
+        return jsonify({
+            'success': False,
+            'error': f'Migration {migration_id} não encontrada'
+        }), 404
+
+    try:
+        with get_db_context() as db:
+            db.execute(text(migrations[migration_id]))
+            db.commit()
+
+            logger.info(f"✅ Migration {migration_id} executada com sucesso")
+
+            return jsonify({
+                'success': True,
+                'message': f'Migration {migration_id} executada com sucesso',
+                'migration_id': migration_id
+            })
+    except Exception as e:
+        logger.error(f"❌ Migration {migration_id} error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# STORAGE CLEANUP SCHEDULER
+# ============================================================================
+import threading as _threading
+from pathlib import Path as _Path
+
+def _cleanup_old_videos():
+    """
+    Deleta arquivos físicos de vídeos com mais de 7 dias após extração de frames.
+    Roda automaticamente a cada hora via scheduler.
+    """
+    try:
+        with get_db_context() as db:
+            # Encontrar vídeos para deletar
+            result = db.execute(text("""
+                SELECT id, filename, storage_path
+                FROM training_videos
+                WHERE video_deleted_at IS NULL
+                AND frames_extracted_at IS NOT NULL
+                AND frames_extracted_at < NOW() - INTERVAL '7 days'
+            """))
+
+            videos = result.fetchall()
+
+            if not videos:
+                return
+
+            deleted_count = 0
+            total_freed = 0
+
+            for video in videos:
+                video_id = str(video[0])
+                filename = video[1]
+                storage_path = video[2]
+
+                # Deletar arquivo físico
+                file_path = _Path(storage_path)
+                if file_path.exists():
+                    try:
+                        file_size = file_path.stat().st_size
+                        file_path.unlink()
+                        total_freed += file_size
+                        deleted_count += 1
+
+                        # Marcar como deletado no banco
+                        db.execute(text("""
+                            UPDATE training_videos
+                            SET video_deleted_at = NOW()
+                            WHERE id = :id
+                        """), {'id': video_id})
+
+                        logger.info(f"[CLEANUP] Vídeo deletado: {filename} ({file_size / 1024 / 1024:.1f} MB)")
+                    except Exception as e:
+                        logger.error(f"[CLEANUP] Erro ao deletar {filename}: {e}")
+
+            db.commit()
+
+            if deleted_count > 0:
+                logger.info(f"[CLEANUP] ✅ {deleted_count} vídeos deletados, {total_freed / 1024 / 1024:.1f} MB liberados")
+
+    except Exception as e:
+        logger.error(f"[CLEANUP] ❌ Erro: {e}")
+
+
+def _run_cleanup_scheduler():
+    """
+    Loop de cleanup que roda a cada hora.
+    Executa em background thread daemon.
+    """
+    import time as _time
+    import logging
+
+    # Criar logger específico para o scheduler
+    scheduler_logger = logging.getLogger('cleanup_scheduler')
+    scheduler_logger.setLevel(logging.INFO)
+
+    scheduler_logger.info("[CLEANUP] 🧹 Scheduler iniciado (rodará a cada 1 hora)")
+
+    while True:
+        try:
+            _time.sleep(3600)  # 1 hora
+            scheduler_logger.info("[CLEANUP] ⏰ Executando cleanup agendado...")
+            _cleanup_old_videos()
+        except Exception as e:
+            scheduler_logger.error(f"[CLEANUP] Erro no scheduler: {e}")
+
+
+# Iniciar scheduler em background (daemon thread)
+_cleanup_thread = _threading.Thread(
+    target=_run_cleanup_scheduler,
+    daemon=True,
+    name="video-cleanup-scheduler"
+)
+_cleanup_thread.start()
+logger.info("✅ Video cleanup scheduler iniciado (background thread)")
+
+
+@app.route('/api/system/add-rules-unique-constraint', methods=['POST'])
+def add_rules_unique_constraint():
+    """Adiciona unique constraint (user_id, name) para prevenir duplicatas."""
+    try:
+        with get_db_context() as db:
+            # Verificar se constraint já existe
+            result = db.execute(text("""
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_name = 'rules'
+                AND constraint_name = 'rules_user_name_unique'
+            """))
+
+            if result.fetchone():
+                return jsonify({
+                    'success': True,
+                    'message': 'Constraint rules_user_name_unique já existe'
+                })
+
+            # Adicionar constraint
+            db.execute(text("""
+                ALTER TABLE rules
+                ADD CONSTRAINT rules_user_name_unique
+                UNIQUE (user_id, name)
+            """))
+            db.commit()
+
+            logger.info("✅ Unique constraint adicionado: rules_user_name_unique")
+
+            return jsonify({
+                'success': True,
+                'message': 'Unique constraint (user_id, name) adicionado com sucesso'
+            })
+    except Exception as e:
+        logger.error(f"❌ Add constraint error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/system/run-migration/<int:migration_id>', methods=['POST'])
+def run_migration(migration_id):
+    """Executa uma migration SQL específica."""
+    migrations = {
+        12: """
+            -- Migration 012: Video Storage Optimization
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+
+            CREATE INDEX IF NOT EXISTS idx_training_videos_hash
+                ON training_videos(content_hash)
+                WHERE content_hash IS NOT NULL;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS frames_extracted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS video_deleted_at TIMESTAMP;
+
+            ALTER TABLE training_videos
+                ADD COLUMN IF NOT EXISTS auto_delete_after TIMESTAMP;
+
+            CREATE INDEX IF NOT EXISTS idx_videos_cleanup
+                ON training_videos(auto_delete_after)
+                WHERE video_deleted_at IS NULL
+                AND frames_extracted_at IS NOT NULL;
+        """
+    }
+
+    if migration_id not in migrations:
+        return jsonify({
+            'success': False,
+            'error': f'Migration {migration_id} não encontrada'
+        }), 404
+
+    try:
+        with get_db_context() as db:
+            db.execute(text(migrations[migration_id]))
+            db.commit()
+
+            logger.info(f"✅ Migration {migration_id} executada com sucesso")
+
+            return jsonify({
+                'success': True,
+                'message': f'Migration {migration_id} executada com sucesso',
+                'migration_id': migration_id
+            })
+    except Exception as e:
+        logger.error(f"❌ Migration {migration_id} error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
