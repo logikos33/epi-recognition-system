@@ -38,3 +38,4 @@ ENV PORT=8080
 
 # Start application with gunicorn
 CMD ["/opt/venv/bin/gunicorn", "api_server:app", "--worker-class", "eventlet", "--worker-connections", "1000", "--timeout", "120", "--bind", "0.0.0.0:$PORT"]
+# CACHE BUST - 1775422685 - Force Railway fresh build
