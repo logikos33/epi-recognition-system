@@ -1,5 +1,10 @@
+# Railway Build Configuration - Last updated: 2026-04-05 18:45 UTC
+# Force fresh build to bypass all caching
+
 [build]
 builder = "nixpacks"
 
 [build.env]
 RAILWAY_FORCE_NIXPACKS = "true"
+RAILWAY_BUILD_CACHE_DISABLED = "true"
+NIXPACKS_BUILD_CACHE = "false"
