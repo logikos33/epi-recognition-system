@@ -3,6 +3,16 @@ import { useRouter } from 'next/navigation';
 import VideoUploadZone from './components/VideoUploadZone'
 import { decodeJWT, isTokenExpired, validateToken, formatTTL } from './lib/jwt-utils'
 
+// Limpa todos os tokens e dados relacionados quando token está inválido/expirado
+const clearInvalidToken = () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('userRole')
+  localStorage.removeItem('userName')
+  console.log('🧹 Tokens inválidos limpos (clearInvalidToken)')
+}
+
 // Icons as inline SVGs for zero dependencies
 const Icons = {
   menu: (
@@ -606,16 +616,9 @@ const TrainingVideosTab = ({ onAnnotate }) => {
       }
 
       const tokenValidation = validateToken(token)
-      if (tokenValidation === 'expired') {
-        console.warn('⚠️ Token expirado - redirecionando para login')
-        localStorage.removeItem('token')
-        router.push('/login')
-        return
-      }
-
-      if (tokenValidation === 'invalid') {
-        console.warn('⚠️ Token inválido - redirecionando para login')
-        localStorage.removeItem('token')
+      if (tokenValidation === 'expired' || tokenValidation === 'invalid') {
+        console.warn(`⚠️ Token ${tokenValidation === 'expired' ? 'expirado' : 'inválido'} - redirecionando para login`)
+        clearInvalidToken()
         router.push('/login')
         return
       }
@@ -637,7 +640,7 @@ const TrainingVideosTab = ({ onAnnotate }) => {
       // Tratar erro 401 especificamente
       if (response.status === 401) {
         console.warn('🔒 401 Unauthorized - limpando token expirado/inválido')
-        localStorage.removeItem('token')
+        clearInvalidToken()
         router.push('/login')
         return
       }
@@ -648,7 +651,7 @@ const TrainingVideosTab = ({ onAnnotate }) => {
       } else if (result.error) {
         console.error('❌ Erro ao carregar vídeos:', result.error)
         if (result.error.includes('token') || result.error.includes('401')) {
-          localStorage.removeItem('token')
+          clearInvalidToken()
           router.push('/login')
         }
       }
@@ -671,7 +674,7 @@ const TrainingVideosTab = ({ onAnnotate }) => {
 
     const tokenValidation = validateToken(token)
     if (tokenValidation === 'expired' || tokenValidation === 'invalid') {
-      localStorage.removeItem('token')
+      clearInvalidToken()
       router.push('/login')
       return null
     }
@@ -717,7 +720,7 @@ const TrainingVideosTab = ({ onAnnotate }) => {
       })
 
       if (response.status === 401) {
-        localStorage.removeItem('token')
+        clearInvalidToken()
         router.push('/login')
         return
       }
@@ -785,7 +788,7 @@ const TrainingVideosTab = ({ onAnnotate }) => {
         // Tratar erro 401 durante o polling
         if (response.status === 401) {
           console.warn('🔒 401 durante polling - token expirou')
-          localStorage.removeItem('token')
+          clearInvalidToken()
           router.push('/login')
           return
         }
@@ -833,7 +836,7 @@ const TrainingVideosTab = ({ onAnnotate }) => {
       })
 
       if (response.status === 401) {
-        localStorage.removeItem('token')
+        clearInvalidToken()
         router.push('/login')
         return
       }
@@ -1277,7 +1280,7 @@ const TrainingAnnotateTab = ({ videoId, onBack }) => {
       // Tratar erro 401
       if (response.status === 401) {
         console.warn('🔒 401 ao carregar frames - token expirou')
-        localStorage.removeItem('token')
+        clearInvalidToken()
         router.push('/login')
         return
       }
