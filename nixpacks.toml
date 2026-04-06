@@ -1,14 +1,13 @@
-# EPI Monitor V2 — API Service nixpacks
-# Build target: ~2 minutos (sem torch/FFmpeg)
-
 [phases.setup]
-nixPkgs = ["python311"]
+nixPkgs = ["python311", "ffmpeg", "ffmpeg-full", "libgcc", "stdenv.cc.cc.lib"]
+aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
 
 [phases.install]
 cmds = [
-  "pip install --upgrade pip --quiet",
-  "pip install -r requirements.txt --quiet"
+    "python3.11 -m venv /opt/venv",
+    "/opt/venv/bin/pip install --upgrade pip",
+    "/opt/venv/bin/pip install -r requirements-railway.txt"
 ]
 
 [start]
-cmd = "python3 railway_start.py"
+cmd = "/opt/venv/bin/gunicorn wsgi:app --worker-class eventlet --workers 1 --worker-connections 1000 --timeout 120 --bind 0.0.0.0:$PORT --log-level info"
