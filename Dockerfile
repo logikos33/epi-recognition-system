@@ -1,15 +1,9 @@
-# EPI Monitor V2 — modular Flask API
+# EPI Monitor V2 — minimal Dockerfile for Railway
 FROM python:3.11-slim
-
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python dependencies (separate layer for caching)
+# Install Python deps (psycopg2-binary includes libpq — no apt needed)
 COPY requirements-railway.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements-railway.txt
@@ -17,7 +11,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Environment
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8080
