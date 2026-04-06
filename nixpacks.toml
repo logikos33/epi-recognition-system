@@ -1,12 +1,13 @@
 # EPI Monitor V2 — Railway deployment
+# Let nixpacks auto-detect Python from requirements.txt
 [phases.setup]
-nixPkgs = ["python311"]
+nixPkgs = ["ffmpeg"]
 
 [phases.install]
 cmds = [
-    "python3.11 -m pip install --upgrade pip",
-    "python3.11 -m pip install gunicorn flask flask-cors psycopg2-binary pyjwt bcrypt python-dotenv requests flask-socketio python-socketio eventlet"
+    "pip install --upgrade pip",
+    "pip install -r requirements-railway.txt"
 ]
 
 [start]
-cmd = "python3.11 -m gunicorn wsgi:app --workers 1 --timeout 60 --bind 0.0.0.0:$PORT --log-level info"
+cmd = "gunicorn wsgi:app --workers 1 --timeout 60 --bind 0.0.0.0:$PORT --log-level info"
