@@ -1,4 +1,0 @@
-# Railway Cache Buster
-# Timestamp: 1775422700
-# Forces Railway to rebuild all Docker layers
-# This file will be deleted after successful deployment
