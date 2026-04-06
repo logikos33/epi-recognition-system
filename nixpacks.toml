@@ -1,13 +1,12 @@
+# EPI Monitor V2 — modular Flask API
 [phases.setup]
-nixPkgs = ["python311", "ffmpeg", "ffmpeg-full", "libgcc", "stdenv.cc.cc.lib"]
-aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
+nixPkgs = ["python311", "ffmpeg"]
 
 [phases.install]
 cmds = [
-    "python3.11 -m venv /opt/venv",
-    "/opt/venv/bin/pip install --upgrade pip",
-    "/opt/venv/bin/pip install -r requirements-railway.txt"
+    "pip install --upgrade pip",
+    "pip install -r requirements-railway.txt"
 ]
 
 [start]
-cmd = "/opt/venv/bin/gunicorn wsgi:app --workers 2 --timeout 120 --bind 0.0.0.0:$PORT --log-level info"
+cmd = "gunicorn wsgi:app --workers 2 --timeout 120 --bind 0.0.0.0:$PORT --log-level info"
