@@ -3,7 +3,7 @@
 set -e
 echo "[START] PORT=$PORT"
 echo "[START] Starting gunicorn..."
-exec gunicorn wsgi:app \
+exec gunicorn minimal_wsgi:app \
     --workers 1 \
     --timeout 60 \
     --bind "0.0.0.0:${PORT:-8080}" \
