@@ -47,6 +47,19 @@ export default defineConfig({
         secure: false,
       },
 
+      // ─── NEW MODULAR BACKEND (v1) ─────────────────────────────────────────
+      // All new routes use /api/v1/ prefix — must be BEFORE the catch-all /api
+      '/api/v1': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+        secure: false,
+        configure: (proxy) => {
+          proxy.on('error', (err, req) => {
+            console.error(`[Proxy] /api/v1${req.url} → ${err.message}`)
+          })
+        }
+      },
+
       // ─── AUTENTICAÇÃO ─────────────────────────────────────────────────────
       // Login, registro, token refresh
       '/api/auth': {
