@@ -25,6 +25,9 @@ class DatabasePool:
         if not url:
             logger.warning("DATABASE_URL not set — database unavailable")
             return
+        # Railway uses postgres:// but psycopg2 requires postgresql://
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
         try:
             self._pool = psycopg2.pool.ThreadedConnectionPool(
                 minconn=2,
