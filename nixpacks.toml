@@ -1,7 +1,6 @@
-# EPI Monitor V2 — Railway deployment
-# Let nixpacks auto-detect Python from requirements.txt
-[phases.setup]
-nixPkgs = ["ffmpeg"]
+# EPI Monitor V2 — minimal Railway build
+# No nixPkgs — avoid long nixpkgs downloads
+# ffmpeg available on Railway by default or installable at runtime
 
 [phases.install]
 cmds = [
