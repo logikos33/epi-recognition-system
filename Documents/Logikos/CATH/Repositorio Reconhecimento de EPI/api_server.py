@@ -71,26 +71,26 @@ CORS(app, origins=os.environ.get('CORS_ORIGINS', '*').split(','))
 # ============================================================================
 # Camera System Blueprint (Feature 1)
 # ============================================================================
-from cameras.routes import cameras_bp
-app.register_blueprint(cameras_bp, url_prefix='/api/cameras')
+# from cameras.routes import cameras_bp # DISABLED: module not found
+# app.register_blueprint(cameras_bp, url_prefix='/api/cameras') # DISABLED
 
 # Iniciar health checker de câmeras (background thread)
-from cameras.health_checker import CameraHealthChecker
-camera_health_checker = CameraHealthChecker()
-camera_health_checker.start()
+# from cameras.health_checker import CameraHealthChecker # DISABLED
+# camera_health_checker = CameraHealthChecker() # DISABLED
+# camera_health_checker.start() # DISABLED
 
 # ============================================================================
 # Rules Engine Blueprint (FASE 3 - State Machine para processamento YOLO)
 # ============================================================================
-from rules.routes import rules_bp, sessions_bp
-app.register_blueprint(rules_bp, url_prefix='/api/rules')
-app.register_blueprint(sessions_bp, url_prefix='/api/sessions')
+# from rules.routes import rules_bp, sessions_bp # DISABLED: module not found
+# app.register_blueprint(rules_bp, url_prefix='/api/rules') # DISABLED
+# app.register_blueprint(sessions_bp, url_prefix='/api/sessions') # DISABLED
 
 # ============================================================================
 # Dashboard Blueprint (FASE 5 - KPIs e Excel Export)
 # ============================================================================
-from dashboard.routes import dashboard_bp
-app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+# from dashboard.routes import dashboard_bp # DISABLED: module not found
+# app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard') # DISABLED
 
 
 # ============================================================================
@@ -3766,17 +3766,17 @@ _cleanup_thread.start()
 logger.info("✅ Video cleanup scheduler iniciado (background thread)")
 
 
-    if socketio:
-        socketio.run(
-            app,
-            host='0.0.0.0',
-            port=PORT,
-            debug=True,
-            allow_unsafe_werkzeug=True
-        )
-    else:
-        app.run(
-            host='0.0.0.0',
-            port=PORT,
-            debug=True
-        )
+if socketio:
+    socketio.run(
+        app,
+        host='0.0.0.0',
+        port=PORT,
+        debug=True,
+        allow_unsafe_werkzeug=True
+    )
+else:
+    app.run(
+        host='0.0.0.0',
+        port=PORT,
+        debug=True
+    )
