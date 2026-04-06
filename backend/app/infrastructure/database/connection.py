@@ -17,7 +17,7 @@ class DatabasePool:
         self._pool: psycopg2.pool.ThreadedConnectionPool | None = None
 
     def init_app(self, app=None) -> None:
-        """Initialize pool from app config or env."""
+        """Store config for lazy pool initialization (no connections at startup)."""
         url = (
             (app.config.get("DATABASE_URL") if app else None)
             or os.environ.get("DATABASE_URL", "")
@@ -28,27 +28,33 @@ class DatabasePool:
         # Railway uses postgres:// but psycopg2 requires postgresql://
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql://", 1)
-        # Add connect_timeout to prevent hanging on startup
-        if "connect_timeout" not in url:
-            sep = "&" if "?" in url else "?"
-            url = f"{url}{sep}connect_timeout=10"
+        # Store URL — pool is created lazily on first use
+        self._url = url
+        logger.info("Database URL configured (pool created on first use)")
+
+    def _ensure_pool(self) -> None:
+        """Create pool on first use (lazy initialization)."""
+        if self._pool is not None:
+            return
+        if not hasattr(self, "_url") or not self._url:
+            raise RuntimeError("Database not configured")
         try:
             self._pool = psycopg2.pool.ThreadedConnectionPool(
                 minconn=1,
                 maxconn=10,
-                dsn=url,
+                dsn=self._url,
                 cursor_factory=psycopg2.extras.RealDictCursor,
+                connect_timeout=10,
             )
-            logger.info("Database pool ready (min=1, max=10)")
+            logger.info("Database pool ready (lazy init, min=1, max=10)")
         except Exception as e:
             logger.error("Failed to create database pool: %s", e)
-            self._pool = None
+            raise RuntimeError(f"Database connection failed: {e}") from e
 
     @contextmanager
     def get_connection(self):
-        """Context manager for acquiring/releasing connections."""
-        if self._pool is None:
-            raise RuntimeError("Database pool not initialized")
+        """Context manager for acquiring/releasing connections (lazy pool init)."""
+        self._ensure_pool()
         conn = self._pool.getconn()
         try:
             yield conn
@@ -71,7 +77,8 @@ class DatabasePool:
 
     @property
     def is_available(self) -> bool:
-        return self._pool is not None
+        """True if URL is configured (pool may not be created yet — that's OK)."""
+        return hasattr(self, "_url") and bool(self._url)
 
     def close(self) -> None:
         if self._pool:
