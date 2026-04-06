@@ -360,6 +360,157 @@
       "keyFiles": []
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/frontend-new/src/App.tsx",
+      "accessCount": 19,
+      "lastAccessed": 1775410257698,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/nixpacks.toml",
+      "accessCount": 15,
+      "lastAccessed": 1775422193354,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/api_server.py",
+      "accessCount": 9,
+      "lastAccessed": 1775420964644,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI",
+      "accessCount": 8,
+      "lastAccessed": 1775419015527,
+      "type": "directory"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/011_remove_duplicate_rules.sql",
+      "accessCount": 6,
+      "lastAccessed": 1775420936591,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/requirements-railway.txt",
+      "accessCount": 5,
+      "lastAccessed": 1775418928074,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/railway.toml",
+      "accessCount": 5,
+      "lastAccessed": 1775421647157,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/2026-03-29-fueling-monitoring.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775410610622,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/003_create_fueling_tables.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775420173130,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/005_create_frame_annotations_table.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775420173178,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/001_create_classes_yolo_table.sql",
+      "accessCount": 3,
+      "lastAccessed": 1775420173231,
+      "type": "file"
+    },
+    {
+      "path": "api_server.py",
+      "accessCount": 3,
+      "lastAccessed": 1775421603216,
+      "type": "directory"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI /nixpacks.toml",
+      "accessCount": 2,
+      "lastAccessed": 1775418568522,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/002_create_frames_table.sql",
+      "accessCount": 2,
+      "lastAccessed": 1775420053890,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/Procfile",
+      "accessCount": 1,
+      "lastAccessed": 1775412094395,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/requirements.txt",
+      "accessCount": 1,
+      "lastAccessed": 1775412943048,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/.dockerignore",
+      "accessCount": 1,
+      "lastAccessed": 1775414171070,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/401-FIX-SUMMARY.md",
+      "accessCount": 1,
+      "lastAccessed": 1775417370127,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/migrations/004_alter_training_videos_add_processing_columns.sql",
+      "accessCount": 1,
+      "lastAccessed": 1775418903314,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend/fueling_session_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1775418903343,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend",
+      "accessCount": 1,
+      "lastAccessed": 1775418967800,
+      "type": "directory"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend/annotation_db.py",
+      "accessCount": 1,
+      "lastAccessed": 1775418974700,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/backend/database.py",
+      "accessCount": 1,
+      "lastAccessed": 1775421612124,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/Dockerfile",
+      "accessCount": 1,
+      "lastAccessed": 1775422263318,
+      "type": "file"
+    },
+    {
+      "path": "Documents/Logikos/CATH/Repositorio Reconhecimento de EPI/RAILWAY_CACHE_BUST_1775422700.txt",
+      "accessCount": 1,
+      "lastAccessed": 1775422890741,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }

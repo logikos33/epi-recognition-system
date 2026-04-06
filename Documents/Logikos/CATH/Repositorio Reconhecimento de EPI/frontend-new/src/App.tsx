@@ -13,6 +13,30 @@ const clearInvalidToken = () => {
   console.log('🧹 Tokens inválidos limpos (clearInvalidToken)')
 }
 
+// Global token validation function - returns valid token or null
+// Components must check for null and handle redirect themselves
+const getValidToken = () => {
+  const token = localStorage.getItem('token')
+  if (!token) {
+    return null
+  }
+
+  const tokenValidation = validateToken(token)
+  if (tokenValidation === 'expired' || tokenValidation === 'invalid') {
+    console.warn(`🔒 Token ${tokenValidation === 'expired' ? 'expirado' : 'inválido'} - limpando e retornando null`)
+    clearInvalidToken()
+    return null
+  }
+
+  if (tokenValidation === 'expiring-soon') {
+    const payload = decodeJWT(token)
+    const ttl = payload ? payload.exp - Math.floor(Date.now() / 1000) : 0
+    console.log(`⏰ Token expirando em breve (${formatTTL(ttl)})`)
+  }
+
+  return token
+}
+
 // Icons as inline SVGs for zero dependencies
 const Icons = {
   menu: (
@@ -665,29 +689,6 @@ const TrainingVideosTab = ({ onAnnotate }) => {
     loadVideos()
   }
 
-  const validateAndRefreshToken = async () => {
-    const token = localStorage.getItem('token')
-    if (!token) {
-      router.push('/login')
-      return null
-    }
-
-    const tokenValidation = validateToken(token)
-    if (tokenValidation === 'expired' || tokenValidation === 'invalid') {
-      clearInvalidToken()
-      router.push('/login')
-      return null
-    }
-
-    if (tokenValidation === 'expiring-soon') {
-      const payload = decodeJWT(token)
-      const ttl = payload ? payload.exp - Math.floor(Date.now() / 1000) : 0
-      console.log(`⏰ Token expirando em breve (${formatTTL(ttl)})`)
-    }
-
-    return token
-  }
-
   const handleExtractFrames = async (videoId, duration) => {
     // For videos > 10 minutes, show time selection modal
     if (duration > 600) {
@@ -707,8 +708,11 @@ const TrainingVideosTab = ({ onAnnotate }) => {
 
   const extractFrames = async (videoId, body) => {
     try {
-      const token = await validateAndRefreshToken()
-      if (!token) return
+      const token = getValidToken()
+      if (!token) {
+        router.push('/login')
+        return
+      }
 
       const response = await fetch(`/api/training/videos/${videoId}/extract`, {
         method: 'POST',
@@ -774,8 +778,11 @@ const TrainingVideosTab = ({ onAnnotate }) => {
   }
 
   const pollVideoProgress = async (videoId) => {
-    const token = await validateAndRefreshToken()
-    if (!token) return
+    const token = getValidToken()
+    if (!token) {
+      router.push('/login')
+      return
+    }
 
     const poll = async () => {
       try {
@@ -825,8 +832,11 @@ const TrainingVideosTab = ({ onAnnotate }) => {
     }
 
     try {
-      const token = await validateAndRefreshToken()
-      if (!token) return
+      const token = getValidToken()
+      if (!token) {
+        router.push('/login')
+        return
+      }
 
       const response = await fetch(`/api/training/videos/${videoId}`, {
         method: 'DELETE',
@@ -1266,8 +1276,11 @@ const TrainingAnnotateTab = ({ videoId, onBack }) => {
   const loadFrames = async () => {
     if (!videoId) return
 
-    const token = await validateAndRefreshToken()
-    if (!token) return
+    const token = getValidToken()
+    if (!token) {
+      router.push('/login')
+      return
+    }
 
     setLoading(true)
     try {

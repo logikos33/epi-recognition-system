@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "gunicorn api_server:app --worker-class eventlet --worker-connections 1000 --timeout 120 --bind 0.0.0.0:$PORT"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
