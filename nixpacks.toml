@@ -1,11 +1,11 @@
 # EPI Monitor V2 — Railway deployment
 [phases.setup]
-nixPkgs = ["python311", "ffmpeg"]
+nixPkgs = ["python311"]
 
 [phases.install]
 cmds = [
     "python3.11 -m pip install --upgrade pip",
-    "python3.11 -m pip install -r requirements-railway.txt"
+    "python3.11 -m pip install gunicorn flask flask-cors psycopg2-binary pyjwt bcrypt python-dotenv requests flask-socketio python-socketio eventlet"
 ]
 
 [start]
