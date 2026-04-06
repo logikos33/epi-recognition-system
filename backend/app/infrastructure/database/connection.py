@@ -28,14 +28,18 @@ class DatabasePool:
         # Railway uses postgres:// but psycopg2 requires postgresql://
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql://", 1)
+        # Add connect_timeout to prevent hanging on startup
+        if "connect_timeout" not in url:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}connect_timeout=10"
         try:
             self._pool = psycopg2.pool.ThreadedConnectionPool(
-                minconn=2,
-                maxconn=20,
+                minconn=1,
+                maxconn=10,
                 dsn=url,
                 cursor_factory=psycopg2.extras.RealDictCursor,
             )
-            logger.info("Database pool ready (min=2, max=20)")
+            logger.info("Database pool ready (min=1, max=10)")
         except Exception as e:
             logger.error("Failed to create database pool: %s", e)
             self._pool = None
