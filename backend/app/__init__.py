@@ -12,10 +12,10 @@ def create_app(config_name: str | None = None) -> Flask:
     """Create and configure the Flask application."""
     app = Flask(__name__)
 
-    # Load configuration
-    from backend.app.config import config_by_name
+    # Load configuration — fallback to production for unknown envs (e.g. "staging")
+    from backend.app.config import config_by_name, ProductionConfig
     cfg_name = config_name or os.environ.get("FLASK_ENV", "production")
-    app.config.from_object(config_by_name[cfg_name])
+    app.config.from_object(config_by_name.get(cfg_name, ProductionConfig))
 
     # CORS — NEVER bare CORS(app), always use whitelist
     origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")

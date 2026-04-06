@@ -50,6 +50,14 @@ class TestingConfig(BaseConfig):
 config_by_name = {
     "development": DevelopmentConfig,
     "production": ProductionConfig,
+    "staging": ProductionConfig,   # Railway Pré-Produção sets FLASK_ENV=staging
     "testing": TestingConfig,
     "default": DevelopmentConfig,
 }
+
+
+def get_config(name: str | None = None):
+    """Get config by name, defaulting to production for unknown envs."""
+    import os
+    cfg_name = name or os.environ.get("FLASK_ENV", "production")
+    return config_by_name.get(cfg_name, ProductionConfig)
