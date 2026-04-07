@@ -52,23 +52,27 @@ class TestHealthRoot:
 
 class TestHealthDb:
     def test_returns_503_when_db_pool_unavailable(self, client, mocker):
-        # is_available is a @property that returns self._pool is not None.
-        # Patch _pool to None on the singleton so the property evaluates False.
-        mocker.patch(
-            "backend.app.infrastructure.database.connection.db_pool._pool",
-            new=None,
-        )
-        response = client.get("/api/v1/health/db")
-        assert response.status_code == 503
+        # is_available checks _url (lazy pool — URL set but pool created on first use).
+        # Patch _url to empty string so is_available returns False.
+        from backend.app.infrastructure.database.connection import db_pool
+        original = getattr(db_pool, "_url", None)
+        db_pool._url = ""
+        try:
+            response = client.get("/api/v1/health/db")
+            assert response.status_code == 503
+        finally:
+            db_pool._url = original
 
     def test_body_has_unavailable_status_when_db_pool_unavailable(self, client, mocker):
-        mocker.patch(
-            "backend.app.infrastructure.database.connection.db_pool._pool",
-            new=None,
-        )
-        response = client.get("/api/v1/health/db")
-        body = json.loads(response.data)
-        assert body["status"] == "unavailable"
+        from backend.app.infrastructure.database.connection import db_pool
+        original = getattr(db_pool, "_url", None)
+        db_pool._url = ""
+        try:
+            response = client.get("/api/v1/health/db")
+            body = json.loads(response.data)
+            assert body["status"] == "unavailable"
+        finally:
+            db_pool._url = original
 
 
 # ---------------------------------------------------------------------------
