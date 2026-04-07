@@ -65,3 +65,30 @@ def delete_video(video_id: str):
         return success(message="Video deleted")
     except Exception as e:
         return error("Failed to delete video", 500)
+
+
+@videos_bp.post("/upload-url")
+@require_auth
+def generate_upload_url():
+    data = request.get_json(silent=True) or {}
+    filename = data.get("filename", "")
+    if not filename:
+        return error("filename required", 422)
+    try:
+        from backend.app.api.v1.videos.service import VideoService
+        result = VideoService.generate_upload_url(g.user_id, filename)
+        return success(result, "Upload URL generated")
+    except Exception as e:
+        logger.error("Generate upload URL error: %s", e)
+        return error(str(e), 422 if "invalid" in str(e).lower() or "required" in str(e).lower() else 500)
+
+
+@videos_bp.post("/<video_id>/extract")
+@require_auth
+def trigger_extraction(video_id: str):
+    try:
+        from backend.app.api.v1.videos.service import VideoService
+        result = VideoService.trigger_extraction(video_id)
+        return success(result, "Extraction started")
+    except Exception as e:
+        return error(str(e), 500)
