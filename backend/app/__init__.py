@@ -36,13 +36,51 @@ def create_app(config_name: str | None = None) -> Flask:
 
 
 def _init_extensions(app: Flask) -> None:
-    """Initialize Flask extensions."""
+    """Initialize Flask extensions — each with graceful degradation."""
+    # Database pool
     from backend.app.infrastructure.database.connection import db_pool
     try:
         db_pool.init_app(app)
         logger.info("Database pool initialized")
     except Exception as e:
         logger.warning("Database pool init failed (degraded): %s", e)
+
+    # SocketIO — init with Redis message_queue for multi-worker support
+    _init_socketio(app)
+
+
+def _init_socketio(app: Flask) -> None:
+    """Initialize Flask-SocketIO with Redis message_queue (graceful degradation)."""
+    from backend.app.extensions import set_socketio
+    try:
+        from flask_socketio import SocketIO
+        redis_url = app.config.get("REDIS_URL", "")
+        cors_origins = app.config.get("CORS_ORIGINS", "*").split(",")
+
+        socketio = SocketIO(
+            app,
+            cors_allowed_origins=[o.strip() for o in cors_origins if o.strip()],
+            async_mode="eventlet",
+            message_queue=redis_url if redis_url else None,
+            logger=False,
+            engineio_logger=False,
+        )
+
+        set_socketio(socketio)
+
+        # Start Redis→SocketIO bridge for camera detections
+        try:
+            from backend.app.api.v1.cameras.socket_events import init_socket_events
+            init_socket_events(socketio, redis_url)
+            logger.info("SocketIO initialized (Redis bridge active)")
+        except Exception as e:
+            logger.warning("SocketIO Redis bridge degraded: %s", e)
+            logger.info("SocketIO initialized (no Redis bridge)")
+
+    except ImportError:
+        logger.warning("flask-socketio not installed — WebSocket features degraded")
+    except Exception as e:
+        logger.warning("SocketIO init failed (degraded): %s", e)
 
 
 def _register_blueprints(app: Flask) -> None:

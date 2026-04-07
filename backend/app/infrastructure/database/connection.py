@@ -77,8 +77,8 @@ class DatabasePool:
 
     @property
     def is_available(self) -> bool:
-        """True if URL is configured (pool may not be created yet — that's OK)."""
-        return hasattr(self, "_url") and bool(self._url)
+        """True if the connection pool has been successfully initialised."""
+        return self._pool is not None
 
     def close(self) -> None:
         if self._pool:

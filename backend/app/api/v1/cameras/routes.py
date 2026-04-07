@@ -85,3 +85,61 @@ def test_camera():
         return success({"valid": True, "url": rtsp_url})
     except Exception as e:
         return error(str(e), 422)
+
+
+@cameras_bp.post("/<camera_id>/stream/start")
+@require_auth
+def start_stream(camera_id: str):
+    try:
+        from backend.app.api.v1.cameras.service import CameraService
+        from backend.app.api.v1.cameras.tasks import start_camera_stream
+        camera = CameraService.get_camera(g.user_id, camera_id)
+        if not camera:
+            return not_found("Camera")
+        rtsp_url = camera.get("rtsp_url", "")
+        if not rtsp_url:
+            return error("Camera has no RTSP URL configured", 422)
+        result = start_camera_stream(camera_id, rtsp_url)
+        return success(result, "Stream started")
+    except Exception as e:
+        logger.error("Start stream error for %s: %s", camera_id, e)
+        return error(str(e), 500)
+
+
+@cameras_bp.post("/<camera_id>/stream/stop")
+@require_auth
+def stop_stream(camera_id: str):
+    try:
+        from backend.app.api.v1.cameras.tasks import stop_camera_stream
+        result = stop_camera_stream(camera_id)
+        return success(result, "Stream stop signal sent")
+    except Exception as e:
+        return error(str(e), 500)
+
+
+@cameras_bp.get("/<camera_id>/stream/status")
+@require_auth
+def stream_status(camera_id: str):
+    try:
+        from pathlib import Path
+        playlist = Path(f"/tmp/hls/{camera_id}/stream.m3u8")
+        is_active = playlist.exists()
+        return success({
+            "camera_id": camera_id,
+            "active": is_active,
+            "playlist_url": f"/streams/{camera_id}/stream.m3u8" if is_active else None,
+        })
+    except Exception as e:
+        return error(str(e), 500)
+
+
+@cameras_bp.get("/<camera_id>/stream/hls/<filename>")
+def serve_hls_segment(camera_id: str, filename: str):
+    """Serve HLS segments without auth (required for hls.js)."""
+    import re
+    from flask import send_from_directory
+    # Validate filename to prevent path traversal
+    if not re.match(r'^[a-zA-Z0-9_\-\.]+\.(m3u8|ts)$', filename):
+        return error("Invalid filename", 400)
+    hls_dir = f"/tmp/hls/{camera_id}"
+    return send_from_directory(hls_dir, filename)

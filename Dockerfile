@@ -1,4 +1,3 @@
-# EPI Monitor V2 — diagnostic minimal
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -13,5 +12,4 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8080
 
-# Use shell form so $PORT is expanded
-CMD gunicorn wsgi:app --workers 1 --timeout 60 --bind 0.0.0.0:${PORT:-8080} --log-level info
+CMD gunicorn wsgi:app --worker-class eventlet --workers 1 --worker-connections 1000 --timeout 60 --bind 0.0.0.0:${PORT:-8080} --log-level info
